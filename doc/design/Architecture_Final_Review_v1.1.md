@@ -64,7 +64,7 @@
 ╚═══════════════════════════════════════════════════════════════════════════════════╝
 ```
 
-### 1.2 核心关系 UML (Expanded)
+### 1.2 核心关系 UML (Core Interface Hub)
 
 ```mermaid
 classDiagram
@@ -76,40 +76,51 @@ classDiagram
         +resume()
         +stop()
         +cancel()
+        +get_state() RuntimeState
     }
     class IToolRuntime {
         <<interface>>
         +register_tool(ITool)
         +register_toolkit(IToolkit)
-        +invoke(name, input)
+        +invoke(name, input, context, envelope)
+        +list_tools() List~ITool~
     }
     class IEventLog {
         <<interface>>
         +append(event)
-        +query(filter)
+        +query(filter) List~Event~
+        +verify_chain() bool
     }
     class IPolicyEngine {
         <<interface>>
-        +check(action, resource)
+        +check(action, resource, context)
+        +enforce(action, resource, context)
+        +needs_approval(milestone, steps) bool
     }
     class IValidator {
         <<interface>>
-        +validate(target)
+        +validate(target, schema) ValidationResult
+    }
+    class IContextAssembler {
+        <<interface>>
+        +assemble(milestone, context) Context
+        +compress(context) Context
     }
     class IModelAdapter {
         <<interface>>
-        +generate(messages, tools)
+        +generate(messages, tools, options) Response
     }
     class ICheckpoint {
         <<interface>>
-        +save(state)
-        +load(id)
+        +save(state) CheckpointID
+        +load(id) RuntimeState
     }
 
     IRuntime --> IToolRuntime : orchestrates
     IRuntime --> IEventLog : logs to
     IRuntime --> IPolicyEngine : queries
     IRuntime --> IValidator : verifies
+    IRuntime --> IContextAssembler : prepares
     IRuntime --> ICheckpoint : persists
     IToolRuntime "1" *-- "many" ITool : manages
     IToolRuntime "1" *-- "many" IToolkit : manages
@@ -117,14 +128,18 @@ classDiagram
 
 ---
 
-## 二、关键设计：IRuntime 状态机
+## 二、关键设计与接口详情
 
-### 2.1 状态转换图 (Corrected)
+### 2.1 IRuntime：作为确定性状态机
+
+DARE 的核心是将 Agent 执行建模为一个**确定性有限状态机（DFSM）**。这种设计确保了任务的可挂起性、可恢复性和可审计性。
+
+#### 2.1.1 状态转换图 (Runtime State Transitions)
 ```mermaid
 stateDiagram-v2
-    [*] --> Ready: init()
-    Ready --> Running: run()
-    Running --> Paused: pause()
+    [*] --> Ready: init(Task)
+    Ready --> Running: run(Task, Deps)
+    Running --> Paused: pause() / HITL Trigger
     Paused --> Running: resume()
     Paused --> Stopped: stop()
     Running --> Stopped: stop()
@@ -133,19 +148,40 @@ stateDiagram-v2
     Cancelled --> [*]
 ```
 
-### 2.2 接口详细清单 (Layer 1)
+#### 2.1.2 状态机行为说明
+- **Ready**: 任务已加载，资源已准备。
+- **Running**: Milestone Loop 正在进行。
+- **Paused**: 状态已持久化到 `ICheckpoint`，等待外部人工（HITL）或事件唤醒。
+- **Stopped**: 任务正常完成或显式回收资源。
+
+### 2.2 Layer 1: Core Infrastructure (核心基础设施)
 
 | 接口 | 职责 | 关键方法 | 默认实现 |
 |-----|------|---------|---------|
 | `IRuntime` | 执行引擎，编排三层循环及状态控制 | `run()`, `pause()`, `resume()`, `stop()`, `init()` | `AgentRuntime` |
 | `IEventLog` | 事件日志，append-only (WORM) | `append()`, `query()`, `verify_chain()` | `LocalEventLog` |
 | `IToolRuntime` | 工具执行总线，作为 ITool 的 Parent | `register_tool()`, `invoke()`, `list_tools()` | `ToolRuntime` |
-| `IPolicyEngine` | 策略检查与执行（含 HITL 审批触发） | `check()`, `enforce()` | `PolicyEngine` |
+| `IPolicyEngine` | 策略检查与执行（含 HITL 审批触发） | `check()`, `enforce()`, `needs_approval()` | `PolicyEngine` |
 | `TrustBoundary` | 信任边界验证（逻辑组件） | `validate_step()`, `derive_safe_fields()` | 框架内置 |
-| `IContextAssembler` | 上下文装配 | `assemble()`, `compress()` | `ContextAssembler` |
+| `IContextAssembler` | 上下文装配与压缩 | `assemble()`, `compress()` | `ContextAssembler` |
 | `IValidator` | 统一验证器（含原 Verifier 功能） | `validate()` | 多个内置验证器 |
 
-### 2.2 Layer 2: Pluggable Components（8 个接口）
+#### 2.2.1 辅助核心接口详情
+```mermaid
+classDiagram
+    class IValidator {
+        +validate(target, rules) VerificationResult
+    }
+    class IContextAssembler {
+        +assemble(milestone, memories) Context
+        +compress(context, limit) Context
+    }
+    IValidator <.. ContentValidator
+    IValidator <.. SchemaValidator
+    IContextAssembler <.. DefaultAssembler
+```
+
+### 2.3 Layer 2: Pluggable Components (可插拔组件)
 
 | 接口 | 职责 | 内置实现 | 可扩展 |
 |-----|------|---------|--------|
@@ -158,14 +194,14 @@ stateDiagram-v2
 | `IHook` | 生命周期钩子 | `LoggingHook`, `MetricsHook` | ✅ |
 | `ICheckpoint` | 状态持久化 | `FileCheckpoint` | ✅ |
 
-### 2.3 新增接口（学习自 Pydantic AI）
+### 2.4 新增辅助接口 (Learning from Ecosystem)
 
 | 接口 | 来源 | 职责 |
 |-----|------|------|
 | `RunContext[DepsT]` | Pydantic AI | 泛型依赖注入上下文 |
 | `IStreamedResponse[T]` | Pydantic AI | 流式响应抽象 |
 
-### 2.4 数据结构（循环模型需要）
+### 2.5 核心数据结构
 
 | 数据结构 | 职责 | 所属循环 |
 |---------|------|---------|
@@ -332,152 +368,115 @@ stateDiagram-v2
 
 ## 五、状态机实现伪代码
 
-### 5.1 IRuntime 实现（编排三层循环 + 状态机）
+## 五、IRuntime 状态机逻辑实现 (Pseudo-code)
+
+### 5.1 核心执行引擎实现
 
 ```python
 class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
     """
-    执行引擎：编排三层循环，内置状态机控制
+    确定性执行引擎：利用状态机编排 Session/Milestone/Tool 三层循环。
     """
 
-    def __init__(
-        self,
-        event_log: IEventLog,
-        tool_runtime: IToolRuntime,
-        policy_engine: IPolicyEngine,
-        context_assembler: IContextAssembler,
-        model_adapter: IModelAdapter,
-        checkpoint: ICheckpoint,
-    ):
-        self.event_log = event_log
-        self.tool_runtime = tool_runtime
-        self.policy_engine = policy_engine
-        self.context_assembler = context_assembler
-        self.model_adapter = model_adapter
-        self.checkpoint = checkpoint
-        self.state = RuntimeState.READY
+    def __init__(self, ...):
+        self.state = RuntimeState.READY # 初始状态
+        # ... 注入 IEventLog, IToolRuntime, IPolicyEngine 等
 
     async def init(self, task: Task):
+        """初始化任务环境"""
         self.state = RuntimeState.READY
         await self.event_log.append(TaskInitEvent(task))
 
-    async def run(
-        self,
-        task: Task,
-        deps: DepsT,
-    ) -> RunResult[OutputT]:
+    async def run(self, task: Task, deps: DepsT) -> RunResult[OutputT]:
         """
-        执行任务（Session Loop 入口）
+        Session Loop 入口：控制从 Ready 到 Running 的变迁
         """
         if self.state != RuntimeState.READY:
-            raise StateError("Must init before run")
+            raise StateError(f"Invalid state for run: {self.state}")
         
+        # 状态变迁：Ready -> Running
         self.state = RuntimeState.RUNNING
-        ctx = RunContext(
-            deps=deps,
-            run_id=generate_id(),
-            session_id=generate_id(),
-        )
+        ctx = RunContext(deps=deps, run_id=generate_id())
 
-        # Session Loop
-        return await self._session_loop(task, ctx)
+        try:
+            return await self._session_loop(task, ctx)
+        finally:
+            # 最终回收：Running -> Stopped
+            if self.state == RuntimeState.RUNNING:
+                await self.stop()
 
-    async def _session_loop(
-        self,
-        task: Task,
-        ctx: RunContext[DepsT],
-    ) -> RunResult[OutputT]:
-        """Session Loop：跨 context window"""
-
-        # 尝试从检查点恢复
-        state = await self.checkpoint.load(task.task_id)
-        if state:
-            milestones = state.remaining_milestones
-        else:
-            milestones = await self._plan_milestones(task, ctx)
-
-        await self.event_log.append(SessionStartEvent(ctx.session_id))
+    async def _session_loop(self, task: Task, ctx: RunContext) -> RunResult:
+        """Session Loop：跨 Context Window 的持久化执行"""
+        
+        # 1. 恢复或生成里程碑
+        milestones = await self._load_or_plan_milestones(task, ctx)
 
         for milestone in milestones:
-            # 状态检查
+            # 状态检查：处理外部中断
             if self.state == RuntimeState.PAUSED:
-                await self._wait_for_resume() 
-            if self.state == RuntimeState.STOPPED:
+                await self._wait_for_resume() # 阻塞直至外部调用 resume()
+            
+            if self.state in [RuntimeState.STOPPED, RuntimeState.CANCELLED]:
                 break
-            if self.state == RuntimeState.CANCELLED:
-                return RunResult(success=False, error="Cancelled")
 
-            # Milestone Loop
+            # 2. 进入 Milestone Loop
             result = await self._milestone_loop(milestone, ctx)
 
-            # 保存 checkpoint
-            await self.checkpoint.save(CheckpointState(
-                task_id=task.task_id,
-                remaining_milestones=milestones[milestones.index(milestone)+1:],
-            ))
+            # 3. 状态持久化 (WORM EventLog + Checkpoint)
+            await self.checkpoint.save(task.task_id, milestone.id)
 
             if not result.success and milestone.is_critical:
                 return RunResult(success=False, error=result.error)
 
-        self.state = RuntimeState.STOPPED
         return RunResult(success=True, output=self._build_output(ctx))
 
-    async def _milestone_loop(
-        self,
-        milestone: Milestone,
-        ctx: RunContext[DepsT],
-    ) -> MilestoneResult:
-        """Milestone Loop：Observe → Plan → Validate → Approve → Execute → Verify"""
+    async def _milestone_loop(self, milestone: Milestone, ctx: RunContext) -> MilestoneResult:
+        """Milestone Loop：DARE 核心的有界闭环"""
 
-        # === Observe ===
+        # Observe & Plan (不可信层)
         context = await self.context_assembler.assemble(milestone, ctx)
+        proposed_steps = await self.model_adapter.generate(context, self.tool_runtime)
 
-        # === Plan (LLM, 不可信) ===
-        proposed = await self.model_adapter.generate(
-            messages=self._build_plan_prompt(context),
-            tools=self.tool_runtime.list_tools(),
-        )
-        proposed_steps = self._parse_steps(proposed)
-
-        # === Validate (系统, 可信) ===
+        # Validate (可信验证层)
         validated_steps = await self._validate_steps(proposed_steps, ctx)
 
-        # === Approve (HITL) ===
+        # Approve (HITL：状态驱动变迁)
         if self.policy_engine.needs_approval(milestone, validated_steps):
-            await self.pause() # 自动挂起等待人工干预
-            await self._wait_for_resume()
+            # 自动变迁：Running -> Paused
+            await self.pause()
+            # 这里的阻塞会通过外部 resume() 信号解除
+            await self._wait_for_resume() 
 
-        # === Execute ===
+        # Execute & Verify
         for step in validated_steps:
             if self.state != RuntimeState.RUNNING: break
             
-            if step.step_type == StepType.ATOMIC:
-                # 直接调用工具
-                result = await self.tool_runtime.invoke(
-                    step.tool_name,
-                    step.tool_input,
-                    ctx,
-                )
-            else:  # WORK_UNIT
-                # 进入 Tool Loop
-                result = await self._tool_loop(step, ctx)
-
+            # 选择进入内部 Tool Loop 或直接执行 Atomic Step
+            result = await self._execute_step(step, ctx)
             await self.event_log.append(StepExecutedEvent(step, result))
 
-        # === Verify ===
-        return await self._verify(milestone, validated_steps, ctx)
+        return await self._verify_milestone(milestone, ctx)
 
     async def pause(self):
+        """Running -> Paused"""
         self.state = RuntimeState.PAUSED
-        await self.checkpoint.save()
+        await self.checkpoint.save() # 强制持久化
 
     async def resume(self):
+        """Paused -> Running"""
         if self.state == RuntimeState.PAUSED:
             self.state = RuntimeState.RUNNING
+            # 触发 _wait_for_resume 的信号量
 
     async def stop(self):
+        """Running/Paused -> Stopped"""
         self.state = RuntimeState.STOPPED
         await self.cleanup()
+
+    async def cancel(self):
+        """Any -> Cancelled"""
+        self.state = RuntimeState.CANCELLED
+        await self.event_log.append(UserCancelEvent())
 ```
 
 ---
