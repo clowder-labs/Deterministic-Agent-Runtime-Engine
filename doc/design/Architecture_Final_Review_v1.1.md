@@ -80,10 +80,15 @@ classDiagram
     }
     class IToolRuntime {
         <<interface>>
+        +invoke(name, input, context, envelope) ToolResult
+        +get_tool(name) ITool
+    }
+    class IToolkit {
+        <<interface>>
         +register_tool(ITool)
-        +register_toolkit(IToolkit)
-        +invoke(name, input, context, envelope)
         +list_tools() List~ITool~
+        +get_tool(name) ITool
+        +activate_group(name)
     }
     class IEventLog {
         <<interface>>
@@ -108,7 +113,7 @@ classDiagram
     }
     class IModelAdapter {
         <<interface>>
-        +generate(messages, tools, options) Response
+        +generate(messages, tool_definitions, options) Response
     }
     class ICheckpoint {
         <<interface>>
@@ -122,8 +127,8 @@ classDiagram
     IRuntime --> IValidator : verifies
     IRuntime --> IContextAssembler : prepares
     IRuntime --> ICheckpoint : persists
-    IToolRuntime "1" *-- "many" ITool : manages
-    IToolRuntime "1" *-- "many" IToolkit : manages
+    IToolRuntime --> IToolkit : searches tools in
+    IToolkit "1" *-- "many" ITool : manages
 ```
 
 ---
@@ -160,7 +165,7 @@ stateDiagram-v2
 |-----|------|---------|---------|
 | `IRuntime` | 执行引擎，编排三层循环及状态控制 | `run()`, `pause()`, `resume()`, `stop()`, `init()` | `AgentRuntime` |
 | `IEventLog` | 事件日志，append-only (WORM) | `append()`, `query()`, `verify_chain()` | `LocalEventLog` |
-| `IToolRuntime` | 工具执行总线，作为 ITool 的 Parent | `register_tool()`, `invoke()`, `list_tools()` | `ToolRuntime` |
+| `IToolRuntime` | **工具执行入口**，处理调用上下文与安全门禁 | `invoke()`, `get_tool()` | `ToolRuntime` |
 | `IPolicyEngine` | 策略检查与执行（含 HITL 审批触发） | `check()`, `enforce()`, `needs_approval()` | `PolicyEngine` |
 | `TrustBoundary` | 信任边界验证（逻辑组件） | `validate_step()`, `derive_safe_fields()` | 框架内置 |
 | `IContextAssembler` | 上下文装配与压缩 | `assemble()`, `compress()` | `ContextAssembler` |
@@ -176,9 +181,15 @@ classDiagram
         +assemble(milestone, memories) Context
         +compress(context, limit) Context
     }
+    class IToolkit {
+        +register_tool(ITool)
+        +list_tools() List~ITool~
+        +activate_group(name)
+    }
     IValidator <.. ContentValidator
     IValidator <.. SchemaValidator
     IContextAssembler <.. DefaultAssembler
+    IToolkit <.. MCPToolkit
 ```
 
 ### 2.3 Layer 2: Pluggable Components (可插拔组件)
@@ -187,8 +198,8 @@ classDiagram
 |-----|------|---------|--------|
 | `IModelAdapter` | LLM 适配 | `ClaudeAdapter`, `OpenAIAdapter`, `OllamaAdapter` | ✅ |
 | `IMemory` | 记忆管理 | `InMemoryMemory`, `VectorMemory`, `FileMemory` | ✅ |
-| `ITool` | 单个工具 | `ReadFileTool`, `WriteFileTool`, `SearchCodeTool`, `RunCommandTool`, `RunTestsTool` | ✅ |
-| `IToolkit` | 工具集 | `MCPToolkit` | ✅ |
+| `ITool` | 单个工具定义 | `ReadFileTool`, `WriteFileTool`, `SearchCodeTool`, `RunCommandTool`, `RunTestsTool` | ✅ |
+| `IToolkit` | **工具注册与生命周期管理** (Registry) | `MCPToolkit`, `LocalToolkit` | ✅ |
 | `IMCPClient` | MCP 客户端 | `StdioMCPClient`, `SSEMCPClient` | ✅ |
 | `ISkill` | 复合技能 | （开发者定义） | ✅ |
 | `IHook` | 生命周期钩子 | `LoggingHook`, `MetricsHook` | ✅ |
@@ -368,8 +379,6 @@ classDiagram
 
 ## 五、状态机实现伪代码
 
-## 五、IRuntime 状态机逻辑实现 (Pseudo-code)
-
 ### 5.1 核心执行引擎实现
 
 ```python
@@ -380,7 +389,7 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
 
     def __init__(self, ...):
         self.state = RuntimeState.READY # 初始状态
-        # ... 注入 IEventLog, IToolRuntime, IPolicyEngine 等
+        # ... 注入 IEventLog, IToolRuntime (Gateway), IPolicyEngine 等
 
     async def init(self, task: Task):
         """初始化任务环境"""
@@ -433,9 +442,12 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
     async def _milestone_loop(self, milestone: Milestone, ctx: RunContext) -> MilestoneResult:
         """Milestone Loop：DARE 核心的有界闭环"""
 
-        # Observe & Plan (不可信层)
+        # Observe
         context = await self.context_assembler.assemble(milestone, ctx)
-        proposed_steps = await self.model_adapter.generate(context, self.tool_runtime)
+
+        # Plan (通过 ToolRuntime 获取所有可用工具定义用于规划)
+        tool_definitions = self.tool_runtime.get_all_definitions()
+        proposed_steps = await self.model_adapter.generate(context, tool_definitions)
 
         # Validate (可信验证层)
         validated_steps = await self._validate_steps(proposed_steps, ctx)
@@ -447,12 +459,12 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
             # 这里的阻塞会通过外部 resume() 信号解除
             await self._wait_for_resume() 
 
-        # Execute & Verify
+        # Execute
         for step in validated_steps:
             if self.state != RuntimeState.RUNNING: break
             
-            # 选择进入内部 Tool Loop 或直接执行 Atomic Step
-            result = await self._execute_step(step, ctx)
+            # 调用 ToolRuntime 作为执行网关
+            result = await self.tool_runtime.invoke(step.tool_name, step.tool_input, ctx)
             await self.event_log.append(StepExecutedEvent(step, result))
 
         return await self._verify_milestone(milestone, ctx)
@@ -466,7 +478,7 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
         """Paused -> Running"""
         if self.state == RuntimeState.PAUSED:
             self.state = RuntimeState.RUNNING
-            # 触发 _wait_for_resume 的信号量
+            # 触发 _wait_for_resume 的信号量解除阻塞
 
     async def stop(self):
         """Running/Paused -> Stopped"""
@@ -477,6 +489,36 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
         """Any -> Cancelled"""
         self.state = RuntimeState.CANCELLED
         await self.event_log.append(UserCancelEvent())
+```
+
+### 5.2 工具执行总线实现 (IToolRuntime vs IToolkit)
+
+```python
+class ToolRuntime(IToolRuntime):
+    """
+    工具执行总线 (Gateway)：负责从 Toolkit 查找工具并注入执行上下文。
+    """
+    def __init__(self, toolkit: IToolkit, policy: IPolicyEngine):
+        self.toolkit = toolkit
+        self.policy = policy
+
+    async def invoke(self, name: str, input: dict, ctx: RunContext) -> ToolResult:
+        # 1. 从 Toolkit 查找工具 (Toolkit 负责注册与生命周期管理)
+        tool = self.toolkit.get_tool(name)
+        if not tool:
+            return ToolResult.error(f"Tool {name} not found")
+
+        # 2. 安全与策略检查
+        if not self.policy.check_tool_access(tool, ctx):
+            return ToolResult.error("Access Denied")
+
+        # 3. 执行工具并管理上下文
+        async with ctx.span(f"tool:{name}"):
+            return await tool.run(input, ctx)
+
+    def get_all_definitions(self) -> List[ToolDef]:
+        # 委托给 Toolkit 获取工具池
+        return self.toolkit.list_tools()
 ```
 
 ---
