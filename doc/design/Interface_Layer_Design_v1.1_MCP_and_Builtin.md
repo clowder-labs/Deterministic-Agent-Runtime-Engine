@@ -19,14 +19,15 @@
 │  这些是框架的骨架，提供安全性和可审计性保证。                             │
 │                                                                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │ IRuntime    │  │ IEventLog   │  │IToolRuntime │  │ IPolicy     │    │
+│  │ IRuntime    │  │ IEventLog   │  │IToolRuntime │  │IPolicyEngine│    │
 │  │ 执行引擎    │  │ 事件日志    │  │ 工具门禁    │  │ 策略引擎    │    │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
 │                                                                         │
-│  ┌─────────────┐  ┌─────────────┐                                      │
-│  │TrustBoundary│  │ IContext    │                                      │
-│  │ 信任边界    │  │ 上下文装配  │                                      │
-│  └─────────────┘  └─────────────┘                                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                    │
+│  │TrustBoundary│  │ IContextAsse│  │ IValidator  │                    │
+│  │             │  │ mbler       │  │ 统一验证    │                    │
+│  │ 信任边界    │  │ 上下文装配  │  │             │                    │
+│  └─────────────┘  └─────────────┘  └─────────────┘                    │
 │                                                                         │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
@@ -338,7 +339,7 @@ agent = (
 | `FormatterBase` | `IPromptFormatter` | Prompt 格式化 |
 | `TokenCounterBase` | `ITokenCounter` | Token 计数 |
 | - | `IEventLog` | **DARE 特有**：审计日志 |
-| - | `ITrustBoundary` | **DARE 特有**：信任边界 |
+| - | `TrustBoundary` | **DARE 特有**：信任边界 |
 | - | `IPolicyEngine` | **DARE 特有**：策略引擎 |
 
 ### 3.2 我们应该学习的

@@ -1,7 +1,7 @@
 # DARE（Deterministic Agent Runtime Engine） Framework 架构终稿评审 v1.1
 
 > 综合 AgentScope 和 Pydantic AI 的分析，确定最终接口架构设计。
-> v1.1 更新：基于 v1 全量内容，新增 IRuntime 状态机接口、扩展示例 UML 类图、优化状态迁移逻辑、统一 IValidator 验证体系。
+> v1.1 更新：基于 v1 全量内容，新增 IRuntime 状态机接口、扩展示例 UML 类图、优化状态迁移逻辑、统一 IValidator 验证体系；并合并补充说明，引入 Plan Loop / Remediate、细化 Envelope 与 DonePredicate、补充 MilestoneContext / ToolError。
 
 ---
 
@@ -163,7 +163,7 @@ stateDiagram-v2
 
 | 接口 | 职责 | 关键方法 | 默认实现 |
 |-----|------|---------|---------|
-| `IRuntime` | 执行引擎，编排三层循环及状态控制 | `run()`, `pause()`, `resume()`, `stop()`, `init()` | `AgentRuntime` |
+| `IRuntime` | 执行引擎，编排四层循环（Plan Loop 内层）及状态控制 | `run()`, `pause()`, `resume()`, `stop()`, `init()` | `AgentRuntime` |
 | `IEventLog` | 事件日志，append-only (WORM) | `append()`, `query()`, `verify_chain()` | `LocalEventLog` |
 | `IToolRuntime` | **工具执行入口**，处理调用上下文与安全门禁 | `invoke()`, `get_tool()` | `ToolRuntime` |
 | `IPolicyEngine` | 策略检查与执行（含 HITL 审批触发） | `check()`, `enforce()`, `needs_approval()` | `PolicyEngine` |
@@ -212,26 +212,89 @@ classDiagram
 | `RunContext[DepsT]` | Pydantic AI | 泛型依赖注入上下文 |
 | `IStreamedResponse[T]` | Pydantic AI | 流式响应抽象 |
 
-### 2.5 核心数据结构
+### 2.5 核心数据结构（概览）
 
 | 数据结构 | 职责 | 所属循环 |
 |---------|------|---------|
 | `Task` | 任务定义 | Session Loop |
 | `Milestone` | 里程碑定义 | Milestone Loop |
-| `ValidatedStep` | 验证后的步骤 | Milestone Loop |
+| `MilestoneContext` | 里程碑迭代上下文（反思/错误/证据） | Milestone Loop |
+| `ValidatedPlan` | 通过 Validate 的计划（可执行步骤集合） | Plan Loop |
+| `ValidatedStep` | 验证后的步骤 | Plan Loop |
 | `Envelope` | WorkUnit 执行边界 | Tool Loop |
 | `DonePredicate` | 完成条件 | Tool Loop |
-| `Budget` | 预算限制 | Tool Loop |
+| `ToolError` | 工具错误与用户中断 | Milestone Loop |
+| `Budget` | 预算限制（Plan/Milestone/Tool） | 多层循环 |
+
+### 2.6 Step 类型：Atomic vs WorkUnit
+
+- **Atomic Step**：单次工具调用，工具返回即结束，无 Tool Loop。
+- **WorkUnit Step**：需要多次迭代，进入 Tool Loop；以 DonePredicate 为结束条件。
+- **谁决定**：Plan 阶段选择具体 tool → Atomic；选择 skill/复合任务 → WorkUnit。
+
+### 2.7 Plan Loop（计划生成内循环）
+
+Plan Loop 是 Milestone Loop 的内层循环，专注生成通过 Validate 的计划：
+
+```
+while not plan_budget.exceeded():
+    Observe → Plan → Validate
+      ✓ 通过 → return ValidatedPlan
+      ✗ 失败 → 记录 plan_attempts（本地变量）并继续
+```
+
+关键特性：
+- **plan_attempts 仅本地存储**，Plan Loop 成功后丢弃
+- **不写入 milestone_ctx**，避免错误计划污染外层上下文
+- 只向 Milestone Loop 返回 `ValidatedPlan`
+- `ValidatedPlan` 由一组 `ValidatedStep` 组成（每个 step 携带 Envelope/DonePredicate）
+
+### 2.8 Envelope / DonePredicate（执行边界与完成条件）
+
+**Envelope（由 Validate 生成）**：
+- `allowed_tools`：可调用工具白名单
+- `required_evidence`：必须产出的证据
+- `budget`：max_tool_calls / max_tokens / max_wall_time / max_stagnant_iterations
+- `risk_level`：由 allowed_tools 推导（READ_ONLY / IDEMPOTENT_WRITE / DESTRUCTIVE）
+
+**DonePredicate**：
+- Evidence Conditions：必须收集到的证据
+- Invariant Conditions：不变量（lint/compile/clean 等）
+- Stagnation Detection：连续 K 次无进展 → Fail
+
+### 2.9 Remediate（反思）与 MilestoneContext
+
+**触发条件**：Verify 失败  
+**输入**：failure_reason + tool_errors（含 user_interrupted）  
+**输出**：Reflection（反思总结）→ 累积到 `milestone_ctx.reflections`，指导下次 Plan Loop
+
+```python
+@dataclass
+class MilestoneContext:
+    user_input: str
+    milestone_description: str
+    reflections: list[str] = field(default_factory=list)
+    tool_errors: list["ToolError"] = field(default_factory=list)
+    evidence_collected: list[str] = field(default_factory=list)
+    attempted_plans: list[str] = field(default_factory=list)
+
+@dataclass
+class ToolError:
+    error_type: str  # "tool_failure" | "user_interrupted" | "timeout"
+    tool_name: str
+    message: str
+    user_hint: str | None = None
+```
 
 ---
 
-## 三、三层循环与接口映射
+## 三、四层循环与接口映射（Plan Loop 为 Milestone 内层）
 
 ### 3.1 循环模型与接口映射
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════════════╗
-║                              三层循环接口映射                                       ║
+║                              四层循环接口映射                                      ║
 ╠═══════════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                    ║
 ║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
@@ -240,7 +303,7 @@ classDiagram
 ║  ┃  使用的接口：                                                                ┃ ║
 ║  ┃  ├── IRuntime.run()           启动执行                                       ┃ ║
 ║  ┃  ├── IRuntime.resume()        断点续跑                                       ┃ ║
-|  ┃  ├── ICheckpoint.save/load()  状态持久化                                     ┃ ║
+║  ┃  ├── ICheckpoint.save/load()  状态持久化                                     ┃ ║
 ║  ┃  ├── IEventLog.append()       记录 session 事件                              ┃ ║
 ║  ┃  └── IMemory.store/search()   跨 session 记忆                                ┃ ║
 ║  ┃                                                                              ┃ ║
@@ -251,20 +314,19 @@ classDiagram
 ║                              每个 Milestone ↓                                      ║
 ║                                                                                    ║
 ║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
-║  ┃ MILESTONE LOOP（Observe → Plan → Validate → Approve → Execute → Verify）      ┃ ║
+║  ┃ MILESTONE LOOP（外层：Approve → Execute → Verify → Remediate）               ┃ ║
 ║  ┃                                                                              ┃ ║
-║  ┃  ┌─────────┐   ┌─────────┐   ┌──────────┐   ┌─────────┐   ┌─────────┐       ┃ ║
-║  ┃  │ Observe │──▶│  Plan   │──▶│ Validate │──▶│ Execute │──▶│ Verify  │       ┃ ║
-║  ┃  └────┬────┘   └────┬────┘   └────┬─────┘   └────┬────┘   └────┬────┘       ┃ ║
-║  ┃       │             │             │              │             │             ┃ ║
-║  ┃       ▼             ▼             ▼              ▼             ▼             ┃ ║
-║  ┃  IContext     IModel        TrustBoundary  IToolRuntime  IValidator          ┃ ║
-║  ┃  Assembler    Adapter       IPolicy Engine (Atomic)      DonePredicate       ┃ ║
-║  ┃  IMemory      .generate()                                或 ToolLoop          ┃ ║
-║  ┃                                                          (WorkUnit)          ┃ ║
+║  ┃  ┌───────────────────────────────────────────────────────────────────────┐  ┃ ║
+║  ┃  │ PLAN LOOP（内层：Observe → Plan → Validate）                           │  ┃ ║
+║  ┃  └───────────────────────────────────────────────────────────────────────┘  ┃ ║
+║  ┃                 │ ValidatedPlan                                               ┃ ║
+║  ┃                 ▼                                                             ┃ ║
+║  ┃           Approve → Execute → Verify                                          ┃ ║
+║  ┃                              │                                                ┃ ║
+║  ┃                    PASS → Exit                                                ┃ ║
+║  ┃                    FAIL → Remediate → 回到 Plan Loop                           ┃ ║
 ║  ┃                                                                              ┃ ║
-║  ┃  产物：ValidatedSteps, Evidence, VerifyReport                                ┃ ║
-║  ┃                                                                              ┃ ║
+║  ┃  产物：ValidatedPlan, Evidence, VerifyReport, Reflections                     ┃ ║
 ║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
 ║                                         │                                         ║
 ║                        只有 WorkUnit Step ↓ 进入                                   ║
@@ -295,10 +357,9 @@ classDiagram
 ### 3.2 循环与接口映射逻辑
 
 1.  **Session Loop（跨 Context Window）**：负责任务初始化、断点恢复 (`resume`) 和最终交付。
-2.  **Milestone Loop（ Observe → Plan → Validate → Approve → Execute → Verify）**：
-    - **Approve (HITL)**：由 `PolicyEngine` 判定是否需要人工审批。
-    - **Verify**：由 `IValidator` 进行结果判定。
-3.  **Tool Loop（WorkUnit 内部循环）**：在 `Envelope` 限定的范围内快速迭代。
+2.  **Milestone Loop（外层闭环）**：Approve → Execute → Verify → Remediate。Verify 失败后产生反思并回到 Plan Loop。
+3.  **Plan Loop（内层闭环）**：Observe → Plan → Validate，直到生成 `ValidatedPlan` 或预算耗尽；失败记录在 plan_attempts（本地变量）。
+4.  **Tool Loop（WorkUnit 内部循环）**：在 `Envelope` 限定的范围内快速迭代，DonePredicate 判定完成。
 
 ### 3.3 阶段与接口映射关系
 
@@ -306,12 +367,14 @@ classDiagram
 |-----|------|-----------|------|
 | **Session** | 初始化/恢复 | `IRuntime.init()`, `ICheckpoint.load()` | 状态准备 |
 | | 持久化 | `ICheckpoint.save()`, `IEventLog.append()` | 审计与恢复 |
-| **Milestone** | Observe | `IContextAssembler`, `IMemory` | 注入上下文 |
-| | Plan | `IModelAdapter.generate()` | LLM 规划 |
-| | Validate | `TrustBoundary`, `IPolicyEngine.check()` | 安全过滤 |
-| | Approve | `PolicyEngine` (HITL Trigger) | **[DARE 核心]** 人在回路 |
+| **Plan** | Observe | `IContextAssembler`, `IMemory` | 注入上下文 |
+| | Plan | `IModelAdapter.generate()` | 生成计划 |
+| | Validate | `TrustBoundary`, `IPolicyEngine.check()` | 安全过滤 + 生成 Envelope |
+| **Milestone** | Approve | `PolicyEngine` (HITL Trigger) | 人在回路 |
 | | Execute | `IToolRuntime.invoke()` | 受控执行 |
 | | Verify | `IValidator.validate()` | 验收确定性 |
+| | Remediate | LLM | 反思并更新 `milestone_ctx` |
+| **Tool** | Gather/Act/Check/Update | `IToolRuntime`, `IEventLog` | 证据收集与迭代 |
 
 ---
 
@@ -368,7 +431,7 @@ classDiagram
 
 | 接口 | 默认实现 | 说明 |
 |-----|---------|------|
-| `IRuntime` | `AgentRuntime` | 三层循环编排 |
+| `IRuntime` | `AgentRuntime` | 四层循环编排（Plan Loop 内层） |
 | `IEventLog` | `LocalEventLog` | 本地 append-only 日志 |
 | `IToolRuntime` | `ToolRuntime` | 工具门禁 |
 | `IPolicyEngine` | `PolicyEngine` | 策略检查 |
@@ -384,7 +447,7 @@ classDiagram
 ```python
 class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
     """
-    确定性执行引擎：利用状态机编排 Session/Milestone/Tool 三层循环。
+    确定性执行引擎：利用状态机编排 Session/Milestone/Plan/Tool 四层循环。
     """
 
     def __init__(self, ...):
@@ -440,34 +503,80 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
         return RunResult(success=True, output=self._build_output(ctx))
 
     async def _milestone_loop(self, milestone: Milestone, ctx: RunContext) -> MilestoneResult:
-        """Milestone Loop：DARE 核心的有界闭环"""
+        """Milestone Loop：外层闭环（Execute → Verify → Remediate）"""
 
-        # Observe
-        context = await self.context_assembler.assemble(milestone, ctx)
+        milestone_ctx = MilestoneContext(
+            user_input=milestone.user_input,
+            milestone_description=milestone.description,
+        )
+        milestone_budget = Budget(max_attempts=10, max_time_seconds=600, max_tool_calls=100)
 
-        # Plan (通过 ToolRuntime 获取所有可用工具定义用于规划)
-        tool_definitions = self.tool_runtime.get_all_definitions()
-        proposed_steps = await self.model_adapter.generate(context, tool_definitions)
+        while not milestone_budget.exceeded():
+            milestone_budget.record_attempt()
 
-        # Validate (可信验证层)
-        validated_steps = await self._validate_steps(proposed_steps, ctx)
+            # Plan Loop（内层）：Observe → Plan → Validate
+            validated_plan = await self._plan_loop(milestone, milestone_ctx, ctx)
 
-        # Approve (HITL：状态驱动变迁)
-        if self.policy_engine.needs_approval(milestone, validated_steps):
-            # 自动变迁：Running -> Paused
-            await self.pause()
-            # 这里的阻塞会通过外部 resume() 信号解除
-            await self._wait_for_resume() 
+            # Approve (HITL：状态驱动变迁)
+            if self.policy_engine.needs_approval(milestone, validated_plan.steps):
+                # 自动变迁：Running -> Paused
+                await self.pause()
+                # 这里的阻塞会通过外部 resume() 信号解除
+                await self._wait_for_resume()
 
-        # Execute
-        for step in validated_steps:
-            if self.state != RuntimeState.RUNNING: break
-            
-            # 调用 ToolRuntime 作为执行网关
-            result = await self.tool_runtime.invoke(step.tool_name, step.tool_input, ctx)
-            await self.event_log.append(StepExecutedEvent(step, result))
+            # Execute（带错误收集）
+            execute_result = await self._execute_with_error_handling(
+                validated_steps=validated_plan.steps,
+                milestone_ctx=milestone_ctx,
+                ctx=ctx,
+            )
 
-        return await self._verify_milestone(milestone, ctx)
+            # Verify
+            verify_result = await self._verify_milestone(milestone, execute_result, ctx)
+            if verify_result.passed:
+                return MilestoneResult(success=True, evidence=execute_result.evidence)
+
+            # Remediate
+            reflection = await self._remediate(
+                verify_result=verify_result,
+                tool_errors=milestone_ctx.tool_errors,
+                ctx=ctx,
+            )
+            milestone_ctx.add_reflection(reflection)
+
+        return MilestoneResult(
+            success=False,
+            reflections=milestone_ctx.reflections,
+            error="Milestone budget exceeded",
+        )
+
+    async def _plan_loop(
+        self,
+        milestone: Milestone,
+        milestone_ctx: MilestoneContext,
+        ctx: RunContext,
+    ) -> ValidatedPlan:
+        """Plan Loop：生成通过 Validate 的计划"""
+
+        plan_budget = Budget(max_attempts=5, max_time_seconds=120)
+        plan_attempts: list[str] = []
+
+        while not plan_budget.exceeded():
+            # Observe
+            context = await self.context_assembler.assemble(milestone, ctx, milestone_ctx)
+
+            # Plan
+            tool_definitions = self.tool_runtime.get_all_definitions()
+            proposed_steps = await self.model_adapter.generate(context, tool_definitions)
+
+            # Validate
+            validated_plan = await self._validate_steps(proposed_steps, ctx)
+            if validated_plan.is_valid:
+                return validated_plan
+
+            plan_attempts.append(validated_plan.failure_reason)
+
+        raise PlanGenerationFailedError(plan_attempts)
 
     async def pause(self):
         """Running -> Paused"""
@@ -550,6 +659,7 @@ class ToolRuntime(IToolRuntime):
 | `IEventLog` + Hash Chain | Append-only 审计日志，防篡改 | ✅ |
 | `ToolRiskLevel` | 工具风险分级（READ_ONLY → COMPENSATABLE） | ✅ |
 | `IPolicyEngine` | 策略即代码，权限控制 | ✅ |
+| `Plan Loop` + `Remediate` | 计划生成隔离 + Verify 失败反思 | ✅ |
 | `Envelope` + `DonePredicate` | WorkUnit 执行边界和完成条件 | ✅ |
 | 五个可验证闭环 | 每个安全机制都可证明 | ✅ |
 
@@ -625,4 +735,4 @@ result = await agent.run(
 
 ---
 
-*文档状态：架构终稿评审 v1.1 (Final Refined)*
+*文档状态：架构终稿评审 v1.1（已合并补充说明）*

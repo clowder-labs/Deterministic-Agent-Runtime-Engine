@@ -13,18 +13,15 @@
    └── /openspec/project.md (项目上下文、技术栈、架构概览)
 
 2. 核心架构
-   └── design/Architecture_Final_Review_v1.1.md (⭐ 架构终稿 v1.1)
+   └── design/Architecture_Final_Review_v1.1.md (⭐ 架构终稿 v1.1，已合并补充说明)
 
-3. 架构补充
-   └── design/Architecture_Final_Review_v1_Addendum.md (⭐ 架构补充说明)
-
-4. 接口设计
+3. 接口设计
    └── design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md (⭐ 接口层设计)
 
-5. 示例实现
+4. 示例实现
    └── /examples/coding-agent/ (示例 Agent)
 
-6. 开发指南
+5. 开发指南
    └── /CONTRIBUTING_AI.md (AI Agent 协作规范)
 ```
 
@@ -38,8 +35,7 @@
 
 | 文档 | 作用 | 状态 |
 |-----|------|------|
-| `Architecture_Final_Review_v1.1.md` | **架构终稿 v1.1**<br/>三层架构、15个接口清单、循环模型、状态机细化 | ⭐ **当前标准** |
-| `Architecture_Final_Review_v1_Addendum.md` | **架构补充**<br/>Remediate 反思机制、Validate→Tool Loop 数据传递 | 📌 **重要补充** |
+| `Architecture_Final_Review_v1.1.md` | **架构终稿 v1.1（已合并补充）**<br/>三层架构、15个接口清单、循环模型/状态机、Plan Loop + Remediate、Validate→Tool Loop 数据传递 | ⭐ **当前标准** |
 | `Interface_Layer_Design_v1.1_MCP_and_Builtin.md` | **接口层设计**<br/>三层模型、MCP 支持、内置实现、AgentScope 对比 | ⭐ **当前标准** |
 
 ### 2️⃣ 对比分析文档
@@ -89,8 +85,8 @@
 
 ```
 1. Architecture_Final_Review_v1.1.md        ← 完整架构
-2. Architecture_Final_Review_v1_Addendum.md ← 架构补充
-3. Framework_Comparison_PydanticAI.md       ← 对比分析
+2. Interface_Layer_Design_v1.1_MCP_and_Builtin.md ← 接口设计
+3. Framework_Comparison_PydanticAI.md             ← 对比分析
 ```
 
 ### 后端工程师（实现框架）
@@ -98,8 +94,7 @@
 ```
 1. Architecture_Final_Review_v1.1.md                  ← 架构总览
 2. Interface_Layer_Design_v1.1_MCP_and_Builtin.md    ← 接口设计
-3. Architecture_Final_Review_v1_Addendum.md           ← 架构补充
-4. /openspec/project.md                               ← 技术栈和规范
+3. /openspec/project.md                               ← 技术栈和规范
 ```
 
 ### Agent 开发者（使用框架）
@@ -156,7 +151,7 @@ Phase 3: 框架对比与融合
 
 Phase 4: 架构终稿 ← 当前
 ├── Architecture_Final_Review_v1.1.md (⭐ 最新)
-└── Architecture_Final_Review_v1_Addendum.md
+└── （补充说明已合并）
 ```
 
 ---
@@ -165,9 +160,8 @@ Phase 4: 架构终稿 ← 当前
 
 ### Q: 现在应该以哪个文档为准？
 
-**A:** 三个核心文档：
-- **架构**：`Architecture_Final_Review_v1.1.md`
-- **架构补充**：`Architecture_Final_Review_v1_Addendum.md`
+**A:** 两个核心文档：
+- **架构**：`Architecture_Final_Review_v1.1.md`（已合并补充）
 - **接口**：`Interface_Layer_Design_v1.1_MCP_and_Builtin.md`
 
 ### Q: v2.0 ~ v2.4 的文档还有用吗？
@@ -188,7 +182,6 @@ doc/
 │
 ├── design/                            ← 核心设计文档
 │   ├── Architecture_Final_Review_v1.1.md                  ⭐ 架构终稿
-│   ├── Architecture_Final_Review_v1_Addendum.md           ⭐ 架构补充
 │   ├── Interface_Layer_Design_v1.1_MCP_and_Builtin.md     ⭐ 接口设计
 │   ├── Framework_Comparison_PydanticAI.md                 对比分析
 │   ├── anthropic-engineering.md                           参考资料
@@ -211,5 +204,5 @@ doc/
 
 ---
 
-*最后更新：2025-12-22*
+*最后更新：2025-12-23*
 *维护者：DARE Framework Team*
