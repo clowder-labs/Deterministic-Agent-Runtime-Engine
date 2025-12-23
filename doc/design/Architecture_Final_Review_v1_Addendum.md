@@ -12,6 +12,7 @@
 │  宏观 Validate = 制定契约（这件事允许做什么、需要什么证据、风险怎么控）          │
 │  ToolRuntime Gate = 执行契约（每一步都检查你有没有作弊）                         │
 │  Done Predicate = 结束条件（什么时候算完成）                                     │
+│  Plan Loop = 生成有效计划（失败的计划不污染外层上下文）                          │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -52,6 +53,61 @@
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 2.5 Plan Loop（计划生成循环）
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                 │
+│  Plan Loop = Milestone Loop 的内层循环                                          │
+│  ══════════════════════════════════════                                         │
+│                                                                                 │
+│  职责：生成一个有效的、通过 Validate 的计划                                      │
+│  ────────────────────────────────────────                                       │
+│                                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │                                                                         │   │
+│  │  while not plan_budget.exceeded():                                      │   │
+│  │                                                                         │   │
+│  │      ┌──────────┐   ┌──────────┐   ┌──────────┐                        │   │
+│  │      │ Observe  │──▶│   Plan   │──▶│ Validate │                        │   │
+│  │      └──────────┘   └──────────┘   └────┬─────┘                        │   │
+│  │           ▲                              │                              │   │
+│  │           │                              ├─▶ ✓ 成功 → return           │   │
+│  │           │         plan_attempts        │             ValidatedPlan    │   │
+│  │           │         (临时变量)            │                              │   │
+│  │           │                              └─▶ ✗ 失败 → 记录并 continue   │   │
+│  │           │                                                             │   │
+│  │           └──────────────────────────────────────────────────────────   │   │
+│  │                                                                         │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                 │
+│  关键特性：                                                                      │
+│  ─────────                                                                       │
+│  1. 失败的计划存储在 plan_attempts（本地变量）                                   │
+│  2. Plan Loop 成功后，丢弃所有 plan_attempts                                     │
+│  3. 只向 Milestone Loop 返回 ValidatedPlan                                      │
+│  4. 避免错误计划污染 milestone_ctx                                               │
+│                                                                                 │
+│  输入：milestone_ctx (包含 Verify 失败的反思)                                    │
+│  输出：ValidatedPlan (已通过 Validate)                                          │
+│  副作用：无（plan_attempts 是临时的）                                            │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Plan Loop vs Milestone Loop
+
+| 维度 | Plan Loop | Milestone Loop |
+|-----|-----------|---------------|
+| **循环目标** | 生成**有效计划** | 完成**整个 Milestone** |
+| **失败类型** | Validate 失败 | Verify 失败 |
+| **失败处理** | 本地重试（plan_attempts） | Remediate → 累积反思 |
+| **上下文污染** | ❌ 不污染（临时变量） | ✅ 累积（milestone_ctx） |
+| **循环结束条件** | 生成有效计划 OR 预算耗尽 | Verify 通过 OR 预算耗尽 |
+| **输出** | ValidatedPlan | MilestoneResult |
 
 ---
 
@@ -409,7 +465,7 @@ class Budget:
 
 ---
 
-## 八、更新后的 _milestone_loop 伪代码
+## 八、更新后的 _milestone_loop 伪代码（两层循环）
 
 ```python
 async def _milestone_loop(
@@ -420,10 +476,22 @@ async def _milestone_loop(
     """
     Milestone Loop：不断尝试直到成功或预算耗尽
 
-    特点：
-    1. 累积信息：每次循环都积累更多上下文（反思、错误、证据）
-    2. 用户中断：处理 user_interrupted 错误，提取用户提示词
-    3. 预算限制：避免无限循环
+    架构改进：引入 Plan Loop 作为内层循环
+    ════════════════════════════════════════
+
+    两层循环设计：
+    1. 外层 Milestone Loop：负责 Execute → Verify → Remediate
+       - 只累积 Verify 失败的反思
+       - milestone_ctx 跨迭代持久化
+
+    2. 内层 Plan Loop：负责 Observe → Plan → Validate
+       - 只累积 Validate 失败的尝试（临时的）
+       - plan_attempts 在 Plan Loop 结束后丢弃
+
+    好处：
+    - 避免错误计划污染 milestone_ctx
+    - 减少 context window 浪费
+    - 职责分离更清晰
     """
 
     # === 初始化 ===
@@ -431,58 +499,49 @@ async def _milestone_loop(
         user_input=milestone.user_input,
         milestone_description=milestone.description,
     )
-    budget = Budget(
+    milestone_budget = Budget(
         max_attempts=10,
         max_time_seconds=600,
         max_tool_calls=100,
     )
 
-    # === 主循环：while not budget.exceeded() ===
-    while not budget.exceeded():
-        budget.record_attempt()
+    # === Milestone Loop (外层)：while not milestone_budget.exceeded() ===
+    while not milestone_budget.exceeded():
+        milestone_budget.record_attempt()
 
         await self.event_log.append(MilestoneAttemptEvent(
             milestone_id=milestone.milestone_id,
-            attempt=budget.current_attempts,
+            attempt=milestone_budget.current_attempts,
         ))
 
-        # === Observe ===
-        # 装配上下文（包含所有累积的信息）
-        context = await self.context_assembler.assemble(
-            milestone=milestone,
-            milestone_context=milestone_ctx,  # 累积的反思、错误、证据
-            ctx=ctx,
-        )
-
-        # === Plan ===
-        # LLM 根据增强的 context 规划（包含上次迭代的反思）
-        proposed = await self.model_adapter.generate(
-            messages=self._build_plan_prompt(
-                context=context,
-                reflections=milestone_ctx.reflections,       # 上次迭代的反思
-                tool_errors=milestone_ctx.tool_errors,       # 包括 user_interrupted
-                attempted_plans=milestone_ctx.attempted_plans,  # 避免重复
-            ),
-            tools=self.tool_runtime.list_tools(),
-        )
-        proposed_steps = self._parse_steps(proposed)
-
-        # 记录本次尝试的方案
-        milestone_ctx.attempted_plans.append(proposed.content)
-
-        # === Validate ===
-        validated_steps = await self._validate_steps(proposed_steps, ctx)
-
-        if not validated_steps:
-            # 验证失败，记录并继续循环
-            milestone_ctx.add_reflection("Validation failed: no valid steps generated")
-            continue
+        # ┌─────────────────────────────────────────────────────────────┐
+        # │ Plan Loop (内层)：生成有效计划                               │
+        # └─────────────────────────────────────────────────────────────┘
+        try:
+            validated_plan = await self._plan_loop(
+                milestone=milestone,
+                milestone_ctx=milestone_ctx,  # 传入 Verify 失败的反思
+                ctx=ctx,
+            )
+        except PlanGenerationFailedError as e:
+            # Plan Loop 耗尽预算，无法生成有效计划
+            await self.event_log.append(MilestoneFailedEvent(
+                milestone_id=milestone.milestone_id,
+                reason="plan_generation_failed",
+                attempts=milestone_budget.current_attempts,
+                error=str(e),
+            ))
+            return MilestoneResult(
+                success=False,
+                error=f"Failed to generate valid plan: {e}",
+                reflections=milestone_ctx.reflections,
+            )
 
         # === Execute ===
         execute_result = await self._execute_with_error_handling(
-            validated_steps=validated_steps,
+            validated_steps=validated_plan.steps,
             milestone_ctx=milestone_ctx,
-            budget=budget,
+            budget=milestone_budget,
             ctx=ctx,
         )
 
@@ -535,6 +594,149 @@ async def _milestone_loop(
         reflections=milestone_ctx.reflections,
     )
 ```
+
+---
+
+## 八点五、_plan_loop 伪代码实现
+
+```python
+async def _plan_loop(
+    self,
+    milestone: Milestone,
+    milestone_ctx: MilestoneContext,
+    ctx: RunContext[DepsT],
+) -> ValidatedPlan:
+    """
+    Plan Loop：生成一个有效的计划（通过 Validate）
+
+    职责：
+    ══════
+    - 生成通过 Validate 的计划
+    - 本地管理失败的计划尝试（plan_attempts）
+    - 成功后丢弃所有 plan_attempts，只返回 ValidatedPlan
+
+    输入：
+    ──────
+    - milestone: 当前里程碑
+    - milestone_ctx: 包含 Verify 失败的反思（持久的）
+    - ctx: 运行上下文
+
+    输出：
+    ──────
+    - ValidatedPlan: 已通过 Validate 的计划
+
+    异常：
+    ──────
+    - PlanGenerationFailedError: Plan Loop 耗尽预算仍无法生成有效计划
+    """
+
+    # === 初始化 Plan Loop 预算 ===
+    plan_budget = Budget(
+        max_attempts=5,          # Plan Loop 最多尝试 5 次
+        max_time_seconds=120,    # 最长 2 分钟
+        max_tool_calls=0,        # Plan 阶段不调用工具
+    )
+
+    # === plan_attempts: 临时变量，记录失败的计划 ===
+    plan_attempts: list[dict] = []
+
+    # === Plan Loop: while not plan_budget.exceeded() ===
+    while not plan_budget.exceeded():
+        plan_budget.record_attempt()
+
+        await self.event_log.append(PlanAttemptEvent(
+            milestone_id=milestone.milestone_id,
+            plan_attempt=plan_budget.current_attempts,
+        ))
+
+        # ┌──────────────────────────────────────────────────────────┐
+        # │ Observe: 装配上下文                                       │
+        # └──────────────────────────────────────────────────────────┘
+        # 包含两部分：
+        # 1. milestone_ctx.reflections: Verify 失败的反思（持久的）
+        # 2. plan_attempts: Validate 失败的尝试（临时的）
+        context = await self.context_assembler.assemble(
+            milestone=milestone,
+            milestone_context=milestone_ctx,  # Verify 失败的反思
+            plan_attempts=plan_attempts,      # Validate 失败的尝试（本地）
+            ctx=ctx,
+        )
+
+        # ┌──────────────────────────────────────────────────────────┐
+        # │ Plan: LLM 生成计划                                        │
+        # └──────────────────────────────────────────────────────────┘
+        proposed = await self.model_adapter.generate(
+            messages=self._build_plan_prompt(
+                context=context,
+                milestone_ctx=milestone_ctx,
+                plan_attempts=plan_attempts,  # 告诉 LLM 上次为什么失败
+            ),
+            tools=self.tool_runtime.list_tools(),
+        )
+        proposed_steps = self._parse_steps(proposed)
+
+        # ┌──────────────────────────────────────────────────────────┐
+        # │ Validate: 验证计划                                        │
+        # └──────────────────────────────────────────────────────────┘
+        validation_result = await self._validate_steps(proposed_steps, ctx)
+
+        if validation_result.is_valid:
+            # ✓ 验证成功！
+            await self.event_log.append(PlanValidatedEvent(
+                milestone_id=milestone.milestone_id,
+                plan_attempts=plan_budget.current_attempts,
+                steps_count=len(validation_result.validated_steps),
+            ))
+
+            # 丢弃 plan_attempts，只返回有效计划
+            return ValidatedPlan(
+                steps=validation_result.validated_steps,
+                metadata={
+                    "plan_attempts": plan_budget.current_attempts,
+                    "discarded_attempts": len(plan_attempts),
+                }
+            )
+
+        else:
+            # ✗ 验证失败，记录到 plan_attempts（本地变量）
+            plan_attempts.append({
+                "attempt": plan_budget.current_attempts,
+                "proposed_steps": proposed_steps,
+                "validation_errors": validation_result.errors,
+                "timestamp": time.time(),
+            })
+
+            await self.event_log.append(PlanValidationFailedEvent(
+                milestone_id=milestone.milestone_id,
+                attempt=plan_budget.current_attempts,
+                errors=validation_result.errors,
+            ))
+
+            # 继续循环，下次 Observe 会看到这次失败
+
+    # === Plan Loop 预算耗尽 ===
+    await self.event_log.append(PlanGenerationFailedEvent(
+        milestone_id=milestone.milestone_id,
+        attempts=plan_budget.current_attempts,
+        total_errors=sum(len(a["validation_errors"]) for a in plan_attempts),
+    ))
+
+    raise PlanGenerationFailedError(
+        f"Failed to generate valid plan after {plan_budget.current_attempts} attempts. "
+        f"Total validation errors: {len(plan_attempts)}"
+    )
+```
+
+### Plan Loop 的关键设计
+
+| 设计点 | 说明 |
+|-------|------|
+| **临时变量** | `plan_attempts` 是本地变量，Plan Loop 结束后丢弃 |
+| **不污染外层** | 失败的计划不写入 `milestone_ctx` |
+| **快速失败** | 独立的 `plan_budget`（5 次尝试，2 分钟） |
+| **信息流动** | 读取 `milestone_ctx.reflections`（Verify 失败的反思），但不修改它 |
+| **审计日志** | 所有 plan_attempts 都记录到 EventLog（审计用） |
+| **清晰输出** | 只返回 `ValidatedPlan`，不返回失败信息 |
 
 ---
 
@@ -774,48 +976,62 @@ Please provide:
 
 ---
 
-## 十二、完整循环图
+## 十二、完整循环图（四层循环）
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║                          三层循环（完整版）                                    ║
+║                          四层循环（完整版 v2）                                 ║
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                ║
 ║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
-║  ┃ SESSION LOOP                                                            ┃ ║
+║  ┃ SESSION LOOP（跨 Context Window）                                       ┃ ║
 ║  ┃   Session #0 → Session #1..N                                            ┃ ║
 ║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
 ║                                     │                                         ║
 ║                                     ▼                                         ║
 ║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
-║  ┃ MILESTONE LOOP  (while not budget.exceeded())                           ┃ ║
+║  ┃ MILESTONE LOOP（外层，while not milestone_budget.exceeded()）           ┃ ║
 ║  ┃                                                                         ┃ ║
-║  ┃   ┌─────────┐   ┌─────────┐   ┌──────────┐   ┌─────────┐              ┃ ║
-║  ┃   │ Observe │──▶│  Plan   │──▶│ Validate │──▶│ Execute │──┐           ┃ ║
-║  ┃   └─────────┘   └────▲────┘   └────┬─────┘   └─────────┘  │           ┃ ║
-║  ┃                     │               │                      │           ┃ ║
-║  ┃      累积的上下文：  │               │ 生成 Envelope +      │           ┃ ║
-║  ┃      • reflections  │               │ DonePredicate        │           ┃ ║
-║  ┃      • tool_errors  │               │ (for WorkUnit)       │           ┃ ║
-║  ┃      • evidence     │               ▼                      │           ┃ ║
-║  ┃                     │                                      │           ┃ ║
-║  ┃              ┌──────┴────────┐                             │           ┃ ║
-║  ┃              │   Remediate   │◀────┐                       │           ┃ ║
-║  ┃              │ • 分析失败原因  │     │                       │           ┃ ║
-║  ┃              │ • 分析用户中断  │     │                       │           ┃ ║
-║  ┃              └───────────────┘     │                       │           ┃ ║
-║  ┃                                    │                       │           ┃ ║
-║  ┃                              ┌─────┴─────┐                 │           ┃ ║
-║  ┃                              │  Verify   │◀────────────────┘           ┃ ║
-║  ┃                              └─────┬─────┘                             ┃ ║
-║  ┃                                    │                                   ┃ ║
-║  ┃                                    ├─▶ PASS → skip（退出循环）         ┃ ║
-║  ┃                                    └─▶ FAIL → Remediate                ┃ ║
-║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
+║  ┃   ┌────────────────────────────────────┐                                ┃ ║
+║  ┃   │ PLAN LOOP（内层）                  │                                ┃ ║
+║  ┃   │                                    │                                ┃ ║
+║  ┃   │  ┌──────────┐  ┌──────┐  ┌─────┐  │                                ┃ ║
+║  ┃   │  │ Observe  │─▶│ Plan │─▶│Valid│──┼─▶ ✓ → ValidatedPlan            ┃ ║
+║  ┃   │  └──────────┘  └──────┘  └──┬──┘  │                                ┃ ║
+║  ┃   │       ▲                      │     │                                ┃ ║
+║  ┃   │       │    plan_attempts     │     │                                ┃ ║
+║  ┃   │       │    (临时变量)         └─▶ ✗ │                                ┃ ║
+║  ┃   │       └──────────────────────────  │                                ┃ ║
+║  ┃   │                                    │                                ┃ ║
+║  ┃   └────────────────────────────────────┘                                ┃ ║
+║  ┃                     │                                                   ┃ ║
+║  ┃                     ▼                                                   ┃ ║
+║  ┃              ┌───────────┐   ┌────────┐                                ┃ ║
+║  ┃              │  Execute  │──▶│ Verify │                                ┃ ║
+║  ┃              └───────────┘   └────┬───┘                                ┃ ║
+║  ┃                                   │                                    ┃ ║
+║  ┃                                   ├─▶ ✓ PASS → 退出循环                ┃ ║
+║  ┃                                   │                                    ┃ ║
+║  ┃                                   └─▶ ✗ FAIL                           ┃ ║
+║  ┃                                          ▼                              ┃ ║
+║  ┃                                   ┌──────────┐                         ┃ ║
+║  ┃                                   │Remediate │                         ┃ ║
+║  ┃                                   │• 分析失败 │                         ┃ ║
+║  ┃                                   │• 用户中断 │                         ┃ ║
+║  ┃                                   └────┬─────┘                         ┃ ║
+║  ┃                                        │                               ┃ ║
+║  ┃                          累积反思到 milestone_ctx                       ┃ ║
+║  ┃                          (下次 Plan Loop 会读取)                        ┃ ║
+║  ┃                                        │                               ┃ ║
+║  ┃                                        └─────────────────────┐         ┃ ║
+║  ┃                                                              │         ┃ ║
+║  ┃   continue (回到 Milestone Loop 开始，重新进入 Plan Loop)     │         ┃ ║
+║  ┃                                                              │         ┃ ║
+║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━┛ ║
 ║                                     │                                         ║
 ║                          (仅 WorkUnit) ▼                                      ║
 ║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
-║  ┃ TOOL LOOP                                                               ┃ ║
+║  ┃ TOOL LOOP（WorkUnit 内部迭代）                                          ┃ ║
 ║  ┃                                                                         ┃ ║
 ║  ┃   边界：Envelope (allowed_tools, budget) ← 来自 Validate                ┃ ║
 ║  ┃   结束：DonePredicate 满足 OR Budget 耗尽 ← 来自 Validate               ┃ ║
@@ -827,6 +1043,41 @@ Please provide:
 ║  ┃           └────────────────────────────────────────────┘               ┃ ║
 ║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### 循环层级总结
+
+| 循环 | 职责 | 失败类型 | 累积的上下文 | 预算 |
+|-----|------|---------|-------------|------|
+| **Session Loop** | 跨 Context Window | Task 失败 | EventLog + Memory | 无限（可断点续跑） |
+| **Milestone Loop** | 完成一个里程碑 | Verify 失败 | milestone_ctx.reflections（持久） | milestone_budget (10次尝试) |
+| **Plan Loop** | 生成有效计划 | Validate 失败 | plan_attempts（临时，循环后丢弃） | plan_budget (5次尝试) |
+| **Tool Loop** | WorkUnit 内部迭代 | DonePredicate 未满足 | WorkUnit 内部状态 | envelope.budget |
+
+### 关键设计：信息隔离
+
+```
+milestone_ctx.reflections (持久)
+    ↓ 传递给
+Plan Loop (读取 reflections)
+    ↓ 生成
+plan_attempts (临时)
+    ↓ 成功后丢弃
+只返回 ValidatedPlan
+    ↓
+Execute → Verify
+    ↓ 失败
+Remediate → 添加新的 reflection 到 milestone_ctx
+    ↓
+下次 Milestone Loop 迭代时，Plan Loop 读取更新后的 reflections
+```
+
+**好处**：
+- ✅ Validate 失败的计划不污染 milestone_ctx
+- ✅ 减少 context window 浪费
+- ✅ 职责分离：Plan Loop 专注于生成有效计划，Milestone Loop 专注于执行和验证
+- ✅ 可审计：所有 plan_attempts 记录在 EventLog，但不影响后续推理
+
 ```
 
 ---
@@ -869,6 +1120,73 @@ ToolRuntime Gate = 执行契约（每次调用都检查）
 每个 Skill 预定义了它能用哪些工具。
 ```
 
+### Q6: Plan Loop 什么时候进入？什么时候结束？
+
+```
+进入：Milestone Loop 每次迭代开始时
+结束：
+  ✓ 生成有效计划（通过 Validate）→ 返回 ValidatedPlan
+  ✗ Plan Loop 预算耗尽 → 抛出 PlanGenerationFailedError
+```
+
+### Q7: Plan Loop 失败的计划去哪了？
+
+```
+- 记录到 EventLog（审计用）
+- 存储在 plan_attempts（本地变量）
+- Plan Loop 成功后，plan_attempts 被丢弃
+- 不写入 milestone_ctx（避免污染）
+```
+
+### Q8: Milestone Loop 和 Plan Loop 的反思有什么区别？
+
+```
+Milestone Loop (milestone_ctx.reflections):
+  - 来源：Verify 失败 → Remediate 生成
+  - 内容：为什么执行失败、用户中断意图分析
+  - 生命周期：持久化，跨 Milestone 迭代累积
+  - 用途：指导下次 Plan Loop 生成更好的计划
+
+Plan Loop (plan_attempts):
+  - 来源：Validate 失败
+  - 内容：为什么计划被拒绝（工具不存在、策略拒绝等）
+  - 生命周期：临时，Plan Loop 结束后丢弃
+  - 用途：指导 Plan Loop 内部的重试
+```
+
+### Q9: 为什么要引入 Plan Loop？
+
+```
+问题：
+- Validate 失败的计划累积在 milestone_ctx 中
+- 污染后续推理，浪费 context window
+- 职责不清晰：Plan 和 Execute 混在一起
+
+解决：
+- Plan Loop 专注于"生成有效计划"
+- Milestone Loop 专注于"执行计划并验证"
+- 失败的计划不向外传播
+- 信息隔离，减少干扰
+```
+
+### Q10: Plan Loop 和 Milestone Loop 如何交互？
+
+```
+Milestone Loop → Plan Loop:
+  - 传递 milestone_ctx.reflections（Verify 失败的反思）
+  - Plan Loop 读取（只读，不修改）
+
+Plan Loop → Milestone Loop:
+  - 返回 ValidatedPlan（成功）
+  - 或抛出 PlanGenerationFailedError（失败）
+  - plan_attempts 被丢弃，不传递
+
+Milestone Loop → Remediate → Milestone Loop:
+  - Verify 失败后，Remediate 分析
+  - 添加 reflection 到 milestone_ctx
+  - 下次迭代时，Plan Loop 读取新的 reflections
+```
+
 ---
 
 ## 十四、总结
@@ -877,8 +1195,11 @@ ToolRuntime Gate = 执行契约（每次调用都检查）
 
 | 维度 | 之前的设计 | 改进后的设计 |
 |-----|----------|-------------|
+| **循环结构** | 三层循环 | **四层循环**（新增 Plan Loop） |
 | **循环方式** | `for attempt in range(3)` | `while not budget.exceeded()` |
 | **退出条件** | 成功 or 3次尝试 | 成功 or 预算耗尽（次数+时间+工具调用） |
+| **Plan 失败处理** | ❌ 累积在 milestone_ctx | ✅ **Plan Loop 内部隔离，成功后丢弃** |
+| **上下文污染** | ❌ 错误计划污染 milestone_ctx | ✅ **信息隔离，只传递 ValidatedPlan** |
 | **用户中断** | ❌ 未处理 | ✅ 作为 ToolError 处理，提取 user_hint |
 | **信息累积** | 简单的 lessons_learned | ✅ 完整的 MilestoneContext |
 | **Remediate** | 简单分析 | ✅ 特别分析用户中断的意图 |
@@ -901,11 +1222,46 @@ Remediate 阶段分析用户意图
 下次 Plan 考虑用户反馈
 ```
 
+### Plan Loop 引入的架构改进
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 架构改进：从三层循环到四层循环                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  之前（三层）：                                                   │
+│  ──────────                                                      │
+│  Session Loop → Milestone Loop → Tool Loop                       │
+│                     ↑                                            │
+│              Observe → Plan → Validate → Execute → Verify        │
+│              (Plan 失败累积在 milestone_ctx)                      │
+│                                                                  │
+│  现在（四层）：                                                   │
+│  ──────────                                                      │
+│  Session Loop → Milestone Loop → Plan Loop → Tool Loop           │
+│                     ↑              ↑                             │
+│              Execute → Verify  Observe → Plan → Validate         │
+│              (Plan 失败隔离在 plan_attempts)                      │
+│                                                                  │
+│  关键变化：                                                       │
+│  ────────                                                        │
+│  1. Plan Loop 成为 Milestone Loop 的内层循环                      │
+│  2. Plan Loop 专注于生成有效计划                                  │
+│  3. Milestone Loop 专注于执行计划并验证                           │
+│  4. 信息流动：                                                    │
+│     milestone_ctx (持久) → Plan Loop (读取) → plan_attempts (临时) │
+│     → ValidatedPlan (清洁输出) → Execute → Verify → Remediate    │
+│     → milestone_ctx (累积新的 reflection)                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### 需要更新的文档
 
-- ✅ 本补充文档已更新
+- ✅ 本补充文档已更新（引入 Plan Loop 设计）
 - 🔜 需要合并到 `Architecture_Final_Review_v1.md`
+- 🔜 需要更新 `Architecture_Final_Review_v1.1.md` 的循环图
 
 ---
 
-*文档状态：补充说明 v3 - 整合 Loop Model v2.2 核心概念*
+*文档状态：补充说明 v4 - 引入 Plan Loop，实现四层循环架构*
