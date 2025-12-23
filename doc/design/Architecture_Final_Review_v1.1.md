@@ -442,7 +442,71 @@ class ToolError:
 
 ## 五、状态机实现伪代码
 
-### 5.1 核心执行引擎实现
+### 5.1 三层循环伪代码（Session/Milestone/Tool，Plan Loop 内嵌）
+
+```python
+async def session_loop(task: Task, ctx: RunContext) -> RunResult:
+    milestones = await load_or_plan_milestones(task, ctx)
+    for milestone in milestones:
+        result = await milestone_loop(milestone, ctx)
+        await checkpoint.save(task.task_id, milestone.id)
+        if not result.success and milestone.is_critical:
+            return RunResult(success=False, error=result.error)
+    return RunResult(success=True, output=build_output(ctx))
+
+
+async def milestone_loop(milestone: Milestone, ctx: RunContext) -> MilestoneResult:
+    milestone_ctx = MilestoneContext(
+        user_input=milestone.user_input,
+        milestone_description=milestone.description,
+    )
+    milestone_budget = Budget(max_attempts=10, max_time_seconds=600, max_tool_calls=100)
+    while not milestone_budget.exceeded():
+        # Plan Loop（内层）：Observe → Plan → Validate → ValidatedPlan
+        validated_plan = await plan_loop(milestone, milestone_ctx, ctx)
+
+        if policy_engine.needs_approval(milestone, validated_plan.steps):
+            await pause()
+            await wait_for_resume()
+
+        execute_result = await execute_with_error_handling(
+            validated_steps=validated_plan.steps,
+            milestone_ctx=milestone_ctx,
+            ctx=ctx,
+        )
+
+        verify_result = await verify(milestone, execute_result, ctx)
+        if verify_result.passed:
+            return MilestoneResult(success=True, evidence=execute_result.evidence)
+
+        reflection = await remediate(
+            verify_result=verify_result,
+            tool_errors=milestone_ctx.tool_errors,
+            ctx=ctx,
+        )
+        milestone_ctx.add_reflection(reflection)
+
+    return MilestoneResult(
+        success=False,
+        reflections=milestone_ctx.reflections,
+        error="budget_exceeded",
+    )
+
+
+async def tool_loop(step: ValidatedStep, ctx: RunContext) -> ToolResult:
+    envelope = step.envelope
+    done_predicate = step.done_predicate
+    while not envelope.budget.exceeded():
+        gathered = await gather_context(ctx)
+        action = await decide_action(step, gathered)
+        result = await tool_runtime.invoke(action.tool, action.input, ctx)
+        update_evidence(result)
+        if done_predicate.is_satisfied():
+            return ToolResult(success=True, evidence=collect_evidence())
+    return ToolResult(success=False, error="budget_or_stagnation")
+```
+
+### 5.2 核心执行引擎实现
 
 ```python
 class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
@@ -600,7 +664,7 @@ class AgentRuntime(IRuntime, Generic[DepsT, OutputT]):
         await self.event_log.append(UserCancelEvent())
 ```
 
-### 5.2 工具执行总线实现 (IToolRuntime vs IToolkit)
+### 5.3 工具执行总线实现 (IToolRuntime vs IToolkit)
 
 ```python
 class ToolRuntime(IToolRuntime):
