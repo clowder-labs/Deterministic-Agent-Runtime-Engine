@@ -1264,4 +1264,764 @@ Remediate 阶段分析用户意图
 
 ---
 
-*文档状态：补充说明 v4 - 引入 Plan Loop，实现四层循环架构*
+## 十五、Session Loop 设计（跨对话持久化）
+
+### 设计哲学
+
+参考 Anthropic 的长运行 Agent 最佳实践，Session Loop 负责：
+
+1. **上下文累积**：从上一轮对话的总结中读取关键信息
+2. **Milestone 规划**：基于用户输入拆解成多个 Milestone
+3. **顺序执行**：每个 Milestone 独立执行（无用户输入）
+4. **上下文压缩**：总结整个 Session，为下一轮对话做准备
+
+### Session Loop 伪代码
+
+```python
+async def _session_loop(
+    self,
+    user_input: str,  # 用户的本轮输入
+    previous_session_summary: SessionSummary | None,  # 上一轮的总结
+    ctx: RunContext[DepsT],
+) -> SessionResult:
+    """
+    Session Loop：处理一轮用户交互
+
+    设计原则：
+    ════════════
+    1. Milestone 是预先规划的（基于 user_input + previous_session_summary）
+    2. Milestone 无用户输入（自主执行）
+    3. Milestone 间通过 summary 传递上下文
+    4. Session 结束后总结，压缩历史
+    """
+
+    # === 初始化 Session Context ===
+    session_ctx = SessionContext(
+        user_input=user_input,
+        previous_session_summary=previous_session_summary,
+        milestone_summaries=[],
+        start_time=time.time(),
+    )
+
+    await self.event_log.append(SessionStartedEvent(
+        user_input=user_input,
+        has_previous_context=previous_session_summary is not None,
+    ))
+
+    # ┌─────────────────────────────────────────────────────────────┐
+    # │ Plan Milestones: 拆解用户输入                                │
+    # └─────────────────────────────────────────────────────────────┘
+    milestones = await self._plan_milestones(
+        user_input=user_input,
+        previous_session_summary=previous_session_summary,
+        ctx=ctx,
+    )
+
+    await self.event_log.append(MilestonesPlannedEvent(
+        milestones=[m.description for m in milestones],
+        total_count=len(milestones),
+    ))
+
+    # ┌─────────────────────────────────────────────────────────────┐
+    # │ Execute Milestones: 顺序执行                                 │
+    # └─────────────────────────────────────────────────────────────┘
+    for i, milestone in enumerate(milestones):
+        # 状态检查
+        if self.state in [RuntimeState.STOPPED, RuntimeState.CANCELLED]:
+            break
+
+        # 从 checkpoint 恢复时，跳过已完成的
+        if await self.checkpoint.is_completed(milestone.milestone_id):
+            summary = await self.checkpoint.load_summary(milestone.milestone_id)
+            session_ctx.milestone_summaries.append(summary)
+            continue
+
+        # ═══════════════════════════════════════════════════════
+        # Milestone Loop: 执行单个 Milestone
+        # ═══════════════════════════════════════════════════════
+        milestone_result = await self._milestone_loop(
+            milestone=milestone,
+            previous_milestone_summaries=session_ctx.milestone_summaries,
+            ctx=ctx,
+        )
+
+        # ═══════════════════════════════════════════════════════
+        # Summarize: 总结当前 Milestone
+        # ═══════════════════════════════════════════════════════
+        summary = await self._summarize_milestone(
+            milestone=milestone,
+            result=milestone_result,
+            milestone_index=i,
+            total_milestones=len(milestones),
+            ctx=ctx,
+        )
+
+        # 累积到 Session Context
+        session_ctx.milestone_summaries.append(summary)
+
+        # 持久化
+        await self.event_log.append(MilestoneCompletedEvent(
+            milestone_id=milestone.milestone_id,
+            summary=summary,
+        ))
+        await self.checkpoint.save_milestone(milestone.milestone_id, summary)
+
+    # ┌─────────────────────────────────────────────────────────────┐
+    # │ Summarize Session: 压缩整个 Session                          │
+    # └─────────────────────────────────────────────────────────────┘
+    session_summary = await self._summarize_session(
+        session_ctx=session_ctx,
+        ctx=ctx,
+    )
+
+    await self.event_log.append(SessionCompletedEvent(
+        summary=session_summary,
+        duration_seconds=time.time() - session_ctx.start_time,
+    ))
+
+    await self.checkpoint.save_session(session_summary)
+
+    return SessionResult(
+        session_summary=session_summary,
+    )
+```
+
+### 数据结构
+
+```python
+@dataclass
+class SessionSummary:
+    """
+    Session 总结（压缩的上下文）
+
+    传递给下一轮 Session，避免无限累积历史
+    """
+    session_id: str
+    user_input: str
+
+    # 执行结果（压缩）
+    what_was_accomplished: str  # 1-2 句话
+    key_deliverables: list[str]
+
+    # 关键决策和经验
+    important_decisions: list[str]
+    lessons_learned: list[str]
+
+    # 未完成的事项
+    pending_tasks: list[str]
+
+    # 统计
+    milestone_count: int
+    total_attempts: int
+    duration_seconds: float
+
+
+@dataclass
+class MilestoneSummary:
+    """
+    单个 Milestone 的总结
+
+    传递给下一个 Milestone（Session 内部）
+    """
+    milestone_id: str
+    milestone_description: str
+
+    # 产物
+    deliverables: list[str]
+
+    # 经验教训（简洁版）
+    what_worked: str  # 1-2 句话
+    what_failed: str  # 1-2 句话
+    key_insight: str
+
+    # 质量指标
+    completeness: float  # 0.0 - 1.0
+    termination_reason: str
+
+    # 统计
+    attempts: int
+    duration_seconds: float
+
+
+@dataclass
+class SessionContext:
+    """Session 级别的上下文"""
+    user_input: str
+    previous_session_summary: SessionSummary | None
+
+    # 累积的 Milestone 总结（当前 Session 内部）
+    milestone_summaries: list[MilestoneSummary] = field(default_factory=list)
+
+    start_time: float = field(default_factory=time.time)
+```
+
+### 对话流程示例
+
+```
+用户第 1 轮输入："实现用户登录功能"
+    ↓
+Session Loop #1
+    ↓ Plan Milestones
+    [M1: 设计数据库表, M2: 实现认证逻辑, M3: 编写测试]
+    ↓
+    M1 → Milestone Loop → MilestoneResult → Summarize → MilestoneSummary #1
+    M2 → Milestone Loop (读取 Summary #1) → MilestoneResult → Summarize → MilestoneSummary #2
+    M3 → Milestone Loop (读取 Summary #1, #2) → MilestoneResult → Summarize → MilestoneSummary #3
+    ↓
+    Summarize Session → SessionSummary #1
+    ↓
+    保存到 Checkpoint
+
+──────────────────────────────────────────────────────
+
+用户第 2 轮输入："添加密码重置功能"
+    ↓
+Session Loop #2 (读取 SessionSummary #1)
+    ↓ Plan Milestones (基于 user_input + SessionSummary #1)
+    [M4: 生成重置令牌, M5: 发送邮件, M6: 更新密码]
+    ↓
+    M4 → Milestone Loop (读取 SessionSummary #1) → ...
+    M5 → Milestone Loop (读取 SessionSummary #1 + MilestoneSummary #4) → ...
+    M6 → ...
+    ↓
+    Summarize Session → SessionSummary #2
+```
+
+---
+
+## 十六、Milestone 无"失败"概念
+
+### 核心理解
+
+**Milestone 是阶段性成果，不是测试用例**
+
+- Agent 总是会产出东西，只是质量/完整度不同
+- "成功/失败"由用户判断，不是 Agent 自己判断
+- 即使写错了，也是一个产物，用户可以基于这个产物给出反馈
+
+### 两个层次的区分
+
+#### 1. Milestone Loop 内部（有质量检查）
+
+```
+while not milestone_budget.exceeded():
+    Plan Loop → ValidatedPlan
+    Execute Loop → ExecuteResult
+    Verify → VerifyResult
+        ├─ ✓ Verify PASS（内部判断）→ 达到预期，退出循环
+        └─ ✗ Verify FAIL（内部判断）→ Remediate → 继续循环
+```
+
+#### 2. Milestone 整体（对外无"失败"）
+
+```
+MilestoneResult:
+  - deliverables: [产出的文件、代码等]
+  - completeness: 0.85  (完成度，0.0 - 1.0)
+  - termination_reason: "verify_pass" | "budget_exceeded" | "stagnant"
+  - quality_metrics: {tests_passing, tests_failing, ...}
+```
+
+无论 Milestone Loop 内部经历了多少次 Verify 失败，最终都会产出一个 **MilestoneResult**（包含产物、质量指标、完成度），不判断"成功/失败"。
+
+### MilestoneResult 数据结构
+
+```python
+@dataclass
+class MilestoneResult:
+    """
+    Milestone 执行结果（无"失败"概念）
+    """
+    milestone_id: str
+
+    # 产物（无论质量如何，都有产物）
+    deliverables: list[str]
+    evidence: list[Evidence]
+
+    # 质量评估
+    quality_metrics: QualityMetrics
+    completeness: float  # 0.0 - 1.0（Agent 自评）
+
+    # 最后一次 Verify 的结果（供参考）
+    last_verify_result: VerifyResult | None
+
+    # 执行统计
+    attempts: int
+    tool_calls: int
+    duration_seconds: float
+
+    # 终止原因（不是"失败原因"）
+    termination_reason: Literal[
+        "verify_pass",           # Verify 通过，达到预期
+        "budget_exceeded",       # 预算耗尽
+        "stagnant",              # 停滞
+        "plan_generation_failed" # 无法生成有效计划
+    ]
+
+    # 错误（如果有）
+    errors: list[ToolError] = field(default_factory=list)
+```
+
+---
+
+## 十七、Execute Loop 作为 LLM 驱动的执行循环
+
+### 核心理解
+
+**Plan 不是"完整的步骤列表"，而是"策略描述"**
+
+```python
+@dataclass
+class ValidatedPlan:
+    """Plan 是策略描述，不是步骤列表"""
+    plan_description: str  # LLM 生成的计划文本
+
+    # 例如：
+    # "To implement login functionality:
+    #  1. First, read the existing auth code
+    #  2. Then, modify user.py to add login method
+    #  3. Write tests to verify the logic
+    #  4. Run tests to ensure everything works"
+```
+
+**Execute Loop 是 LLM 对话循环**
+
+- LLM 看到：计划 + 当前进度 + 工具结果
+- LLM 决定：下一步调用什么工具
+- 执行工具 → 获得结果
+- LLM 看到结果，决定：继续执行 / 调整策略 / 完成
+
+### Execute Loop 伪代码
+
+```python
+async def _execute_plan(
+    self,
+    validated_plan: ValidatedPlan,
+    milestone_ctx: MilestoneContext,
+    budget: Budget,
+    ctx: RunContext[DepsT],
+) -> ExecuteResult:
+    """
+    Execute Loop: LLM 驱动的执行循环
+
+    关键设计：
+    ════════════
+    1. LLM 决定下一步调用什么工具
+    2. 区分 Execute Tool 和 Plan Tool
+    3. Execute Tool → 进入 Tool Loop 确保执行成功
+    4. Plan Tool (Skill) → 中止 Execute，回到 Milestone Loop 重新规划
+    """
+
+    execute_result = ExecuteResult(
+        evidence=[],
+        successful_tool_calls=[],  # 只记录成功的
+        execution_trace=[],
+    )
+
+    execution_messages = [
+        {
+            "role": "system",
+            "content": self._build_execution_system_prompt(milestone_ctx),
+        },
+        {
+            "role": "user",
+            "content": f"""
+Execute this plan:
+
+{validated_plan.plan_description}
+
+Available tools: {self._format_tool_definitions()}
+
+Execute step by step. After each tool call, assess and decide next action.
+"""
+        }
+    ]
+
+    max_iterations = 50
+
+    for iteration in range(max_iterations):
+        if budget.exceeded():
+            execute_result.termination_reason = "budget_exceeded"
+            break
+
+        # ┌─────────────────────────────────────────────────┐
+        # │ LLM 决定下一步                                   │
+        # └─────────────────────────────────────────────────┘
+        response = await self.model_adapter.generate(
+            messages=execution_messages,
+            tools=self.tool_runtime.list_tools(),
+        )
+
+        # LLM 没有工具调用 → 声明完成
+        if not response.tool_calls:
+            execute_result.termination_reason = "llm_declares_done"
+            execute_result.llm_conclusion = response.content
+            break
+
+        # ┌─────────────────────────────────────────────────┐
+        # │ 处理工具调用                                     │
+        # └─────────────────────────────────────────────────┘
+        tool_results = []
+
+        for tool_call in response.tool_calls:
+            tool = self.tool_runtime.get_tool(tool_call.name)
+
+            if tool.is_plan_tool():  # Skill
+                # ════════════════════════════════════════════
+                # Plan Tool → 中止 Execute，回到 Milestone Loop
+                # ════════════════════════════════════════════
+                execute_result.encountered_plan_tool = True
+                execute_result.plan_tool_name = tool_call.name
+                execute_result.termination_reason = "plan_tool_encountered"
+                return execute_result
+
+            else:
+                # ════════════════════════════════════════════
+                # Execute Tool → 进入 Tool Loop
+                # ════════════════════════════════════════════
+                try:
+                    result = await self._tool_loop_or_direct_invoke(
+                        tool=tool,
+                        tool_call=tool_call,
+                        budget=budget,
+                        ctx=ctx,
+                    )
+
+                    # 只记录成功的
+                    execute_result.successful_tool_calls.append({
+                        "tool": tool_call.name,
+                        "input": tool_call.input,
+                        "output": result.output,
+                    })
+
+                    if result.evidence_ref:
+                        execute_result.evidence.append(result.evidence_ref)
+
+                    tool_results.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "content": result.output,
+                    })
+
+                except (UserInterruptedError, ToolExecutionError) as e:
+                    # 工具失败，反馈给 LLM
+                    tool_results.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "content": f"ERROR: {str(e)}",
+                    })
+
+        # 反馈给 LLM
+        execution_messages.append({
+            "role": "assistant",
+            "content": response.content,
+            "tool_calls": response.tool_calls,
+        })
+        execution_messages.extend(tool_results)
+
+    if iteration >= max_iterations - 1:
+        execute_result.termination_reason = "max_iterations_reached"
+
+    return execute_result
+```
+
+### Execute Tool vs Plan Tool
+
+| 维度 | Execute Tool | Plan Tool (Skill) |
+|-----|-------------|-------------------|
+| **目的** | 完成具体操作 | 复杂子任务，需要重新规划 |
+| **例子** | bash, read_file, run_tests | FixFailingTest, ImplementFeature |
+| **执行方式** | Tool Loop（确保目的达成） | 中止 Execute，回到 Milestone Loop |
+| **返回** | 具体执行结果 | 触发重新规划 |
+
+### ExecuteResult 数据结构
+
+```python
+@dataclass
+class ExecuteResult:
+    """Execute Loop 的结果"""
+    evidence: list[Evidence]
+
+    # 只记录成功的工具调用
+    successful_tool_calls: list[dict]
+
+    # 执行轨迹
+    execution_trace: list[dict]
+
+    # Plan Tool 遇到标记
+    encountered_plan_tool: bool = False
+    plan_tool_name: str | None = None
+
+    # 终止原因
+    termination_reason: Literal[
+        "llm_declares_done",
+        "plan_tool_encountered",
+        "budget_exceeded",
+        "max_iterations_reached",
+    ] | None = None
+
+    # LLM 的结论
+    llm_conclusion: str | None = None
+```
+
+---
+
+## 十八、Tool Loop 确保单步执行成功
+
+### 核心理解
+
+**Tool Loop 负责确保单个工具调用的目的达成**
+
+```
+Execute Loop 中某一步：
+  LLM 决定：需要修改 auth.py 文件
+    ↓
+  进入 Tool Loop (针对这个 WorkUnit)
+    ├─ Gather: 收集信息（读取文件）
+    ├─ Act: 调用编辑工具
+    ├─ Check: 检查是否修改成功（DonePredicate）
+    ├─ Update: 更新状态
+    └─ 如果 Check 失败 → 继续循环尝试
+
+  Tool Loop 结束 → 返回结果（成功修改了文件）
+    ↓
+  Execute Loop 记录：edit_file → success
+    ↓
+  LLM 看到成功结果 → 决定下一步
+```
+
+### Tool Loop 伪代码
+
+```python
+async def _tool_loop(
+    self,
+    tool: ITool,
+    tool_input: dict,
+    envelope: Envelope,
+    done_predicate: DonePredicate,
+    budget: Budget,
+    ctx: RunContext,
+) -> ToolResult:
+    """
+    Tool Loop: 确保单个 WorkUnit 的目的达成
+
+    例如：edit_file_workunit
+    - Gather: 读取文件内容
+    - Act: 调用编辑工具
+    - Check: 验证文件是否修改成功
+    - Update: 更新证据
+
+    循环直到 DonePredicate 满足或 Budget 耗尽
+    """
+
+    tool_loop_ctx = ToolLoopContext(
+        tool_name=tool.name,
+        tool_input=tool_input,
+        evidence=[],
+    )
+
+    tool_budget = envelope.budget
+
+    while not tool_budget.exceeded():
+        tool_budget.record_attempt()
+
+        # Gather
+        context = await self._gather_for_tool_loop(tool_loop_ctx, ctx)
+
+        # Act
+        action_result = await tool.execute(tool_input, context, ctx)
+        tool_budget.record_tool_call()
+
+        # Check
+        if done_predicate.is_satisfied(action_result):
+            # 目的达成
+            return ToolResult(
+                success=True,
+                output=action_result.output,
+                evidence_ref=action_result.evidence_ref,
+            )
+
+        # Update
+        tool_loop_ctx.add_evidence(action_result.evidence_ref)
+
+        # 检查停滞
+        if self._is_tool_loop_stagnant(tool_loop_ctx):
+            break
+
+    # Tool Loop 失败（未达成目的）
+    raise ToolExecutionError(
+        f"Tool Loop for {tool.name} failed: DonePredicate not satisfied "
+        f"after {tool_budget.current_attempts} attempts"
+    )
+
+
+async def _tool_loop_or_direct_invoke(
+    self,
+    tool: ITool,
+    tool_call: ToolCall,
+    budget: Budget,
+    ctx: RunContext,
+) -> ToolResult:
+    """
+    根据工具类型决定：
+    - Atomic Tool → 直接调用
+    - WorkUnit Tool → 进入 Tool Loop
+    """
+
+    if tool.is_atomic():
+        # Atomic Tool: 直接调用一次
+        result = await self.tool_runtime.invoke(
+            tool_call.name,
+            tool_call.input,
+            ctx,
+        )
+        budget.record_tool_call()
+        return result
+
+    else:
+        # WorkUnit Tool: 进入 Tool Loop
+        envelope = tool.get_envelope()
+        done_predicate = tool.get_done_predicate()
+
+        result = await self._tool_loop(
+            tool=tool,
+            tool_input=tool_call.input,
+            envelope=envelope,
+            done_predicate=done_predicate,
+            budget=budget,
+            ctx=ctx,
+        )
+
+        return result
+```
+
+---
+
+## 十九、更新后的完整循环图（五层循环）
+
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                          五层循环（完整版 v3）                                 ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
+║  ┃ SESSION LOOP（跨对话，用户交互边界）                                     ┃ ║
+║  ┃   User Input #1 → Session #1 → User Input #2 → Session #2 → ...         ┃ ║
+║  ┃   每个 Session 开始前：读取 previous_session_summary                     ┃ ║
+║  ┃   每个 Session 结束后：生成 session_summary（压缩上下文）                 ┃ ║
+║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
+║                                     │                                         ║
+║                                     ▼                                         ║
+║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
+║  ┃ MILESTONE LOOP（执行单个 Milestone，无用户输入）                         ┃ ║
+║  ┃                                                                         ┃ ║
+║  ┃   while not milestone_budget.exceeded():                                ┃ ║
+║  ┃                                                                         ┃ ║
+║  ┃   ┌────────────────────────────────────┐                                ┃ ║
+║  ┃   │ PLAN LOOP（生成有效计划）           │                                ┃ ║
+║  ┃   │  Observe → Plan → Validate         │                                ┃ ║
+║  ┃   │  失败 → plan_attempts（临时）       │                                ┃ ║
+║  ┃   │  成功 → ValidatedPlan（策略描述）   │                                ┃ ║
+║  ┃   └────────────────────────────────────┘                                ┃ ║
+║  ┃                     │                                                   ┃ ║
+║  ┃                     ▼                                                   ┃ ║
+║  ┃              ┌──────────────────┐                                       ┃ ║
+║  ┃              │ EXECUTE LOOP     │                                       ┃ ║
+║  ┃              │ (LLM 驱动执行)    │                                       ┃ ║
+║  ┃              │                  │                                       ┃ ║
+║  ┃              │ for each iter:   │                                       ┃ ║
+║  ┃              │   LLM → tool_call│                                       ┃ ║
+║  ┃              │   Execute Tool?  │──Yes──▶ Tool Loop ──▶ success        ┃ ║
+║  ┃              │   Plan Tool?     │──Yes──▶ 中止，回到 Milestone Loop     ┃ ║
+║  ┃              │   Done?          │──Yes──▶ ExecuteResult                ┃ ║
+║  ┃              └──────────────────┘                                       ┃ ║
+║  ┃                     │                                                   ┃ ║
+║  ┃                     ▼                                                   ┃ ║
+║  ┃              ┌──────────┐                                               ┃ ║
+║  ┃              │  Verify  │                                               ┃ ║
+║  ┃              └────┬─────┘                                               ┃ ║
+║  ┃                   │                                                     ┃ ║
+║  ┃                   ├─▶ ✓ PASS → MilestoneResult(completeness=1.0)       ┃ ║
+║  ┃                   │                                                     ┃ ║
+║  ┃                   └─▶ ✗ FAIL                                           ┃ ║
+║  ┃                          ▼                                              ┃ ║
+║  ┃                   ┌──────────┐                                         ┃ ║
+║  ┃                   │Remediate │                                         ┃ ║
+║  ┃                   └────┬─────┘                                         ┃ ║
+║  ┃                        │                                               ┃ ║
+║  ┃                        └──▶ continue（回到 while 开始）                 ┃ ║
+║  ┃                                                                         ┃ ║
+║  ┃   退出 Milestone Loop → MilestoneResult（无"失败"，只有完成度）          ┃ ║
+║  ┃   → Summarize → MilestoneSummary（传给下一个 Milestone）                ┃ ║
+║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
+║                                     │                                         ║
+║                          (WorkUnit Tool) ▼                                    ║
+║  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ║
+║  ┃ TOOL LOOP（确保单个工具调用的目的达成）                                  ┃ ║
+║  ┃                                                                         ┃ ║
+║  ┃   while not tool_budget.exceeded():                                     ┃ ║
+║  ┃      Gather → Act → Check (DonePredicate) → Update                      ┃ ║
+║  ┃      成功 → ToolResult                                                  ┃ ║
+║  ┃      失败 → continue                                                    ┃ ║
+║  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### 循环层级总结（更新）
+
+| 循环 | 职责 | 输入 | 输出 | 预算 |
+|-----|------|------|------|------|
+| **Session Loop** | 跨对话持久化 | user_input + previous_session_summary | SessionSummary | 无限（可断点续跑） |
+| **Milestone Loop** | 完成一个里程碑 | previous_milestone_summaries | MilestoneResult（无"失败"） | milestone_budget (10次) |
+| **Plan Loop** | 生成有效计划 | milestone_ctx.reflections | ValidatedPlan（策略描述） | plan_budget (5次) |
+| **Execute Loop** | LLM 驱动执行 | ValidatedPlan | ExecuteResult（成功的工具调用） | 50 iterations |
+| **Tool Loop** | 确保单步成功 | tool_input + Envelope | ToolResult | envelope.budget |
+
+---
+
+## 二十、关键设计总结
+
+### 架构演进
+
+| 版本 | 循环层级 | 关键改进 |
+|-----|---------|---------|
+| v1 | 3层（Session → Milestone → Tool） | 基础循环架构 |
+| v2 | 4层（+ Plan Loop） | Plan Loop 隔离 Validate 失败的计划 |
+| **v3** | **5层（+ Execute Loop）** | **Execute Loop 作为 LLM 驱动的执行循环** |
+
+### v3 的关键设计点
+
+1. **Session Loop**：跨对话持久化，上下文压缩
+2. **Milestone 无"失败"**：只有完成度和产物状态
+3. **Plan 是策略描述**：不是步骤列表
+4. **Execute Loop 是 LLM 对话**：动态决策，遇到 Plan Tool 中止
+5. **Tool Loop 确保单步成功**：只记录成功的工具调用
+6. **Execute Tool vs Plan Tool**：区分具体操作和复杂子任务
+
+### 信息流动
+
+```
+Session Summary (压缩)
+    ↓
+Milestone Loop (读取 previous summaries)
+    ↓
+Plan Loop (读取 reflections) → ValidatedPlan (策略)
+    ↓
+Execute Loop (LLM 驱动) → 成功的 tool_calls
+    ↓
+Verify (检查质量)
+    ↓ 失败
+Remediate (反思) → reflection
+    ↓
+下次 Milestone 迭代
+    ↓
+MilestoneResult (completeness + deliverables)
+    ↓
+MilestoneSummary (压缩)
+    ↓
+SessionSummary (再压缩)
+```
+
+---
+
+*文档状态：补充说明 v5 - 引入 Session Loop 和 Execute Loop，实现五层循环架构*
