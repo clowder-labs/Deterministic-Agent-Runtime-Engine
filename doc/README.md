@@ -39,6 +39,7 @@
 | 文档 | 作用 | 状态 |
 |-----|------|------|
 | `Architecture_Final_Review_v1.md` | **架构终稿**<br/>三层架构、15个接口清单、内置实现列表、循环伪代码 | ⭐ **当前标准** |
+| `Architecture_Final_Review_v1_Addendum.md` | **架构补充**<br/>Remediate 反思机制、Validate→Tool Loop 数据传递 | 📌 **重要补充** |
 | `Agent_Framework_Loop_Model_v2.2_Final.md` | **三层循环模型**<br/>Session/Milestone/Tool Loop 详解、Envelope、DonePredicate | ⭐ **当前标准** |
 | `Interface_Layer_Design_v1.1_MCP_and_Builtin.md` | **接口层设计**<br/>三层模型、MCP 支持、内置实现、AgentScope 对比 | ⭐ **当前标准** |
 
