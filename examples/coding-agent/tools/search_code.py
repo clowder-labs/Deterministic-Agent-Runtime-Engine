@@ -10,8 +10,8 @@ from typing import Any
 from pathlib import Path
 import re
 
-from agent_framework.errors import ToolError
-from agent_framework.models import RunContext, ToolResult, ToolRiskLevel
+from dare_framework.errors import ToolError
+from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
 class SearchCodeTool:
@@ -98,6 +98,10 @@ Use this tool when you need to:
         return ToolRiskLevel.READ_ONLY
 
     @property
+    def tool_type(self) -> ToolType:
+        return ToolType.ATOMIC
+
+    @property
     def requires_approval(self) -> bool:
         return False
 
@@ -156,7 +160,13 @@ Use this tool when you need to:
                 "total_matches": len(matches),
                 "truncated": len(matches) >= max_results,
             },
-            evidence={"match_count": len(matches)},
+            evidence=[
+                Evidence(
+                    evidence_id=new_id("evidence"),
+                    kind="search_matches",
+                    payload={"match_count": len(matches)},
+                )
+            ],
         )
 
     def _should_ignore(self, path: Path) -> bool:

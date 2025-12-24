@@ -104,13 +104,13 @@ flowchart TB
 ```python
 # ❌ 错误：信任 LLM 填写的字段
 def execute_step(step: PlanStep):
-    if step.risk_level == "READ_ONLY":  # LLM 填的，不可信！
+    if step.tool_name == "read_file":  # LLM 填的，不可信！
         # ...
 
 # ✅ 正确：从可信源派生
 def execute_step(step: PlanStep, registry: ToolRegistry):
-    contract = registry.get(step.tool)
-    if contract.risk_level == ToolRiskLevel.READ_ONLY:  # 从 Registry 读，可信
+    tool = registry.get_tool(step.tool_name)
+    if tool and tool.risk_level == ToolRiskLevel.READ_ONLY:  # 从 Registry 读，可信
         # ...
 ```
 
@@ -215,7 +215,7 @@ context:
   blockers: []
 
 files_modified:
-  - "agent_framework/components/tool_registry.py"
+  - "dare_framework/components/tool_registry.py"
 
 notes: |
   已经定义了基本数据结构，参见 tool_registry.py:10-50

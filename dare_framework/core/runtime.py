@@ -25,15 +25,26 @@ from .models import (
     Event,
     ExecuteResult,
     Milestone,
+    MilestoneContext,
     MilestoneResult,
+    MilestoneSummary,
     PlanBudget,
+    ProposedPlan,
+    ProposedStep,
+    RiskLevel,
     RunContext,
     RunResult,
     RuntimeSnapshot,
     RuntimeState,
+    SessionContext,
+    SessionSummary,
+    StepType,
     Task,
-    VerifyResult,
+    ToolErrorRecord,
     ValidatedPlan,
+    ValidatedStep,
+    VerifyResult,
+    new_id,
 )
 
 DepsT = TypeVar("DepsT")
@@ -85,29 +96,55 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
         self._run_id = uuid4().hex
         await self._log_event("runtime.run", {"task_id": task.task_id, "run_id": self._run_id})
 
+        previous_summary = None
+        if isinstance(task.context.get("previous_session_summary"), SessionSummary):
+            previous_summary = task.context.get("previous_session_summary")
+
+        session_ctx = SessionContext(
+            user_input=task.description,
+            previous_session_summary=previous_summary,
+        )
+
         milestone_results: list[MilestoneResult] = []
         errors: list[str] = []
         for milestone in task.to_milestones():
             ctx = RunContext(
+                deps=deps,
                 run_id=self._run_id,
                 task_id=task.task_id,
                 milestone_id=milestone.milestone_id,
-                reflections=[],
             )
-            result = await self._milestone_loop(milestone, ctx)
+            milestone_ctx = MilestoneContext(
+                user_input=milestone.user_input,
+                milestone_description=milestone.description,
+            )
+            result = await self._milestone_loop(milestone, milestone_ctx, ctx)
             milestone_results.append(result)
+            if result.summary:
+                session_ctx.milestone_summaries.append(result.summary)
             if not result.success:
                 errors.extend(result.errors)
                 break
 
         success = not errors
         output = milestone_results[-1].outputs if milestone_results else None
+        session_summary = SessionSummary(
+            session_id=f"session_{task.task_id}",
+            milestone_count=len(session_ctx.milestone_summaries),
+            success=success,
+        )
         await self._log_event(
             "runtime.complete",
             {"task_id": task.task_id, "run_id": self._run_id, "success": success},
         )
         self._state = RuntimeState.STOPPED if success else RuntimeState.CANCELLED
-        return RunResult(success=success, output=output, milestone_results=milestone_results, errors=errors)
+        return RunResult(
+            success=success,
+            output=output,
+            milestone_results=milestone_results,
+            errors=errors,
+            session_summary=session_summary,
+        )
 
     async def pause(self) -> None:
         if self._state != RuntimeState.RUNNING:
@@ -138,67 +175,106 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
     def get_state(self) -> RuntimeState:
         return self._state
 
-    async def _milestone_loop(self, milestone: Milestone, ctx: RunContext) -> MilestoneResult:
+    async def _milestone_loop(
+        self,
+        milestone: Milestone,
+        milestone_ctx: MilestoneContext,
+        ctx: RunContext,
+    ) -> MilestoneResult:
         await self._log_event(
             "milestone.start",
             {"milestone_id": milestone.milestone_id, "run_id": ctx.run_id},
         )
         plan_budget = PlanBudget()
         for attempt in range(plan_budget.max_attempts):
-            plan_outcome = await self._plan_loop(milestone, ctx, attempt)
+            plan_outcome = await self._plan_loop(milestone, milestone_ctx, ctx)
             if not plan_outcome.validated_plan:
-                ctx.reflections.append(plan_outcome.reflection or "plan failed")
+                milestone_ctx.add_reflection(plan_outcome.reflection or "plan failed")
+                milestone_ctx.add_attempt({"attempt": attempt, "errors": plan_outcome.errors})
                 continue
 
             if self._policy_engine.needs_approval(milestone, plan_outcome.validated_plan):
                 await self.pause()
                 await self.resume()
 
-            execute_result = await self._execute_loop(plan_outcome.validated_plan, ctx)
+            execute_result = await self._execute_loop(plan_outcome.validated_plan, milestone_ctx, ctx)
             if execute_result.encountered_plan_tool:
-                ctx.reflections.append(f"plan tool encountered: {execute_result.plan_tool_name}")
+                milestone_ctx.add_reflection(f"plan tool encountered: {execute_result.plan_tool_name}")
                 continue
 
             verify_result = await self._validator.validate_milestone(milestone, execute_result, ctx)
             if verify_result.success:
                 await self._log_event(
                     "milestone.success",
-                    {
-                        "milestone_id": milestone.milestone_id,
-                        "run_id": ctx.run_id,
-                    },
+                    {"milestone_id": milestone.milestone_id, "run_id": ctx.run_id},
+                )
+                summary = MilestoneSummary(
+                    milestone_id=milestone.milestone_id,
+                    description=milestone.description,
+                    success=True,
+                    attempt_count=len(milestone_ctx.attempted_plans) + 1,
+                    evidence_count=len(milestone_ctx.evidence_collected),
                 )
                 return MilestoneResult(
                     success=True,
                     outputs=execute_result.outputs,
                     errors=[],
                     verify_result=verify_result,
+                    summary=summary,
                 )
 
-            reflection = await self._remediator.remediate(verify_result, verify_result.errors, ctx)
-            ctx.reflections.append(reflection)
+            reflection = await self._remediator.remediate(
+                verify_result,
+                milestone_ctx.tool_errors,
+                milestone_ctx,
+                ctx,
+            )
+            milestone_ctx.add_reflection(reflection)
 
         await self._log_event(
             "milestone.failed",
             {"milestone_id": milestone.milestone_id, "run_id": ctx.run_id},
         )
-        return MilestoneResult(success=False, outputs=[], errors=["milestone failed"], verify_result=None)
+        summary = MilestoneSummary(
+            milestone_id=milestone.milestone_id,
+            description=milestone.description,
+            success=False,
+            attempt_count=len(milestone_ctx.attempted_plans),
+            evidence_count=len(milestone_ctx.evidence_collected),
+        )
+        return MilestoneResult(
+            success=False,
+            outputs=[],
+            errors=["milestone failed"],
+            verify_result=None,
+            summary=summary,
+        )
 
-    async def _plan_loop(self, milestone: Milestone, ctx: RunContext, attempt: int) -> PlanLoopOutcome:
-        context_messages = await self._context_assembler.assemble(milestone, ctx)
-        ctx.metadata["context_messages"] = context_messages
-        proposed_plan = await self._plan_generator.generate_plan(milestone, ctx, attempt)
+    async def _plan_loop(
+        self,
+        milestone: Milestone,
+        milestone_ctx: MilestoneContext,
+        ctx: RunContext,
+    ) -> PlanLoopOutcome:
+        assembled = await self._context_assembler.assemble(milestone, milestone_ctx, ctx)
+        ctx.metadata["context_messages"] = assembled.messages
+        proposed_plan = await self._plan_generator.generate_plan(
+            milestone,
+            milestone_ctx,
+            milestone_ctx.attempted_plans,
+            ctx,
+        )
         await self._log_event(
             "plan.attempt",
-            {"milestone_id": milestone.milestone_id, "attempt": attempt, "run_id": ctx.run_id},
+            {"milestone_id": milestone.milestone_id, "attempt": proposed_plan.attempt, "run_id": ctx.run_id},
         )
-        validation = await self._validator.validate_plan(proposed_plan.steps, ctx)
+        validation = await self._validator.validate_plan(proposed_plan.proposed_steps, ctx)
         if validation.success:
             await self._log_event(
                 "plan.validated",
                 {"milestone_id": milestone.milestone_id, "run_id": ctx.run_id},
             )
-            validated = ValidatedPlan(steps=proposed_plan.steps, summary=proposed_plan.summary)
+            validated = self._build_validated_plan(proposed_plan)
             return PlanLoopOutcome(validated_plan=validated, reflection=None, errors=[])
 
         await self._log_event(
@@ -210,13 +286,43 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
             },
         )
         reflection = await self._remediator.remediate(
-            VerifyResult(success=False, errors=validation.errors, evidence={}),
-            validation.errors,
+            VerifyResult(success=False, errors=validation.errors, evidence=[]),
+            milestone_ctx.tool_errors,
+            milestone_ctx,
             ctx,
         )
         return PlanLoopOutcome(validated_plan=None, reflection=reflection, errors=validation.errors)
 
-    async def _execute_loop(self, plan: ValidatedPlan, ctx: RunContext) -> ExecuteResult:
+    def _build_validated_plan(self, proposed_plan: ProposedPlan) -> ValidatedPlan:
+        validated_steps: list[ValidatedStep] = []
+        for step in proposed_plan.proposed_steps:
+            tool = self._tool_runtime.get_tool(step.tool_name)
+            step_type = StepType.WORKUNIT if tool and tool.is_work_unit else StepType.ATOMIC
+            risk_level = tool.risk_level if tool else RiskLevel.READ_ONLY
+            validated_steps.append(
+                ValidatedStep(
+                    step_id=step.step_id,
+                    step_type=step_type,
+                    tool_name=step.tool_name,
+                    risk_level=risk_level,
+                    tool_input=step.tool_input,
+                    description=step.description,
+                    envelope=step.envelope,
+                    done_predicate=step.done_predicate,
+                )
+            )
+        return ValidatedPlan(
+            plan_description=proposed_plan.plan_description,
+            steps=validated_steps,
+            metadata=proposed_plan.metadata,
+        )
+
+    async def _execute_loop(
+        self,
+        plan: ValidatedPlan,
+        milestone_ctx: MilestoneContext,
+        ctx: RunContext,
+    ) -> ExecuteResult:
         outputs: list = []
         errors: list[str] = []
         for step in plan.steps:
@@ -245,14 +351,29 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
                 )
             except Exception as exc:  # noqa: BLE001
                 errors.append(str(exc))
+                milestone_ctx.add_error(
+                    ToolErrorRecord(
+                        error_type="tool_exception",
+                        tool_name=step.tool_name,
+                        message=str(exc),
+                    )
+                )
                 await self._log_event(
                     "tool.error",
                     {"tool": step.tool_name, "error": str(exc), "run_id": ctx.run_id},
                 )
                 return ExecuteResult(success=False, outputs=outputs, errors=errors)
             outputs.append(result)
+            milestone_ctx.evidence_collected.extend(result.evidence)
             if not result.success:
                 errors.append(result.error or "tool failed")
+                milestone_ctx.add_error(
+                    ToolErrorRecord(
+                        error_type="tool_failure",
+                        tool_name=step.tool_name,
+                        message=result.error or "tool failed",
+                    )
+                )
         return ExecuteResult(success=not errors, outputs=outputs, errors=errors)
 
     async def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:

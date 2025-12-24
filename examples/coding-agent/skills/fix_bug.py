@@ -8,7 +8,7 @@ Fix Bug Skill
 4. Skill 如何调用多个 Tool？
 """
 
-from agent_framework.models import RunContext, ToolResult
+from dare_framework.models import Evidence, RunContext, ToolResult, new_id
 
 
 class FixBugSkill:
@@ -40,5 +40,11 @@ This skill will:
             success=False,
             output={"message": "Skill execution is not implemented in MVP."},
             error="not_implemented",
-            evidence={},
+            evidence=[
+                Evidence(
+                    evidence_id=new_id("evidence"),
+                    kind="skill_stub",
+                    payload={"name": "fix_bug"},
+                )
+            ],
         )

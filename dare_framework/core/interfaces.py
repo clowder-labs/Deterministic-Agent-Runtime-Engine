@@ -3,24 +3,34 @@ from __future__ import annotations
 from typing import Any, Generic, Protocol, TypeVar
 
 from .models import (
+    AssembledContext,
+    DonePredicate,
+    Envelope,
+    Evidence,
     Event,
     EventFilter,
+    GenerateOptions,
     Message,
+    MemoryItem,
     Milestone,
+    MilestoneContext,
     ModelResponse,
-    PlanStep,
+    PolicyDecision,
     ProposedPlan,
+    ProposedStep,
+    Resource,
+    ResourceContent,
     RunContext,
     RunResult,
     RuntimeSnapshot,
     RuntimeState,
-    Resource,
-    ResourceContent,
+    Task,
     ToolDefinition,
     ToolResult,
+    ToolType,
     ValidationResult,
+    ValidatedPlan,
     VerifyResult,
-    PolicyDecision,
 )
 
 DepsT = TypeVar("DepsT")
@@ -28,10 +38,10 @@ OutputT = TypeVar("OutputT")
 
 
 class IRuntime(Protocol, Generic[DepsT, OutputT]):
-    async def init(self, task: "Task") -> None:
+    async def init(self, task: Task) -> None:
         ...
 
-    async def run(self, task: "Task", deps: DepsT) -> RunResult[OutputT]:
+    async def run(self, task: Task, deps: DepsT) -> RunResult[OutputT]:
         ...
 
     async def pause(self) -> None:
@@ -87,6 +97,10 @@ class ITool(Protocol):
 
     @property
     def output_schema(self) -> dict[str, Any]:
+        ...
+
+    @property
+    def tool_type(self) -> ToolType:
         ...
 
     @property
@@ -150,7 +164,7 @@ class IToolRuntime(Protocol):
         name: str,
         input: dict[str, Any],
         ctx: RunContext,
-        envelope: "Envelope | None" = None,
+        envelope: Envelope | None = None,
     ) -> ToolResult:
         ...
 
@@ -168,7 +182,10 @@ class IPolicyEngine(Protocol):
     def check_tool_access(self, tool: ITool, ctx: RunContext) -> PolicyDecision:
         ...
 
-    def needs_approval(self, milestone: Milestone, validated_plan: "ValidatedPlan") -> bool:
+    def needs_approval(self, milestone: Milestone, validated_plan: ValidatedPlan) -> bool:
+        ...
+
+    def enforce(self, action: str, resource: str, ctx: RunContext) -> None:
         ...
 
 
@@ -176,51 +193,74 @@ class IPlanGenerator(Protocol):
     async def generate_plan(
         self,
         milestone: Milestone,
+        milestone_ctx: MilestoneContext,
+        plan_attempts: list[dict[str, Any]],
         ctx: RunContext,
-        attempt: int,
     ) -> ProposedPlan:
         ...
 
 
 class IValidator(Protocol):
-    async def validate_plan(self, steps: list[PlanStep], ctx: RunContext) -> ValidationResult:
+    async def validate_plan(self, proposed_steps: list[ProposedStep], ctx: RunContext) -> ValidationResult:
         ...
 
     async def validate_milestone(
         self,
         milestone: Milestone,
-        result: "ExecuteResult",
+        execute_result: "ExecuteResult",
         ctx: RunContext,
     ) -> VerifyResult:
         ...
 
-    async def validate_evidence(self, evidence: dict[str, Any], predicate: "DonePredicate") -> bool:
+    async def validate_evidence(self, evidence: list[Evidence], predicate: DonePredicate) -> bool:
         ...
 
 
 class IRemediator(Protocol):
-    async def remediate(self, verify_result: VerifyResult, errors: list[str], ctx: RunContext) -> str:
+    async def remediate(
+        self,
+        verify_result: VerifyResult,
+        tool_errors: list["ToolErrorRecord"],
+        milestone_ctx: MilestoneContext,
+        ctx: RunContext,
+    ) -> str:
         ...
 
 
 class IContextAssembler(Protocol):
-    async def assemble(self, milestone: Milestone, ctx: RunContext) -> list[Message]:
+    async def assemble(
+        self,
+        milestone: Milestone,
+        milestone_ctx: MilestoneContext,
+        ctx: RunContext,
+    ) -> AssembledContext:
         ...
 
-    async def compress(self, context: list[Message]) -> list[Message]:
+    async def compress(self, context: AssembledContext, max_tokens: int) -> AssembledContext:
         ...
 
 
 class IModelAdapter(Protocol):
-    async def generate(self, messages: list[Message], tools: list[ToolDefinition]) -> ModelResponse:
+    async def generate(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+        options: GenerateOptions | None = None,
+    ) -> ModelResponse:
+        ...
+
+    async def generate_structured(self, messages: list[Message], output_schema: type[Any]) -> Any:
         ...
 
 
 class IMemory(Protocol):
-    def add(self, text: str, metadata: dict[str, Any] | None = None) -> None:
+    async def store(self, key: str, value: str, metadata: dict | None = None) -> None:
         ...
 
-    def search(self, query: str, limit: int = 5) -> list[str]:
+    async def search(self, query: str, top_k: int = 5) -> list[MemoryItem]:
+        ...
+
+    async def get(self, key: str) -> str | None:
         ...
 
 
@@ -258,14 +298,8 @@ class IMCPClient(Protocol):
 
 
 class IAgent(Protocol, Generic[DepsT, OutputT]):
-    async def run(self, task: "Task", deps: DepsT) -> RunResult[OutputT]:
+    async def run(self, task: Task, deps: DepsT) -> RunResult[OutputT]:
         ...
 
 
-from .models import (
-    DonePredicate,
-    Envelope,
-    ExecuteResult,
-    Task,
-    ValidatedPlan,
-)
+from .models import ExecuteResult, ToolErrorRecord

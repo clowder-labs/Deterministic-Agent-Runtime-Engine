@@ -55,7 +55,7 @@ class ToolRuntime(IToolRuntime):
         try:
             return await tool.execute(input, ctx)
         except ToolError as exc:
-            return ToolResult(success=False, output={}, error=exc.message, evidence={})
+            return ToolResult(success=False, output={}, error=exc.message, evidence=[])
 
     async def _tool_loop(
         self,
@@ -69,11 +69,11 @@ class ToolRuntime(IToolRuntime):
                 success=False,
                 output={},
                 error=f"Tool {tool.name} not allowed by envelope",
-                evidence={},
+                evidence=[],
             )
         predicate = envelope.done_predicate or DonePredicate()
-        max_iterations = max(1, envelope.budget.max_iterations)
-        last_result = ToolResult(success=False, output={}, error="Tool loop not executed", evidence={})
+        max_iterations = max(1, envelope.budget.max_tool_calls)
+        last_result = ToolResult(success=False, output={}, error="Tool loop not executed", evidence=[])
         for _ in range(max_iterations):
             result = await self._execute_tool(tool, input, ctx)
             last_result = result

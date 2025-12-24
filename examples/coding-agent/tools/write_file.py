@@ -9,8 +9,8 @@ Write File Tool
 from typing import Any
 from pathlib import Path
 
-from agent_framework.errors import ToolError
-from agent_framework.models import RunContext, ToolResult, ToolRiskLevel
+from dare_framework.errors import ToolError
+from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
 class WriteFileTool:
@@ -85,6 +85,10 @@ Parent directories will be created automatically.
         return ToolRiskLevel.IDEMPOTENT_WRITE
 
     @property
+    def tool_type(self) -> ToolType:
+        return ToolType.ATOMIC
+
+    @property
     def requires_approval(self) -> bool:
         return False  # 幂等操作，不需要审批
 
@@ -129,7 +133,13 @@ Parent directories will be created automatically.
                 "bytes_written": bytes_written,
                 "created": created,
             },
-            evidence={"file": str(abs_path)},
+            evidence=[
+                Evidence(
+                    evidence_id=new_id("evidence"),
+                    kind="file_write",
+                    payload={"path": str(abs_path), "created": created},
+                )
+            ],
         )
 
     async def compensate(

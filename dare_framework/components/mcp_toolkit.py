@@ -32,6 +32,10 @@ class MCPTool:
         return self._definition.risk_level
 
     @property
+    def tool_type(self):
+        return self._definition.tool_type
+
+    @property
     def requires_approval(self) -> bool:
         return self._definition.requires_approval
 
@@ -78,6 +82,7 @@ def _coerce_risk(tool_def: ToolDefinition) -> ToolDefinition:
         description=tool_def.description,
         input_schema=tool_def.input_schema,
         output_schema=tool_def.output_schema,
+        tool_type=tool_def.tool_type,
         risk_level=ToolRiskLevel.READ_ONLY,
         requires_approval=tool_def.requires_approval,
         timeout_seconds=tool_def.timeout_seconds,

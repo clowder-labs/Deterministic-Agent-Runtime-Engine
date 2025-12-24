@@ -10,5 +10,5 @@ The v1.3 architecture and v1.1 interface designs are finalized but not yet captu
 
 ## Impact
 - Affected specs: new capabilities `core-runtime`, `interface-layer`, `example-agent`.
-- Affected code: new modules under `agent_framework/` plus updates in `examples/coding-agent/` (implementation in apply stage).
+- Affected code: new modules under `dare_framework/` plus updates in `examples/coding-agent/` (implementation in apply stage).
 - References: `doc/design/Architecture_Final_Review_v1.3.md`, `doc/design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`.

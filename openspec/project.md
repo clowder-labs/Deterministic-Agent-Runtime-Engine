@@ -98,7 +98,7 @@ async def invoke(
 #### 核心组件
 
 ```
-agent_framework/
+dare_framework/
 ├── builder.py                 # AgentBuilder + Agent
 ├── core/                      # 核心状态与协议
 │   ├── runtime.py             # AgentRuntime 五层循环

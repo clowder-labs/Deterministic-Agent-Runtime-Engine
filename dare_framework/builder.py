@@ -28,7 +28,7 @@ from .core.interfaces import (
     IRuntime,
     IValidator,
 )
-from .core.models import PlanStep, RunResult, Task
+from .core.models import PlanStep, RunResult, Task, new_id
 from .core.runtime import AgentRuntime
 
 DepsT = TypeVar("DepsT")
@@ -68,7 +68,7 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         builder._model_adapter = MockModelAdapter([model or "ok"])
         builder.with_tools(NoOpTool())
         builder._plan_generator = DeterministicPlanGenerator(
-            [[PlanStep(tool_name="noop", tool_input={})]]
+            [[PlanStep(step_id=new_id("step"), tool_name="noop", tool_input={})]]
         )
         return builder
 
@@ -158,7 +158,7 @@ class AgentBuilder(Generic[DepsT, OutputT]):
             if self._tool_registry.get_tool("noop") is None:
                 self._tool_registry.register_tool(NoOpTool())
             plan_generator = DeterministicPlanGenerator(
-                [[PlanStep(tool_name="noop", tool_input={})]]
+                [[PlanStep(step_id=new_id("step"), tool_name="noop", tool_input={})]]
             )
         else:
             plan_generator = self._plan_generator

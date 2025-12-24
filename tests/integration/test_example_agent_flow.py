@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_framework.models import PlanStep
+from dare_framework.models import PlanStep, new_id
 
 
 def _load_coding_agent():
@@ -25,7 +25,7 @@ async def test_example_agent_deterministic_flow(tmp_path):
     (tmp_path / "sample.txt").write_text("hello", encoding="utf-8")
 
     plan_steps = [
-        PlanStep(tool_name="read_file", tool_input={"path": "sample.txt"})
+        PlanStep(step_id=new_id("step"), tool_name="read_file", tool_input={"path": "sample.txt"})
     ]
 
     CodingAgent = _load_coding_agent()
@@ -38,4 +38,6 @@ async def test_example_agent_deterministic_flow(tmp_path):
     result = await agent.run(task="read sample file")
     assert result.success is True
     assert result.output
+    assert result.session_summary is not None
+    assert result.milestone_results[0].summary is not None
     assert result.output[0].output["content"] == "hello"

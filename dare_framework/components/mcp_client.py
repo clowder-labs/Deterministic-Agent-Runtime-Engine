@@ -4,7 +4,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.interfaces import IMCPClient
-from ..core.models import Resource, ResourceContent, RunContext, ToolDefinition, ToolResult, ToolRiskLevel
+from ..core.models import (
+    Evidence,
+    Resource,
+    ResourceContent,
+    RunContext,
+    ToolDefinition,
+    ToolResult,
+    ToolRiskLevel,
+    ToolType,
+    new_id,
+)
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -69,6 +79,7 @@ class BaseMCPClient(IMCPClient):
                 description=getattr(tool, "description", ""),
                 input_schema=getattr(tool, "inputSchema", {}) or {},
                 output_schema=getattr(tool, "outputSchema", {}) or {},
+                tool_type=ToolType.ATOMIC,
                 risk_level=ToolRiskLevel.READ_ONLY,
                 requires_approval=False,
                 timeout_seconds=30,
@@ -86,11 +97,18 @@ class BaseMCPClient(IMCPClient):
         content_blocks = getattr(result, "content", [])
         text_chunks = [getattr(block, "text", "") for block in content_blocks if hasattr(block, "text")]
         output = structured if structured is not None else {"content": text_chunks}
+        evidence = [
+            Evidence(
+                evidence_id=new_id("evidence"),
+                kind="mcp_result",
+                payload=output or {},
+            )
+        ]
         return ToolResult(
             success=not is_error,
             output=output or {},
             error="mcp tool error" if is_error else None,
-            evidence={},
+            evidence=evidence,
         )
 
     async def list_resources(self) -> list[Resource]:

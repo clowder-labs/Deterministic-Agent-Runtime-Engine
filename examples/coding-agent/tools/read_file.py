@@ -11,9 +11,8 @@ Read File Tool
 from typing import Any
 from pathlib import Path
 
-from agent_framework.errors import ToolError
-from agent_framework.models import ToolResult, ToolRiskLevel
-from agent_framework.models import RunContext
+from dare_framework.errors import ToolError
+from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
 class ReadFileTool:  # (ITool)
@@ -114,6 +113,10 @@ The file path should be relative to the workspace root.
         return ToolRiskLevel.READ_ONLY
 
     @property
+    def tool_type(self) -> ToolType:
+        return ToolType.ATOMIC
+
+    @property
     def requires_approval(self) -> bool:
         return False  # 只读操作不需要审批
 
@@ -198,7 +201,13 @@ The file path should be relative to the workspace root.
                 "line_count": len(lines),
                 "truncated": truncated,
             },
-            evidence={"file": str(abs_path)},
+            evidence=[
+                Evidence(
+                    evidence_id=new_id("evidence"),
+                    kind="file_read",
+                    payload={"path": str(abs_path)},
+                )
+            ],
         )
 
     def _resolve_path(self, path: str) -> Path:

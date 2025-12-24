@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..core.interfaces import IToolkit, ISkillRegistry, ITool, ISkill
-from ..core.models import ToolDefinition, ToolRiskLevel
+from ..core.models import ToolDefinition, ToolRiskLevel, ToolType
 
 
 class ToolRegistry(IToolkit):
@@ -23,6 +23,7 @@ class ToolRegistry(IToolkit):
                 description=tool.description,
                 input_schema=tool.input_schema,
                 output_schema=tool.output_schema,
+                tool_type=getattr(tool, "tool_type", ToolType.WORKUNIT if tool.is_work_unit else ToolType.ATOMIC),
                 risk_level=_normalize_risk(tool.risk_level),
                 requires_approval=tool.requires_approval,
                 timeout_seconds=tool.timeout_seconds,

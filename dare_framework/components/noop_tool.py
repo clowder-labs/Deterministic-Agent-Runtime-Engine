@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..core.models import RunContext, ToolResult, ToolRiskLevel
+from ..core.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
 class NoOpTool:
@@ -25,6 +25,10 @@ class NoOpTool:
         return ToolRiskLevel.READ_ONLY
 
     @property
+    def tool_type(self) -> ToolType:
+        return ToolType.ATOMIC
+
+    @property
     def requires_approval(self) -> bool:
         return False
 
@@ -41,4 +45,8 @@ class NoOpTool:
         return False
 
     async def execute(self, input: dict, context: RunContext) -> ToolResult:
-        return ToolResult(success=True, output={"status": "ok"}, evidence={})
+        return ToolResult(
+            success=True,
+            output={"status": "ok"},
+            evidence=[Evidence(evidence_id=new_id("evidence"), kind="noop", payload={"status": "ok"})],
+        )

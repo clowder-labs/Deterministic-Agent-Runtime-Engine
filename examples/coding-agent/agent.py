@@ -7,9 +7,9 @@ Simple Coding Agent Example
 
 from typing import Iterable
 
-from agent_framework import AgentBuilder
-from agent_framework.defaults import DeterministicPlanGenerator, MockModelAdapter
-from agent_framework.models import PlanStep, Task
+from dare_framework import AgentBuilder
+from dare_framework.defaults import DeterministicPlanGenerator, MockModelAdapter
+from dare_framework.models import PlanStep, Task, new_id
 
 from tools import ReadFileTool, WriteFileTool, SearchCodeTool, RunTestsTool
 from skills import FixBugSkill
@@ -43,7 +43,7 @@ class CodingAgent:
 
         if mock_mode:
             steps = list(plan_steps) if plan_steps else [
-                PlanStep(tool_name="read_file", tool_input={"path": "README.md"})
+                PlanStep(step_id=new_id("step"), tool_name="read_file", tool_input={"path": "README.md"})
             ]
             builder.with_plan_generator(DeterministicPlanGenerator([steps]))
             builder.with_model(MockModelAdapter(["mock"]))

@@ -10,3 +10,6 @@ class AllowAllPolicyEngine(IPolicyEngine):
 
     def needs_approval(self, milestone: Milestone, validated_plan: ValidatedPlan) -> bool:
         return False
+
+    def enforce(self, action: str, resource: str, ctx: RunContext) -> None:
+        return None

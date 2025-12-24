@@ -9,8 +9,8 @@ Run Tests Tool
 from typing import Any
 import asyncio
 
-from agent_framework.errors import ToolError
-from agent_framework.models import RunContext, ToolResult, ToolRiskLevel
+from dare_framework.errors import ToolError
+from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
 class RunTestsTool:
@@ -84,6 +84,10 @@ Use this tool when you need to:
         return ToolRiskLevel.READ_ONLY
 
     @property
+    def tool_type(self) -> ToolType:
+        return ToolType.WORKUNIT
+
+    @property
     def requires_approval(self) -> bool:
         return False
 
@@ -136,7 +140,13 @@ Use this tool when you need to:
                     "output": output,
                     "failures": parsed["failures"],
                 },
-                evidence={"test_report": True},
+                evidence=[
+                    Evidence(
+                        evidence_id=new_id("evidence"),
+                        kind="test_report",
+                        payload={"success": success},
+                    )
+                ],
             )
         except asyncio.TimeoutError:
             return ToolResult(
@@ -150,7 +160,7 @@ Use this tool when you need to:
                     "failures": [],
                 },
                 error="timeout",
-                evidence={},
+                evidence=[],
             )
         except OSError as exc:
             raise ToolError(code="TEST_RUN_FAILED", message=str(exc)) from exc

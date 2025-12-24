@@ -1,19 +1,19 @@
 import pytest
 
-from agent_framework.checkpoint import FileCheckpoint
-from agent_framework.defaults import DeterministicPlanGenerator, NoOpTool
-from agent_framework.event_log import LocalEventLog
-from agent_framework.models import PlanStep, RuntimeState, Task
-from agent_framework.registries import SkillRegistry, ToolRegistry
-from agent_framework.runtime import AgentRuntime
-from agent_framework.tool_runtime import ToolRuntime
-from agent_framework.defaults import AllowAllPolicyEngine, SimpleValidator
+from dare_framework.checkpoint import FileCheckpoint
+from dare_framework.defaults import DeterministicPlanGenerator, NoOpTool
+from dare_framework.event_log import LocalEventLog
+from dare_framework.models import PlanStep, RuntimeState, Task, new_id
+from dare_framework.registries import SkillRegistry, ToolRegistry
+from dare_framework.runtime import AgentRuntime
+from dare_framework.tool_runtime import ToolRuntime
+from dare_framework.defaults import AllowAllPolicyEngine, SimpleValidator
 
 
 @pytest.mark.asyncio
 async def test_runtime_transitions_to_stopped(tmp_path):
     plan_generator = DeterministicPlanGenerator(
-        [[PlanStep(tool_name="noop", tool_input={})]]
+        [[PlanStep(step_id=new_id("step"), tool_name="noop", tool_input={})]]
     )
 
     tool_registry = ToolRegistry()
@@ -39,4 +39,7 @@ async def test_runtime_transitions_to_stopped(tmp_path):
     result = await runtime.run(task, None)
 
     assert result.success is True
+    assert result.session_summary is not None
+    assert result.session_summary.success is True
+    assert result.milestone_results[0].summary is not None
     assert runtime.get_state() == RuntimeState.STOPPED
