@@ -10,11 +10,12 @@ from typing import Any
 from pathlib import Path
 import re
 
+from dare_framework.components import BaseComponent
 from dare_framework.errors import ToolError
 from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
-class SearchCodeTool:
+class SearchCodeTool(BaseComponent):
     """
     代码搜索工具
 

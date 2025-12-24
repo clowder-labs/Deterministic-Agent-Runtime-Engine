@@ -4,9 +4,10 @@ from typing import Iterable
 
 from ..core.interfaces import IMCPClient, ITool
 from ..core.models import RunContext, ToolDefinition, ToolResult, ToolRiskLevel
+from .base_component import BaseComponent
 
 
-class MCPTool:
+class MCPTool(BaseComponent):
     def __init__(self, client: IMCPClient, definition: ToolDefinition) -> None:
         self._client = client
         self._definition = definition

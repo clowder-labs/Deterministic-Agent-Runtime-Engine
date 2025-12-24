@@ -15,6 +15,7 @@ from ..core.models import (
     ToolType,
     new_id,
 )
+from .base_component import BaseComponent
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -43,7 +44,7 @@ class StreamableHTTPConfig:
     url: str
 
 
-class BaseMCPClient(IMCPClient):
+class BaseMCPClient(BaseComponent, IMCPClient):
     def __init__(self, name: str) -> None:
         self._name = name
         self._session: ClientSession | None = None
@@ -60,6 +61,9 @@ class BaseMCPClient(IMCPClient):
             return
         await self._connect_session()
 
+    async def init(self, config=None, prompts=None) -> None:
+        await self.connect()
+
     async def disconnect(self) -> None:
         if self._session is None:
             return
@@ -68,6 +72,9 @@ class BaseMCPClient(IMCPClient):
         if self._client_cm is not None:
             await self._client_cm.__aexit__(None, None, None)
             self._client_cm = None
+
+    async def close(self) -> None:
+        await self.disconnect()
 
     async def list_tools(self) -> list[ToolDefinition]:
         session = await self._require_session()

@@ -9,11 +9,12 @@ Write File Tool
 from typing import Any
 from pathlib import Path
 
+from dare_framework.components import BaseComponent
 from dare_framework.errors import ToolError
 from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
-class WriteFileTool:
+class WriteFileTool(BaseComponent):
     """
     写入文件工具
 

@@ -11,11 +11,12 @@ Read File Tool
 from typing import Any
 from pathlib import Path
 
+from dare_framework.components import BaseComponent
 from dare_framework.errors import ToolError
 from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
-class ReadFileTool:  # (ITool)
+class ReadFileTool(BaseComponent):  # (ITool)
     """
     读取文件工具
 

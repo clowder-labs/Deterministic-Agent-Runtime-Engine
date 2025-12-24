@@ -5,6 +5,7 @@ from typing import Generic, TypeVar
 from .components.context_assembler import BasicContextAssembler
 from .components.defaults import (
     AllowAllPolicyEngine,
+    CompositeValidator,
     DeterministicPlanGenerator,
     InMemoryMemory,
     MockModelAdapter,
@@ -16,6 +17,7 @@ from .components.defaults import (
 from .components.mcp_toolkit import MCPToolkit
 from .components.registries import SkillRegistry, ToolRegistry
 from .components.tool_runtime import ToolRuntime
+from .component_manager import ComponentDiscoveryConfig, ComponentManager
 from .core.interfaces import (
     IAgent,
     ICheckpoint,
@@ -51,6 +53,7 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         self._skill_registry = SkillRegistry()
         self._model_adapter: IModelAdapter | None = None
         self._memory = InMemoryMemory()
+        self._memory_set = False
         self._hooks = [NoOpHook()]
         self._plan_generator: IPlanGenerator | None = None
         self._validator: IValidator | None = None
@@ -61,6 +64,8 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         self._checkpoint: ICheckpoint | None = None
         self._runtime: IRuntime | None = None
         self._mcp_clients = []
+        self._component_manager: ComponentManager | None = None
+        self._component_discovery: ComponentDiscoveryConfig | None = None
 
     @classmethod
     def quick_start(cls, name: str, model: str | None = None) -> "AgentBuilder":
@@ -90,6 +95,7 @@ class AgentBuilder(Generic[DepsT, OutputT]):
 
     def with_memory(self, memory) -> "AgentBuilder":
         self._memory = memory
+        self._memory_set = True
         return self
 
     def with_hook(self, hook) -> "AgentBuilder":
@@ -132,6 +138,14 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         self._mcp_clients.extend(clients)
         return self
 
+    def with_component_manager(self, manager: ComponentManager) -> "AgentBuilder":
+        self._component_manager = manager
+        return self
+
+    def with_component_discovery(self, config: ComponentDiscoveryConfig) -> "AgentBuilder":
+        self._component_discovery = config
+        return self
+
     def build(self) -> Agent[DepsT, OutputT]:
         if self._mcp_clients:
             raise RuntimeError("MCP clients require build_async() for initialization")
@@ -140,6 +154,7 @@ class AgentBuilder(Generic[DepsT, OutputT]):
     async def build_async(self) -> Agent[DepsT, OutputT]:
         if self._runtime is not None:
             return Agent(self._runtime)
+        await self._load_components()
         if self._mcp_clients:
             mcp_toolkit = MCPToolkit(self._mcp_clients)
             await mcp_toolkit.initialize()
@@ -147,10 +162,32 @@ class AgentBuilder(Generic[DepsT, OutputT]):
                 self._tool_registry.register_tool(tool)
         return self._build()
 
+    async def _load_components(self) -> None:
+        if self._component_manager is None and self._component_discovery is None:
+            return
+        manager = self._component_manager
+        if manager is None:
+            manager = ComponentManager(
+                tool_registry=self._tool_registry,
+                skill_registry=self._skill_registry,
+                discovery_config=self._component_discovery,
+            )
+        await manager.load()
+        self._component_manager = manager
+
+        if self._model_adapter is None and manager.model_adapters:
+            self._model_adapter = manager.model_adapters[0]
+        if not self._memory_set and manager.memories:
+            self._memory = manager.memories[0]
+        if not self._mcp_clients and manager.mcp_clients:
+            self._mcp_clients = list(manager.mcp_clients)
+        if self._validator is None and manager.validators:
+            self._validator = CompositeValidator(manager.validators)
+
     def _build(self) -> Agent[DepsT, OutputT]:
         if self._runtime is not None:
             return Agent(self._runtime)
-        validator = self._validator or SimpleValidator()
+        validator = self._validator or CompositeValidator([SimpleValidator()])
         policy_engine = self._policy_engine or AllowAllPolicyEngine()
         remediator = self._remediator or NoOpRemediator()
         context_assembler = self._context_assembler or BasicContextAssembler()

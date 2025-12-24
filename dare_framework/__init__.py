@@ -1,10 +1,13 @@
 from .builder import AgentBuilder, Agent
+from .component_manager import ComponentDiscoveryConfig, ComponentManager
 from .components import (
     AllowAllPolicyEngine,
     BasicContextAssembler,
+    CompositeValidator,
     DeterministicPlanGenerator,
     FileCheckpoint,
     InMemoryMemory,
+    InMemoryPromptStore,
     LocalEventLog,
     MCPToolkit,
     MockModelAdapter,
@@ -12,6 +15,7 @@ from .components import (
     NoOpRemediator,
     NoOpTool,
     SimpleValidator,
+    StaticConfigProvider,
     StdioMCPClient,
     StreamableHTTPMCPClient,
 )
@@ -25,9 +29,13 @@ __all__ = [
     "AgentRuntime",
     "AllowAllPolicyEngine",
     "BasicContextAssembler",
+    "ComponentDiscoveryConfig",
+    "ComponentManager",
+    "CompositeValidator",
     "DeterministicPlanGenerator",
     "FileCheckpoint",
     "InMemoryMemory",
+    "InMemoryPromptStore",
     "LocalEventLog",
     "MCPToolkit",
     "MockModelAdapter",
@@ -35,6 +43,7 @@ __all__ = [
     "NoOpRemediator",
     "NoOpTool",
     "SimpleValidator",
+    "StaticConfigProvider",
     "StdioMCPClient",
     "StreamableHTTPMCPClient",
 ]

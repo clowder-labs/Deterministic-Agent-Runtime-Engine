@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from ..core.interfaces import IMemory
+from .base_component import BaseComponent
 
 
-class InMemoryMemory(IMemory):
+class InMemoryMemory(BaseComponent, IMemory):
     def __init__(self) -> None:
         self._items: dict[str, tuple[str, dict]] = {}
 

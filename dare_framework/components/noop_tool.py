@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from ..core.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
+from .base_component import BaseComponent
 
 
-class NoOpTool:
+class NoOpTool(BaseComponent):
     @property
     def name(self) -> str:
         return "noop"

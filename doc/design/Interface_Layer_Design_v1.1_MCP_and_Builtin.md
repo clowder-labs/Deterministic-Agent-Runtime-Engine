@@ -39,6 +39,7 @@
 │  Layer 2: Pluggable Components（可插拔，框架提供默认实现）               │
 │  ─────────────────────────────────────────────────────────────────────  │
 │  这些有抽象接口 + 框架内置实现。开发者可以用内置的，也可以自定义。        │
+│  所有可插拔实现统一实现 IComponent（order/init/register/close）。         │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │  IModelAdapter                                                   │   │
@@ -83,11 +84,19 @@
 │  │  └── 开发者自定义...                                             │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  IConfigProvider / IPromptStore                                  │   │
+│  │  ├── StaticConfigProvider ✅ 内置                                 │   │
+│  │  ├── InMemoryPromptStore ✅ 内置                                  │   │
+│  │  └── 开发者自定义...                                             │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  Layer 3: Agent Composition（组装层）                                    │
 │  ─────────────────────────────────────────────────────────────────────  │
-│  开发者使用 AgentBuilder 组装以上组件。                                  │
+│  开发者使用 AgentBuilder 组装以上组件，或通过 ComponentManager 进行       │
+│  entry points 发现与注册。                                              │
 │                                                                         │
 │  agent = AgentBuilder("my-agent")                                       │
 │      .with_model(ClaudeAdapter())      # 用内置的                       │
@@ -95,10 +104,22 @@
 │      .with_skills(FixFailingTest())    # Plan Tools / Skills            │
 │      .with_mcp("filesystem", "github") # MCP 服务器                     │
 │      .with_memory(VectorMemory())      # 用内置的                       │
+│      .with_component_discovery(...)    # 启用 entry points 发现          │
 │      .build()                                                           │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Entry points 约定（Layer 3 发现）**：
+- `dare_framework.validators`
+- `dare_framework.memory`
+- `dare_framework.model_adapters`
+- `dare_framework.tools`
+- `dare_framework.skills`
+- `dare_framework.mcp_clients`
+- `dare_framework.hooks`
+- `dare_framework.config_providers`
+- `dare_framework.prompt_stores`
 
 ---
 

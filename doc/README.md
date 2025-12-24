@@ -82,6 +82,15 @@
 
 ---
 
+### 5️⃣ 附录与工程实践
+
+| 文档 | 作用 |
+|-----|------|
+| `appendix/Appendix_Industrial_Security_and_Auditing.md` | 工业级安全与审计附录：WORM、Merkle 批次密封、审计复验 |
+| `guides/Engineering_Practice_Guide_Sandbox_and_WORM.md` | 工程实践指南：沙箱执行隔离（seccomp/网络/镜像）、WORM 落地与核查 |
+
+---
+
 ## 🎯 按角色推荐阅读
 
 ### 架构师 / Tech Lead
@@ -203,6 +212,12 @@ doc/
 │       ├── Architecture_Final_Review_v1.md
 │       ├── Architecture_Final_Review_v1.1.md
 │       ├── Architecture_Final_Review_v1.2.md
+│
+├── appendix/                          ← 附录（工业级安全与审计）
+│   └── Appendix_Industrial_Security_and_Auditing.md
+│
+├── guides/                            ← 工程实践指南
+│   └── Engineering_Practice_Guide_Sandbox_and_WORM.md
 │       ├── Architecture_Final_Review_v1_Addendum.md
 │       ├── Agent_Framework_Loop_Model_v2.2_Final.md
 │       ├── Agent_Framework_Image_Prompts.md

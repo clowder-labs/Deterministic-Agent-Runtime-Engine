@@ -9,11 +9,12 @@ Run Tests Tool
 from typing import Any
 import asyncio
 
+from dare_framework.components import BaseComponent
 from dare_framework.errors import ToolError
 from dare_framework.models import Evidence, RunContext, ToolResult, ToolRiskLevel, ToolType, new_id
 
 
-class RunTestsTool:
+class RunTestsTool(BaseComponent):
     """
     运行测试工具
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from .models import (
     AssembledContext,
@@ -35,6 +35,28 @@ from .models import (
 
 DepsT = TypeVar("DepsT")
 OutputT = TypeVar("OutputT")
+
+
+@runtime_checkable
+class IComponentRegistrar(Protocol):
+    def register_component(self, component: "IComponent") -> None:
+        ...
+
+
+@runtime_checkable
+class IComponent(Protocol):
+    @property
+    def order(self) -> int:
+        ...
+
+    async def init(self, config: "IConfigProvider | None" = None, prompts: "IPromptStore | None" = None) -> None:
+        ...
+
+    def register(self, registrar: IComponentRegistrar) -> None:
+        ...
+
+    async def close(self) -> None:
+        ...
 
 
 class IRuntime(Protocol, Generic[DepsT, OutputT]):
@@ -82,7 +104,8 @@ class ICheckpoint(Protocol):
         ...
 
 
-class ITool(Protocol):
+@runtime_checkable
+class ITool(IComponent, Protocol):
     @property
     def name(self) -> str:
         ...
@@ -138,7 +161,8 @@ class IToolkit(Protocol):
         ...
 
 
-class ISkill(Protocol):
+@runtime_checkable
+class ISkill(IComponent, Protocol):
     @property
     def name(self) -> str:
         ...
@@ -200,7 +224,8 @@ class IPlanGenerator(Protocol):
         ...
 
 
-class IValidator(Protocol):
+@runtime_checkable
+class IValidator(IComponent, Protocol):
     async def validate_plan(self, proposed_steps: list[ProposedStep], ctx: RunContext) -> ValidationResult:
         ...
 
@@ -240,7 +265,8 @@ class IContextAssembler(Protocol):
         ...
 
 
-class IModelAdapter(Protocol):
+@runtime_checkable
+class IModelAdapter(IComponent, Protocol):
     async def generate(
         self,
         messages: list[Message],
@@ -253,7 +279,8 @@ class IModelAdapter(Protocol):
         ...
 
 
-class IMemory(Protocol):
+@runtime_checkable
+class IMemory(IComponent, Protocol):
     async def store(self, key: str, value: str, metadata: dict | None = None) -> None:
         ...
 
@@ -264,12 +291,14 @@ class IMemory(Protocol):
         ...
 
 
-class IHook(Protocol):
+@runtime_checkable
+class IHook(IComponent, Protocol):
     async def on_event(self, event: Event) -> None:
         ...
 
 
-class IMCPClient(Protocol):
+@runtime_checkable
+class IMCPClient(IComponent, Protocol):
     @property
     def name(self) -> str:
         ...
@@ -299,6 +328,21 @@ class IMCPClient(Protocol):
 
 class IAgent(Protocol, Generic[DepsT, OutputT]):
     async def run(self, task: Task, deps: DepsT) -> RunResult[OutputT]:
+        ...
+
+
+@runtime_checkable
+class IConfigProvider(IComponent, Protocol):
+    def get(self, key: str, default: Any | None = None) -> Any:
+        ...
+
+    def get_namespace(self, namespace: str) -> dict[str, Any]:
+        ...
+
+
+@runtime_checkable
+class IPromptStore(IComponent, Protocol):
+    def get_prompt(self, name: str, version: str | None = None) -> str:
         ...
 
 
