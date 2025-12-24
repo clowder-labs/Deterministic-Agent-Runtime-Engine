@@ -8,24 +8,38 @@ from .components.defaults import (
     CompositeValidator,
     DeterministicPlanGenerator,
     InMemoryMemory,
+    InMemoryPromptStore,
     MockModelAdapter,
     NoOpHook,
     NoOpRemediator,
     NoOpTool,
     SimpleValidator,
+    StaticConfigProvider,
 )
 from .components.mcp_toolkit import MCPToolkit
 from .components.registries import SkillRegistry, ToolRegistry
 from .components.tool_runtime import ToolRuntime
-from .component_manager import ComponentDiscoveryConfig, ComponentManager
+from .component_manager import (
+    ConfigProviderManager,
+    HookManager,
+    MCPClientManager,
+    MemoryManager,
+    ModelAdapterManager,
+    PromptStoreManager,
+    SkillManager,
+    ToolManager,
+    ValidatorManager,
+)
 from .core.interfaces import (
     IAgent,
     ICheckpoint,
     IContextAssembler,
+    IConfigProvider,
     IEventLog,
     IModelAdapter,
     IPlanGenerator,
     IPolicyEngine,
+    IPromptStore,
     IRemediator,
     IRuntime,
     IValidator,
@@ -54,6 +68,10 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         self._model_adapter: IModelAdapter | None = None
         self._memory = InMemoryMemory()
         self._memory_set = False
+        self._config_provider: IConfigProvider | None = None
+        self._config_provider_set = False
+        self._prompt_store: IPromptStore | None = None
+        self._prompt_store_set = False
         self._hooks = [NoOpHook()]
         self._plan_generator: IPlanGenerator | None = None
         self._validator: IValidator | None = None
@@ -64,8 +82,6 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         self._checkpoint: ICheckpoint | None = None
         self._runtime: IRuntime | None = None
         self._mcp_clients = []
-        self._component_manager: ComponentManager | None = None
-        self._component_discovery: ComponentDiscoveryConfig | None = None
 
     @classmethod
     def quick_start(cls, name: str, model: str | None = None) -> "AgentBuilder":
@@ -96,6 +112,16 @@ class AgentBuilder(Generic[DepsT, OutputT]):
     def with_memory(self, memory) -> "AgentBuilder":
         self._memory = memory
         self._memory_set = True
+        return self
+
+    def with_config_provider(self, provider: IConfigProvider) -> "AgentBuilder":
+        self._config_provider = provider
+        self._config_provider_set = True
+        return self
+
+    def with_prompt_store(self, store: IPromptStore) -> "AgentBuilder":
+        self._prompt_store = store
+        self._prompt_store_set = True
         return self
 
     def with_hook(self, hook) -> "AgentBuilder":
@@ -138,14 +164,6 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         self._mcp_clients.extend(clients)
         return self
 
-    def with_component_manager(self, manager: ComponentManager) -> "AgentBuilder":
-        self._component_manager = manager
-        return self
-
-    def with_component_discovery(self, config: ComponentDiscoveryConfig) -> "AgentBuilder":
-        self._component_discovery = config
-        return self
-
     def build(self) -> Agent[DepsT, OutputT]:
         if self._mcp_clients:
             raise RuntimeError("MCP clients require build_async() for initialization")
@@ -163,26 +181,63 @@ class AgentBuilder(Generic[DepsT, OutputT]):
         return self._build()
 
     async def _load_components(self) -> None:
-        if self._component_manager is None and self._component_discovery is None:
-            return
-        manager = self._component_manager
-        if manager is None:
-            manager = ComponentManager(
-                tool_registry=self._tool_registry,
-                skill_registry=self._skill_registry,
-                discovery_config=self._component_discovery,
-            )
-        await manager.load()
-        self._component_manager = manager
+        config_manager = ConfigProviderManager()
+        config_providers = await config_manager.load(None)
+        config_provider = self._select_config_provider(config_providers)
 
-        if self._model_adapter is None and manager.model_adapters:
-            self._model_adapter = manager.model_adapters[0]
-        if not self._memory_set and manager.memories:
-            self._memory = manager.memories[0]
-        if not self._mcp_clients and manager.mcp_clients:
-            self._mcp_clients = list(manager.mcp_clients)
-        if self._validator is None and manager.validators:
-            self._validator = CompositeValidator(manager.validators)
+        prompt_manager = PromptStoreManager()
+        prompt_stores = await prompt_manager.load(config_provider)
+        prompt_store = self._select_prompt_store(prompt_stores)
+
+        validator_manager = ValidatorManager()
+        validators = await validator_manager.load(config_provider, prompt_store)
+        if self._validator is None and validators:
+            self._validator = CompositeValidator(validators)
+
+        model_adapter_manager = ModelAdapterManager()
+        model_adapters = await model_adapter_manager.load(config_provider, prompt_store)
+        if self._model_adapter is None and model_adapters:
+            self._model_adapter = model_adapters[0]
+
+        memory_manager = MemoryManager()
+        memories = await memory_manager.load(config_provider, prompt_store)
+        if not self._memory_set and memories:
+            self._memory = memories[0]
+
+        mcp_manager = MCPClientManager()
+        mcp_clients = await mcp_manager.load(config_provider, prompt_store)
+        if not self._mcp_clients and mcp_clients:
+            self._mcp_clients = list(mcp_clients)
+
+        hook_manager = HookManager()
+        hooks = await hook_manager.load(config_provider, prompt_store)
+        self._hooks.extend(hooks)
+
+        tool_manager = ToolManager(self._tool_registry)
+        await tool_manager.load(config_provider, prompt_store)
+
+        skill_manager = SkillManager(self._skill_registry)
+        await skill_manager.load(config_provider, prompt_store)
+
+    def _select_config_provider(self, discovered: list[IConfigProvider]) -> IConfigProvider:
+        if self._config_provider_set and self._config_provider is not None:
+            return self._config_provider
+        if discovered:
+            self._config_provider = discovered[0]
+            return discovered[0]
+        fallback = StaticConfigProvider()
+        self._config_provider = fallback
+        return fallback
+
+    def _select_prompt_store(self, discovered: list[IPromptStore]) -> IPromptStore | None:
+        if self._prompt_store_set:
+            return self._prompt_store
+        if discovered:
+            self._prompt_store = discovered[0]
+            return discovered[0]
+        fallback = InMemoryPromptStore()
+        self._prompt_store = fallback
+        return fallback
 
     def _build(self) -> Agent[DepsT, OutputT]:
         if self._runtime is not None:

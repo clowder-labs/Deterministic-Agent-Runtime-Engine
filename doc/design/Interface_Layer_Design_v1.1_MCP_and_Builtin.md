@@ -95,8 +95,8 @@
 │                                                                         │
 │  Layer 3: Agent Composition（组装层）                                    │
 │  ─────────────────────────────────────────────────────────────────────  │
-│  开发者使用 AgentBuilder 组装以上组件，或通过 ComponentManager 进行       │
-│  entry points 发现与注册。                                              │
+│  开发者使用 AgentBuilder 组装以上组件，或通过 BaseComponentManager       │
+│  + XxxManager 进行 entry points 发现与注册。                             │
 │                                                                         │
 │  agent = AgentBuilder("my-agent")                                       │
 │      .with_model(ClaudeAdapter())      # 用内置的                       │
@@ -104,7 +104,6 @@
 │      .with_skills(FixFailingTest())    # Plan Tools / Skills            │
 │      .with_mcp("filesystem", "github") # MCP 服务器                     │
 │      .with_memory(VectorMemory())      # 用内置的                       │
-│      .with_component_discovery(...)    # 启用 entry points 发现          │
 │      .build()                                                           │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -120,6 +119,8 @@
 - `dare_framework.hooks`
 - `dare_framework.config_providers`
 - `dare_framework.prompt_stores`
+
+默认策略：发现始终启用，按 `order` 升序加载注册。
 
 ---
 

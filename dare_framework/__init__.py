@@ -1,5 +1,16 @@
 from .builder import AgentBuilder, Agent
-from .component_manager import ComponentDiscoveryConfig, ComponentManager
+from .component_manager import (
+    BaseComponentManager,
+    ConfigProviderManager,
+    HookManager,
+    MCPClientManager,
+    MemoryManager,
+    ModelAdapterManager,
+    PromptStoreManager,
+    SkillManager,
+    ToolManager,
+    ValidatorManager,
+)
 from .components import (
     AllowAllPolicyEngine,
     BasicContextAssembler,
@@ -29,8 +40,16 @@ __all__ = [
     "AgentRuntime",
     "AllowAllPolicyEngine",
     "BasicContextAssembler",
-    "ComponentDiscoveryConfig",
-    "ComponentManager",
+    "BaseComponentManager",
+    "ConfigProviderManager",
+    "HookManager",
+    "MCPClientManager",
+    "MemoryManager",
+    "ModelAdapterManager",
+    "PromptStoreManager",
+    "SkillManager",
+    "ToolManager",
+    "ValidatorManager",
     "CompositeValidator",
     "DeterministicPlanGenerator",
     "FileCheckpoint",
