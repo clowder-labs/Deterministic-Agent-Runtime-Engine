@@ -2,6 +2,8 @@
 
 本文档定义 AI Agent（Claude、GPT、Gemini 等）在本项目中协作的规则和约定。
 
+> 必读：在任何开发前，请先阅读并遵守 `doc/guides/Development_Constraints.md`（通用开发约束）以及本文件。若你的变更涉及沙箱执行、WORM 审计、Envelope/DonePredicate 强制，请同时遵循 `doc/guides/Engineering_Practice_Guide_Sandbox_and_WORM.md`。
+
 ## 核心原则
 
 ### 1. Agent 也是不可信的

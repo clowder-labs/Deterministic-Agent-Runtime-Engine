@@ -1,4 +1,4 @@
-# DARE Framework 文档导航
+2# DARE Framework 文档导航
 
 > 本文档提供清晰的阅读顺序和文档分类。
 
@@ -88,6 +88,7 @@
 |-----|------|
 | `appendix/Appendix_Industrial_Security_and_Auditing.md` | 工业级安全与审计附录：WORM、Merkle 批次密封、审计复验 |
 | `guides/Engineering_Practice_Guide_Sandbox_and_WORM.md` | 工程实践指南：沙箱执行隔离（seccomp/网络/镜像）、WORM 落地与核查 |
+| `guides/Development_Constraints.md` | 开发约束：架构不破坏、测试必备、日志/命名/复用/信任边界等硬性要求 |
 
 ---
 
