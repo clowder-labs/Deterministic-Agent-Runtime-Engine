@@ -9,8 +9,10 @@ from .read_file import ReadFileTool
 from .write_file import WriteFileTool
 from .search_code import SearchCodeTool
 from .run_tests import RunTestsTool
+from .edit_line import EditLineTool
 
 __all__ = [
+    "EditLineTool",
     "ReadFileTool",
     "WriteFileTool",
     "SearchCodeTool",
