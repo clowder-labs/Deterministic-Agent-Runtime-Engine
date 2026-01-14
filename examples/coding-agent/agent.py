@@ -11,7 +11,7 @@ from dare_framework.components.checkpoint import FileCheckpoint
 from dare_framework.components.event_log import LocalEventLog
 from dare_framework.components.plan_generator import DeterministicPlanGenerator
 from dare_framework.composition.builder import AgentBuilder
-from dare_framework.core.context import IModelAdapter
+from dare_framework.core.context import IContextAssembler, IModelAdapter
 from dare_framework.core.models.context import MilestoneContext
 from dare_framework.core.models.plan import Milestone, ProposedPlan, ProposedStep, Task
 from dare_framework.core.models.runtime import RunContext, new_id
@@ -93,9 +93,11 @@ class CodingAgent:
         plan_steps: Iterable[ProposedStep] | None = None,
         model_adapter: IModelAdapter | None = None,
         plan_generator: IPlanGenerator | None = None,
+        context_assembler: IContextAssembler | None = None,
         event_log_path: str | None = None,
         checkpoint_path: str | None = None,
         demo_plan: bool = True,
+        enable_skills: bool = True,
     ) -> None:
         builder = (
             AgentBuilder("coding-agent")
@@ -106,8 +108,11 @@ class CodingAgent:
                 SearchCodeTool(workspace=workspace),
                 RunTestsTool(),
             )
-            .with_skills(FixBugSkill())
         )
+        if enable_skills:
+            builder.with_skills(FixBugSkill())
+        if context_assembler is not None:
+            builder.with_context_assembler(context_assembler)
 
         if mock_mode:
             steps = list(plan_steps) if plan_steps else []

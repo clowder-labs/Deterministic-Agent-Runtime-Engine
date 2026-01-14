@@ -50,12 +50,15 @@ class OpenAIModelAdapter(BaseComponent, IModelAdapter):
                     "base_url": self._base_url,
                     "message_count": len(messages),
                     "roles": [msg.role for msg in messages],
+                    "tool_count": len(tools or []),
                 },
             )
-        payload = {
+        payload: dict[str, Any] = {
             "model": self._model,
             "messages": _serialize_messages(messages),
         }
+        if tools:
+            payload["tools"] = _serialize_tools(tools)
         if options is not None:
             if options.temperature is not None:
                 payload["temperature"] = options.temperature
@@ -66,7 +69,9 @@ class OpenAIModelAdapter(BaseComponent, IModelAdapter):
         if _debug_enabled():
             _debug_log("response", _summarize_response(response))
         content = _pick_message_content(response)
-        return ModelResponse(content=content, tool_calls=[])
+        allowed_tools = {tool.name for tool in tools} if tools else None
+        tool_calls = _extract_tool_calls(response, allowed_tools)
+        return ModelResponse(content=content, tool_calls=tool_calls)
 
     async def generate_structured(self, messages: list[Message], output_schema: type) -> Any:
         if _debug_enabled():
@@ -93,13 +98,15 @@ class OpenAIModelAdapter(BaseComponent, IModelAdapter):
     def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         api_key = self._resolve_api_key()
         body = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        headers.update(self._extra_headers())
         request = urllib.request.Request(
             f"{self._base_url}{path}",
             data=body,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             method="POST",
         )
         try:
@@ -114,10 +121,22 @@ class OpenAIModelAdapter(BaseComponent, IModelAdapter):
             ) from exc
 
     def _resolve_api_key(self) -> str:
-        api_key = self._api_key or os.getenv("OPENAI_API_KEY")
+        api_key = self._api_key or os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY is required for OpenAIModelAdapter")
+            raise ValueError(
+                "OPENAI_API_KEY or OPENROUTER_API_KEY is required for OpenAIModelAdapter"
+            )
         return api_key
+
+    def _extra_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        referer = os.getenv("OPENROUTER_HTTP_REFERER") or os.getenv("OPENROUTER_REFERER")
+        title = os.getenv("OPENROUTER_APP_TITLE") or os.getenv("OPENROUTER_TITLE")
+        if referer:
+            headers["HTTP-Referer"] = referer
+        if title:
+            headers["X-Title"] = title
+        return headers
 
 
 class OpenAIPlanGenerator(IPlanGenerator):
@@ -253,8 +272,60 @@ def tool_definitions_from_tools(tools: Iterable[Any]) -> list[ToolDefinition]:
     return registry.list_tools()
 
 
-def _serialize_messages(messages: list[Message]) -> list[dict[str, str]]:
-    return [{"role": msg.role, "content": msg.content} for msg in messages]
+def _serialize_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    serialized = []
+    for msg in messages:
+        item: dict[str, Any] = {"role": msg.role, "content": msg.content}
+        if msg.name and msg.role != "tool":
+            item["name"] = msg.name
+        if msg.tool_call_id:
+            item["tool_call_id"] = msg.tool_call_id
+        if msg.tool_calls and msg.role == "assistant":
+            item["tool_calls"] = _serialize_tool_calls(msg.tool_calls)
+        serialized.append(item)
+    return serialized
+
+
+def _serialize_tool_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    serialized = []
+    for idx, call in enumerate(tool_calls):
+        if not isinstance(call, dict):
+            continue
+        name = call.get("name")
+        if not name:
+            continue
+        arguments = call.get("arguments", {})
+        if not isinstance(arguments, str):
+            try:
+                arguments = json.dumps(arguments, ensure_ascii=True)
+            except TypeError:
+                arguments = json.dumps({"raw": str(arguments)}, ensure_ascii=True)
+        serialized.append(
+            {
+                "id": call.get("id") or f"call_{idx}",
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }
+        )
+    return serialized
+
+
+def _serialize_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+    return [_tool_definition(tool) for tool in tools]
+
+
+def _tool_definition(tool: ToolDefinition) -> dict[str, Any]:
+    parameters = tool.input_schema or {"type": "object", "properties": {}}
+    if "type" not in parameters:
+        parameters = {"type": "object", "properties": parameters}
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": parameters,
+        },
+    }
 
 
 def _pick_message_content(payload: dict[str, Any]) -> str:
@@ -263,6 +334,48 @@ def _pick_message_content(payload: dict[str, Any]) -> str:
         return ""
     message = choices[0].get("message", {})
     return message.get("content", "") or ""
+
+
+def _extract_tool_calls(
+    payload: dict[str, Any],
+    allowed_tools: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    choices = payload.get("choices", [])
+    choice = choices[0] if choices else {}
+    message = choice.get("message", {}) if isinstance(choice, dict) else {}
+    raw_calls = message.get("tool_calls") or []
+    if not isinstance(raw_calls, list):
+        return []
+    tool_calls = []
+    dropped = []
+    for call in raw_calls:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        name = fn.get("name") or call.get("name")
+        if not name:
+            continue
+        if allowed_tools is not None and name not in allowed_tools:
+            dropped.append(name)
+            continue
+        arguments = fn.get("arguments") if fn else call.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = arguments
+        elif arguments is None:
+            arguments = {}
+        tool_calls.append(
+            {
+                "id": call.get("id"),
+                "name": name,
+                "arguments": arguments,
+            }
+        )
+    if dropped and _debug_enabled():
+        _debug_log("tool_calls_dropped", {"names": dropped})
+    return tool_calls
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
@@ -345,12 +458,25 @@ def _summarize_response(payload: dict[str, Any]) -> dict[str, Any]:
     choices = payload.get("choices", [])
     choice = choices[0] if choices else {}
     message = choice.get("message", {}) if isinstance(choice, dict) else {}
+    tool_calls = message.get("tool_calls") or []
+    tool_call_count = len(tool_calls) if isinstance(tool_calls, list) else 0
+    tool_call_names = []
+    if isinstance(tool_calls, list):
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+            name = fn.get("name") or call.get("name")
+            if name:
+                tool_call_names.append(name)
     return {
         "id": payload.get("id"),
         "model": payload.get("model"),
         "finish_reason": choice.get("finish_reason"),
         "usage": payload.get("usage", {}),
         "content_preview": (message.get("content") or "")[:120],
+        "tool_call_count": tool_call_count,
+        "tool_call_names": tool_call_names[:5],
     }
 
 
