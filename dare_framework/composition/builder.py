@@ -269,6 +269,7 @@ class AgentBuilder(Generic[DepsT, OutputT]):
             context_assembler=context_assembler,
             event_log=self._event_log,
             checkpoint=self._checkpoint,
+            hooks=self._hooks,
             config=self._config,
         )
         return Agent(runtime)

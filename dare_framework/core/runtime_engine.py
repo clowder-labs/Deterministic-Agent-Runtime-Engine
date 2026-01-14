@@ -14,7 +14,7 @@ from ..components.validators.simple import SimpleValidator
 from .context import IContextAssembler, IModelAdapter
 from .planning import IPlanGenerator, IRemediator
 from .policy import IPolicyEngine
-from .runtime import ICheckpoint, IEventLog, IRuntime
+from .runtime import ICheckpoint, IEventLog, IHook, IRuntime
 from .tooling import IToolRuntime
 from .validation import IValidator
 from .models.config import Config
@@ -23,6 +23,7 @@ from .models.event import Event
 from .models.plan import (
     Milestone,
     PlanBudget,
+    ProposedStep,
     ProposedPlan,
     Task,
     ValidatedPlan,
@@ -56,6 +57,7 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
         context_assembler: IContextAssembler | None = None,
         event_log: IEventLog | None = None,
         checkpoint: ICheckpoint | None = None,
+        hooks: list[IHook] | None = None,
         config: Config | None = None,
     ) -> None:
         self._tool_runtime = tool_runtime
@@ -67,6 +69,7 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
         self._context_assembler = context_assembler or BasicContextAssembler()
         self._event_log = event_log or LocalEventLog()
         self._checkpoint = checkpoint or FileCheckpoint()
+        self._hooks = list(hooks) if hooks else []
         self._config = config or Config()
         self._state = RuntimeState.READY
         self._active_task: Task | None = None
@@ -258,15 +261,26 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
         )
         await self._log_event(
             "plan.attempt",
-            {"milestone_id": milestone.milestone_id, "attempt": proposed_plan.attempt, "run_id": ctx.run_id},
+            {
+                "milestone_id": milestone.milestone_id,
+                "attempt": proposed_plan.attempt,
+                "run_id": ctx.run_id,
+                "plan_description": proposed_plan.plan_description,
+                "steps": self._serialize_steps(proposed_plan.proposed_steps),
+            },
         )
         validation = await self._validator.validate_plan(proposed_plan.proposed_steps, ctx)
         if validation.success:
+            validated = self._build_validated_plan(proposed_plan)
             await self._log_event(
                 "plan.validated",
-                {"milestone_id": milestone.milestone_id, "run_id": ctx.run_id},
+                {
+                    "milestone_id": milestone.milestone_id,
+                    "run_id": ctx.run_id,
+                    "plan_description": validated.plan_description,
+                    "steps": self._serialize_steps(validated.steps),
+                },
             )
-            validated = self._build_validated_plan(proposed_plan)
             return PlanLoopOutcome(validated_plan=validated, reflection=None, errors=[])
 
         await self._log_event(
@@ -275,6 +289,7 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
                 "milestone_id": milestone.milestone_id,
                 "run_id": ctx.run_id,
                 "errors": validation.errors,
+                "plan_description": proposed_plan.plan_description,
             },
         )
         reflection = await self._remediator.remediate(
@@ -308,6 +323,17 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
             steps=validated_steps,
             metadata=proposed_plan.metadata,
         )
+
+    def _serialize_steps(self, steps: list[ProposedStep] | list[ValidatedStep]) -> list[dict[str, Any]]:
+        return [
+            {
+                "step_id": step.step_id,
+                "tool_name": step.tool_name,
+                "description": step.description,
+                "tool_input": step.tool_input,
+            }
+            for step in steps
+        ]
 
     async def _execute_loop(
         self,
@@ -344,7 +370,12 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
             try:
                 await self._log_event(
                     "tool.invoke",
-                    {"tool": step.tool_name, "run_id": ctx.run_id, "step_id": step.step_id},
+                    {
+                        "tool": step.tool_name,
+                        "run_id": ctx.run_id,
+                        "step_id": step.step_id,
+                        "args": step.tool_input,
+                    },
                 )
                 result = await self._tool_runtime.invoke(
                     step.tool_name,
@@ -368,6 +399,17 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
                 return ExecuteResult(success=False, outputs=outputs, errors=errors)
             outputs.append(result)
             milestone_ctx.evidence_collected.extend(result.evidence)
+            await self._log_event(
+                "tool.result",
+                {
+                    "tool": step.tool_name,
+                    "run_id": ctx.run_id,
+                    "step_id": step.step_id,
+                    "success": result.success,
+                    "output": result.output,
+                    "error": result.error,
+                },
+            )
             if not result.success:
                 errors.append(result.error or "tool failed")
                 milestone_ctx.add_error(
@@ -396,6 +438,15 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
         for _ in range(max_iterations):
             await self._log_event("model.invoke", {"run_id": ctx.run_id})
             response = await self._model_adapter.generate(messages, tools)
+            await self._log_event(
+                "model.response",
+                {
+                    "run_id": ctx.run_id,
+                    "milestone_id": milestone.milestone_id,
+                    "content": response.content,
+                    "tool_calls": response.tool_calls,
+                },
+            )
             if not response.tool_calls:
                 outputs.append(
                     ToolResult(
@@ -442,7 +493,7 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
                 try:
                     await self._log_event(
                         "tool.invoke",
-                        {"tool": tool_name, "run_id": ctx.run_id},
+                        {"tool": tool_name, "run_id": ctx.run_id, "args": tool_args},
                     )
                     result = await self._tool_runtime.invoke(tool_name, tool_args, ctx)
                 except Exception as exc:  # noqa: BLE001
@@ -461,6 +512,16 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
                     return ExecuteResult(success=False, outputs=outputs, errors=errors)
                 outputs.append(result)
                 milestone_ctx.evidence_collected.extend(result.evidence)
+                await self._log_event(
+                    "tool.result",
+                    {
+                        "tool": tool_name,
+                        "run_id": ctx.run_id,
+                        "success": result.success,
+                        "output": result.output,
+                        "error": result.error,
+                    },
+                )
                 if not result.success:
                     errors.append(result.error or "tool failed")
                     milestone_ctx.add_error(
@@ -492,4 +553,30 @@ class AgentRuntime(IRuntime[DepsT, OutputT], Generic[DepsT, OutputT]):
         return ExecuteResult(success=False, outputs=outputs, errors=errors)
 
     async def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        await self._event_log.append(Event(event_type=event_type, payload=payload))
+        event = Event(event_type=event_type, payload=payload)
+        await self._event_log.append(event)
+        if not self._hooks:
+            return
+        for hook in self._hooks:
+            try:
+                await hook.on_event(event)
+            except Exception as exc:  # noqa: BLE001
+                await self._event_log.append(
+                    Event(
+                        event_type="hook.error",
+                        payload={
+                            "hook": self._hook_name(hook),
+                            "error": str(exc),
+                            "event_type": event.event_type,
+                            "event_id": event.event_id,
+                            "run_id": event.payload.get("run_id"),
+                        },
+                    )
+                )
+
+    @staticmethod
+    def _hook_name(hook: IHook) -> str:
+        name = getattr(hook, "component_name", None)
+        if isinstance(name, str):
+            return name
+        return hook.__class__.__name__

@@ -1,0 +1,6 @@
+langchain-openai
+langchain-core
+pytest
+pytest-asyncio
+# Optional dependencies:
+# mcp
