@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.components.context_assembler import BasicContextAssembler
 from dare_framework.components.hooks.stdout import StdoutHook
@@ -14,9 +21,18 @@ from dare_framework.core.models.context import AssembledContext, Message, Milest
 from dare_framework.core.models.plan import Milestone, Task
 from dare_framework.core.models.runtime import RunContext
 
-MODEL = "z-ai/glm-4.5-air:free"
+MODEL = "qwen-7b"
 API_KEY = os.getenv("api_sk")
-ENDPOINT = "https://openrouter.ai/api/v1"
+ENDPOINT = "http://localhost:8000/v1"
+LOG_LEVEL = os.getenv("CHAT_LOG_LEVEL", "INFO").upper()
+
+logger = logging.getLogger("basic-chat")
+
+
+def _preview(text: str, limit: int = 200) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...<truncated>"
 
 
 class HistoryContextAssembler(BasicContextAssembler, IContextAssembler):
@@ -37,6 +53,14 @@ class HistoryContextAssembler(BasicContextAssembler, IContextAssembler):
 
 
 async def main() -> None:
+    logging.basicConfig(
+        level=LOG_LEVEL,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    logger.info(
+        "boot basic chat agent",
+        extra={"model": MODEL, "endpoint": ENDPOINT, "api_key_set": bool(API_KEY)},
+    )
     history: list[Message] = []
     prompt_store = InMemoryPromptStore()
     context_assembler = HistoryContextAssembler(prompt_store, history)
@@ -60,15 +84,33 @@ async def main() -> None:
         if prompt == "/quit":
             break
 
-        result = await agent.run(Task(description=prompt), None)
+        logger.info(
+            "running prompt",
+            extra={"prompt": _preview(prompt), "history_entries": len(history)},
+        )
+        try:
+            result = await agent.run(Task(description=prompt), None)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "agent run failed",
+                extra={"model": MODEL, "endpoint": ENDPOINT},
+            )
+            print(f"[error] model call failed: {exc}", file=sys.stderr, flush=True)
+            continue
+
         content = ""
         if result.output:
             last = result.output[-1]
             content = getattr(last, "output", {}).get("content", "")
         if not content:
+            logger.warning("no content returned from agent")
             print("No output returned.", flush=True)
             continue
 
+        logger.info(
+            "assistant reply",
+            extra={"content": _preview(content), "history_entries": len(history)},
+        )
         print(content, flush=True)
         history.append(Message(role="user", content=prompt))
         history.append(Message(role="assistant", content=content))
