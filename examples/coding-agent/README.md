@@ -1,20 +1,12 @@
-# Example: Simple Coding Agent
+# Example: Coding Agent
 
-这是一个使用 DARE Framework 构建的简单 Coding Agent 示例。
+这是一个与当前 DARE Framework 设计对齐的 Coding Agent 示例，用于验证核心循环与组件装配。
 
 ## 目的
 
-1. **验证框架设计** - 确保接口设计合理、可用
-2. **提供参考实现** - 开发者可以参考这个示例
-3. **早期暴露问题** - 在框架开发过程中发现设计缺陷
-
-## Agent 能力
-
-这个 Coding Agent 可以：
-- 读取和写入代码文件
-- 搜索代码
-- 运行测试
-- 修复简单的 Bug
+1. **验证框架设计** - 覆盖 Plan/Execute/Tool Loop 与证据闭环
+2. **提供参考实现** - 展示 AgentBuilder 的组装方式
+3. **可运行基线** - 提供一个确定性、可重复运行的示例入口
 
 ## 目录结构
 
@@ -22,84 +14,143 @@
 coding-agent/
 ├── README.md           # 本文件
 ├── agent.py            # Agent 定义（入口）
-├── config.yaml         # Agent 配置
-├── tools/              # 自定义工具
+├── openai_adapter.py   # OpenAI 适配器与计划生成器示例
+├── plan_helpers.py     # 计划/证据闭环的辅助函数
+├── tools/              # 示例工具
 │   ├── __init__.py
+│   ├── edit_line.py
 │   ├── read_file.py
 │   ├── write_file.py
 │   ├── search_code.py
 │   └── run_tests.py
-├── skills/             # 自定义技能
-│   ├── __init__.py
-│   └── fix_bug.py
-└── tests/              # 测试
+└── skills/             # 示例技能（Plan Tool）
     ├── __init__.py
-    ├── test_tools.py
-    └── test_agent.py
+    └── fix_bug.py
 ```
 
-## 使用方法
+## 运行方式
+
+在示例目录内直接运行：
+
+```bash
+cd examples/coding-agent
+PYTHONPATH=../.. python agent.py
+```
+
+或在项目根目录运行：
+
+```bash
+PYTHONPATH=. python examples/coding-agent/agent.py
+```
+
+## 核心对齐点
+
+1. **Plan Tool 语义**  
+   `FixBugSkill` 作为 Plan Tool，用于触发“遇到计划工具 → 重新规划”的路径。
+
+2. **执行边界与完成条件**  
+   `DemoPlanGenerator` 为部分步骤附加 `Envelope` 与 `DonePredicate`，验证证据闭环。
+
+3. **可审计性**  
+   示例可配置 EventLog 与 Checkpoint 路径，用于验证事件链与断点保存。
+
+4. **确定性模式**  
+   `mock_mode=True` 时使用确定性计划生成器，避免外部依赖。
+
+## 使用方式（代码侧）
+
+在示例目录中运行时可直接导入：
 
 ```python
-from examples.coding_agent import CodingAgent
+from agent import CodingAgent
+from dare_framework.core.models.plan import ProposedStep
+from dare_framework.core.models.runtime import new_id
 
-# 创建 Agent
-agent = CodingAgent.from_config("config.yaml")
+steps = [
+    ProposedStep(step_id=new_id("step"), tool_name="read_file", tool_input={"path": "README.md"})
+]
 
-# 运行任务
-result = await agent.run(
-    task="修复 src/utils.py 中的类型错误"
+agent = CodingAgent(
+    workspace=".",
+    mock_mode=True,
+    plan_steps=steps,
 )
 
+result = await agent.run("读取 README.md 并解释内容")
 print(result.success)
 print(result.output)
 ```
 
-## 这个示例验证了什么
+## 使用 OpenAI 真实模型
 
-### 1. ITool 接口的可用性
+1) 设置环境变量：
 
-```python
-# tools/read_file.py 验证：
-# - ITool 接口是否足够表达工具能力
-# - input_schema/output_schema 是否清晰
-# - risk_level 分类是否合理
+```bash
+export OPENAI_API_KEY="your_api_key"
+export OPENAI_BASE_URL="https://api.openai.com/v1"  # 可选：代理或兼容网关
+export OPENAI_DEBUG=1  # 可选：打印模型调用与计划解析摘要
 ```
 
-### 2. ISkill 接口的可用性
+如果使用 OpenRouter：
 
-```python
-# skills/fix_bug.py 验证：
-# - ISkill 是否能表达复合能力
-# - 技能内部如何调用工具
-# - done_predicate 如何定义
+```bash
+export OPENROUTER_API_KEY="your_openrouter_key"
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+export OPENROUTER_HTTP_REFERER="https://your.app"  # 可选
+export OPENROUTER_APP_TITLE="dare-example"         # 可选
 ```
 
-### 3. IMemory 接口的必要性
+2) 代码示例（真实模型执行工具调用）：
 
 ```python
-# agent.py 验证：
-# - 如果没有记忆，Agent 能完成任务吗？
-# - 记忆对任务完成有多重要？
-# - 哪种记忆类型最常用？
+from agent import CodingAgent
+from openai_adapter import OpenAIModelAdapter, OpenAIPlanGenerator, tool_definitions_from_tools
+from tools import ReadFileTool, WriteFileTool, SearchCodeTool, RunTestsTool
+
+tools = [
+    ReadFileTool(workspace="."),
+    WriteFileTool(workspace="."),
+    SearchCodeTool(workspace="."),
+    RunTestsTool(),
+]
+
+adapter = OpenAIModelAdapter(model="gpt-4o-mini")
+plan_generator = OpenAIPlanGenerator(
+    model=adapter,
+    tool_definitions=tool_definitions_from_tools(tools),
+    plan_tools=["fix_bug"],
+    default_read_path="examples/coding-agent/verify_sample.txt",
+)
+
+agent = CodingAgent(
+    workspace=".",
+    mock_mode=False,
+    model_adapter=adapter,
+    plan_generator=plan_generator,
+)
+
+# 如果只想让模型做计划、由运行时按计划执行工具：
+# - mock_mode=True
+# - 不传 model_adapter
+
+result = await agent.run("搜索 TODO 并总结")
+print(result.success)
+print(result.output)
 ```
 
-### 4. 框架 vs Agent 的边界
+## 可选参数说明
 
-```python
-# 验证：
-# - 框架提供了足够的能力吗？
-# - Agent 开发者需要做的工作合理吗？
-# - 接口是否足够灵活？
-```
+- `mock_mode=True`：使用确定性计划生成器，默认开启
+- `plan_steps`：显式传入固定计划步骤（用于测试与回归）
+- `plan_generator`：传入自定义计划生成器（mock_mode 下也可用）
+- `event_log_path` / `checkpoint_path`：指定审计与断点输出路径
+- `demo_plan=False`：关闭演示型计划生成器，使用最小的默认计划
 
-## 设计反馈
+## 注意事项
 
-在开发这个示例的过程中发现的问题：
-
-| 问题 | 严重程度 | 建议 |
-|-----|---------|------|
-| TBD | | |
+- `run_tests` 工具调用 `pytest`，需要环境中已安装 pytest
+- `read_file` / `write_file` 都限制在 `workspace` 目录内
+- `edit_line` 会修改文件内容，配合任务示例可实现“临时插入 + 删除”
 
 ---
 

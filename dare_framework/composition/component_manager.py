@@ -33,12 +33,14 @@ class BaseComponentManager(IComponentRegistrar, Generic[TComponent]):
         entrypoint_group: str,
         expected_type: type[TComponent],
         entry_points_loader: EntryPointLoader | None = None,
+        config_section: str | None = None,
     ) -> None:
         self._entrypoint_group = entrypoint_group
         self._expected_type = expected_type
         self._entry_points_loader = entry_points_loader or metadata.entry_points
         self._components: list[TComponent] = []
         self._registered_ids: set[int] = set()
+        self._config_section = config_section
 
     async def load(
         self,
@@ -46,6 +48,8 @@ class BaseComponentManager(IComponentRegistrar, Generic[TComponent]):
         prompt_store: IPromptStore | None = None,
     ) -> list[TComponent]:
         discovered = self._discover_components()
+        if config_provider is not None:
+            discovered = self._apply_component_filters(discovered, config_provider)
         ordered = sorted(discovered, key=lambda comp: getattr(comp, "order", 100))
         for component in ordered:
             if not self._is_enabled(component, config):
@@ -99,20 +103,40 @@ class BaseComponentManager(IComponentRegistrar, Generic[TComponent]):
             return None
         return instance
 
+    def _apply_component_filters(
+        self,
+        components: list[TComponent],
+        config_provider: IConfigProvider,
+    ) -> list[TComponent]:
+        if not self._config_section:
+            return components
+        config = config_provider.get_namespace(self._config_section)
+        enable_list = set(config.get("enable", [])) if isinstance(config, dict) else set()
+        disable_list = set(config.get("disable", [])) if isinstance(config, dict) else set()
+        filtered: list[TComponent] = []
+        for component in components:
+            name = getattr(component, "name", component.__class__.__name__)
+            if enable_list and name not in enable_list:
+                continue
+            if name in disable_list:
+                continue
+            filtered.append(component)
+        return filtered
+
 
 class ValidatorManager(BaseComponentManager[IValidator]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_VALIDATORS, IValidator, entry_points_loader)
+        super().__init__(ENTRYPOINT_VALIDATORS, IValidator, entry_points_loader, config_section="validators")
 
 
 class MemoryManager(BaseComponentManager[IMemory]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_MEMORY, IMemory, entry_points_loader)
+        super().__init__(ENTRYPOINT_MEMORY, IMemory, entry_points_loader, config_section="memory")
 
 
 class ModelAdapterManager(BaseComponentManager[IModelAdapter]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_MODEL_ADAPTERS, IModelAdapter, entry_points_loader)
+        super().__init__(ENTRYPOINT_MODEL_ADAPTERS, IModelAdapter, entry_points_loader, config_section="llm")
 
 
 class ToolManager(BaseComponentManager[ITool]):
@@ -121,11 +145,40 @@ class ToolManager(BaseComponentManager[ITool]):
         tool_registry: ToolRegistry,
         entry_points_loader: EntryPointLoader | None = None,
     ) -> None:
-        super().__init__(ENTRYPOINT_TOOLS, ITool, entry_points_loader)
+        super().__init__(ENTRYPOINT_TOOLS, ITool, entry_points_loader, config_section="tools")
         self._tool_registry = tool_registry
 
     def _register_component(self, component: ITool) -> None:
         self._tool_registry.register_tool(component)
+
+    async def load(
+        self,
+        config_provider: IConfigProvider | None,
+        prompt_store: IPromptStore | None = None,
+    ) -> list[ITool]:
+        components = await super().load(config_provider, prompt_store)
+        if config_provider is not None:
+            self._register_composite_tools(config_provider)
+        return list(self._components)
+
+    def _register_composite_tools(self, config_provider: IConfigProvider) -> None:
+        composite_config = config_provider.get("composite_tools", [])
+        if isinstance(composite_config, dict):
+            composite_config = composite_config.get("tools", [])
+        if not isinstance(composite_config, list):
+            return
+        from .components.composite_tool import CompositeTool  # type: ignore
+
+        for recipe in composite_config:
+            if not isinstance(recipe, dict):
+                continue
+            name = recipe.get("name")
+            steps = recipe.get("steps", [])
+            if not name or not isinstance(steps, list):
+                continue
+            description = recipe.get("description", "")
+            composite = CompositeTool(name=name, description=description, steps=steps, toolkit=self._tool_registry)
+            self.register_component(composite)
 
 
 class SkillManager(BaseComponentManager[ISkill]):
@@ -134,7 +187,7 @@ class SkillManager(BaseComponentManager[ISkill]):
         skill_registry: SkillRegistry,
         entry_points_loader: EntryPointLoader | None = None,
     ) -> None:
-        super().__init__(ENTRYPOINT_SKILLS, ISkill, entry_points_loader)
+        super().__init__(ENTRYPOINT_SKILLS, ISkill, entry_points_loader, config_section="skills")
         self._skill_registry = skill_registry
 
     def _register_component(self, component: ISkill) -> None:
@@ -143,19 +196,19 @@ class SkillManager(BaseComponentManager[ISkill]):
 
 class MCPClientManager(BaseComponentManager[IMCPClient]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_MCP_CLIENTS, IMCPClient, entry_points_loader)
+        super().__init__(ENTRYPOINT_MCP_CLIENTS, IMCPClient, entry_points_loader, config_section="mcp")
 
 
 class HookManager(BaseComponentManager[IHook]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_HOOKS, IHook, entry_points_loader)
+        super().__init__(ENTRYPOINT_HOOKS, IHook, entry_points_loader, config_section="hooks")
 
 
 class ConfigProviderManager(BaseComponentManager[IConfigProvider]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_CONFIG_PROVIDERS, IConfigProvider, entry_points_loader)
+        super().__init__(ENTRYPOINT_CONFIG_PROVIDERS, IConfigProvider, entry_points_loader, config_section=None)
 
 
 class PromptStoreManager(BaseComponentManager[IPromptStore]):
     def __init__(self, entry_points_loader: EntryPointLoader | None = None) -> None:
-        super().__init__(ENTRYPOINT_PROMPT_STORES, IPromptStore, entry_points_loader)
+        super().__init__(ENTRYPOINT_PROMPT_STORES, IPromptStore, entry_points_loader, config_section="prompt_store")
