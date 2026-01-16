@@ -1,4 +1,4 @@
-# DARE Framework 文档导航
+2# DARE Framework 文档导航
 
 > 本文档提供清晰的阅读顺序和文档分类（以 `/doc/` 为范围）。
 
