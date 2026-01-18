@@ -10,4 +10,4 @@
 ## 3. Validation and Tests
 - [x] 3.1 Add unit tests for layer override semantics and Config parsing helpers
 - [x] 3.2 Add integration test for ConfigProvider reload returning a new effective Config
-- [ ] 3.3 Run test suite for affected areas
+- [x] 3.3 Run test suite for affected areas

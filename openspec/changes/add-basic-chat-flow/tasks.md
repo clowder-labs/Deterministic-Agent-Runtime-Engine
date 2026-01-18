@@ -11,5 +11,5 @@
 - [x] 1.10 Add a root dependency manifest for runtime and test dependencies.
 
 ## 2. Validation
-- [ ] 2.1 Manual smoke run of the stdin/stdout chat example (OpenAI key + simple prompt, then `/quit`).
+- [x] 2.1 Manual smoke run of the stdin/stdout chat example (OpenAI key + simple prompt, then `/quit`).
 - [ ] 2.2 Unit test: stdout hook renders expected text for representative plan/model/tool events.
