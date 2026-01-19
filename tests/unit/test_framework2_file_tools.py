@@ -1,6 +1,6 @@
 import pytest
 
-from dare_framework2.config.types import Config
+from dare_framework2.config import Config
 from dare_framework2.tool.impl.edit_line_tool import EditLineTool
 from dare_framework2.tool.impl.read_file_tool import ReadFileTool
 from dare_framework2.tool.impl.search_code_tool import SearchCodeTool
@@ -107,4 +107,3 @@ async def test_edit_line_strict_match_mismatch(tmp_path):
 
     assert result.success is False
     assert result.error == "LINE_MISMATCH"
-

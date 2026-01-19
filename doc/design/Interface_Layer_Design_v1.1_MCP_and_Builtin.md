@@ -85,8 +85,8 @@
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  IConfigProvider / IPromptStore                                  │   │
-│  │  ├── StaticConfigProvider ✅ 内置                                 │   │
+│  │  ConfigManager / IPromptStore                                    │   │
+│  │  ├── ConfigManager (layered merge) ✅ 内置                        │   │
 │  │  ├── InMemoryPromptStore ✅ 内置                                  │   │
 │  │  └── 开发者自定义...                                             │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
@@ -117,7 +117,6 @@
 - `dare_framework.skills`
 - `dare_framework.mcp_clients`
 - `dare_framework.hooks`
-- `dare_framework.config_providers`
 - `dare_framework.prompt_stores`
 
 默认策略：发现始终启用，按 `order` 升序加载注册。

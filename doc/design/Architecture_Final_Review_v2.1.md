@@ -695,7 +695,7 @@ DARE v2 采用基于 Python entrypoints 的标准化插件发现机制。
 | 反思器 | `dare_framework.v2.remediators` | Single-select |
 | 协议适配器 | `dare_framework.v2.protocol_adapters` | Multi-load |
 | 钩子 | `dare_framework.v2.hooks` | Multi-load |
-| 配置提供者 | `dare_framework.v2.config_providers` | Single-select |
+| 配置管理器 | (N/A) | ConfigManager (non-plugin) |
 
 #### 4.3.2 插件加载与配置过滤
 

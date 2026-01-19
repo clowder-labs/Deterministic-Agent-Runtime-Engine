@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from dare_framework2.config import Config
 from dare_framework2.builder.agent import Agent
 from dare_framework2.builder.types import PluginManagers
 from dare_framework2.context.impl.default_context_manager import DefaultContextManager
@@ -51,7 +52,7 @@ class AgentBuilder:
         self._tools: list["ITool"] = []
         self._protocol_adapters: list["IProtocolAdapter"] = []
         self._plugin_managers: PluginManagers | None = None
-        self._plugin_config: Any | None = None
+        self._plugin_config: Config | None = None
 
         self._model_adapter: "IModelAdapter | None" = None
         self._planner: "IPlanner | None" = None
@@ -139,7 +140,7 @@ class AgentBuilder:
         self,
         managers: PluginManagers,
         *,
-        config: Any | None = None,
+        config: Config | None = None,
     ) -> "AgentBuilder":
         """Attach plugin managers for entrypoint-driven composition.
         

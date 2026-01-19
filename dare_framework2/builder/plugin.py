@@ -58,13 +58,6 @@ class NoOpHookManager:
         return []
 
 
-class NoOpConfigProviderManager:
-    """No-op config provider manager used as a safe default placeholder."""
-
-    def load_config_provider(self, *, config: Any | None = None) -> object | None:
-        return None
-
-
 class NoOpMemoryManager:
     """No-op memory manager used as a safe default placeholder."""
 

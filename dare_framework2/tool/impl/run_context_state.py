@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from dare_framework2.config import Config
 from dare_framework2.tool.types import RunContext
 
 
@@ -27,7 +28,7 @@ class RunContextState:
     task_id: str | None = None
     milestone_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    config: Any | None = None
+    config: Config | None = None
 
     def build(self) -> RunContext[Any]:
         """Build a RunContext from the current state."""

@@ -91,7 +91,7 @@
 **补充说明（v1.3 扩展）**：
 - Layer 2 的可插拔实现统一实现 `IComponent`（`order/init/register/close`），用于统一生命周期与注册协议。
 - Layer 3 引入 `BaseComponentManager` + 各类 `XxxManager`（Validator/Memory/ModelAdapter/Tool/Skill/MCP/Hook/Config/Prompt），通过 entry points 发现 Layer 2 组件（默认始终启用），按 `order` 升序初始化并注册。
-- 新增 `IConfigProvider` 与 `IPromptStore` 作为 Layer 2 组件接口，供运行时与组件初始化读取配置/Prompt。
+- 配置由 `ConfigManager` 统一提供（非组件生命周期），`IPromptStore` 仍作为 Layer 2 组件接口供运行时读取 Prompt。
 
 ### 1.2 核心设计原则
 

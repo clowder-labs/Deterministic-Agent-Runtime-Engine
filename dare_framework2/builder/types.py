@@ -3,29 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Protocol
 
-
-class ComponentType(Enum):
-    """Component category taxonomy used for configuration scoping.
-    
-    Values correspond to different pluggable component types
-    that can be discovered and loaded via the plugin system.
-    """
-    PLANNER = "planner"
-    VALIDATOR = "validator"
-    REMEDIATOR = "remediator"
-    MEMORY = "memory"
-    MODEL_ADAPTER = "model_adapter"
-    TOOL = "tool"
-    SKILL = "skill"
-    MCP = "mcp"
-    HOOK = "hook"
-    PROTOCOL_ADAPTER = "protocol_adapter"
-    CONFIG_PROVIDER = "config_provider"
-    PROMPT_STORE = "prompt_store"
-
+from dare_framework2.contracts import ComponentType
 
 # =============================================================================
 # Plugin Manager Interfaces
@@ -66,11 +46,6 @@ class IHookManager(Protocol):
     def load_hooks(self, *, config: Any | None = None) -> list[object]: ...
 
 
-class IConfigProviderManager(Protocol):
-    """Loads configuration provider plugins."""
-    def load_config_provider(self, *, config: Any | None = None) -> object | None: ...
-
-
 class IMemoryManager(Protocol):
     """Loads memory capability plugins."""
     def load_memory(self, *, config: Any | None = None) -> object | None: ...
@@ -99,7 +74,6 @@ class PluginManagers:
     remediators: IRemediatorManager | None = None
     protocol_adapters: IProtocolAdapterManager | None = None
     hooks: IHookManager | None = None
-    config_providers: IConfigProviderManager | None = None
     memory: IMemoryManager | None = None
     prompt_stores: IPromptStoreManager | None = None
     skills: ISkillManager | None = None
