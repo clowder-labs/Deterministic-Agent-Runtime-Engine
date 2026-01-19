@@ -20,10 +20,14 @@ from dare_framework2.plan.impl.gateway_validator import GatewayValidator
 from dare_framework2.plan.impl.noop_remediator import NoOpRemediator
 from dare_framework2.tool.impl.default_security_boundary import DefaultSecurityBoundary
 from dare_framework2.tool.impl.default_tool_gateway import DefaultToolGateway
+from dare_framework2.tool.impl.edit_line_tool import EditLineTool
+from dare_framework2.tool.impl.read_file_tool import ReadFileTool
 from dare_framework2.tool.impl.native_tool_provider import NativeToolProvider
 from dare_framework2.tool.impl.noop_tool import NoOpTool
 from dare_framework2.tool.impl.protocol_adapter_provider import ProtocolAdapterProvider
 from dare_framework2.tool.impl.run_context_state import RunContextState
+from dare_framework2.tool.impl.search_code_tool import SearchCodeTool
+from dare_framework2.tool.impl.write_file_tool import WriteFileTool
 
 if TYPE_CHECKING:
     from dare_framework2.execution.interfaces import IEventLog, IHook
@@ -62,7 +66,7 @@ class AgentBuilder:
 
     @classmethod
     def quick_start(cls, name: str) -> "AgentBuilder":
-        """Create a minimal builder with Kernel defaults and a NoOp tool.
+        """Create a minimal builder with Kernel defaults and a small toolset.
         
         Args:
             name: The agent name
@@ -70,7 +74,19 @@ class AgentBuilder:
         Returns:
             A pre-configured AgentBuilder
         """
-        return cls(name).with_kernel_defaults().with_tools(NoOpTool())
+        # Keep the default tool surface practical for local development and examples.
+        # Higher-risk tools (like local command execution) should still be opt-in.
+        return (
+            cls(name)
+            .with_kernel_defaults()
+            .with_tools(
+                NoOpTool(),
+                ReadFileTool(),
+                SearchCodeTool(),
+                WriteFileTool(),
+                EditLineTool(),
+            )
+        )
 
     def with_kernel_defaults(self) -> "AgentBuilder":
         """Enable Kernel defaults.
@@ -272,6 +288,9 @@ class AgentBuilder:
             self._tools.append(NoOpTool())
 
         run_context = RunContextState()
+        # Carry the effective config snapshot into tool execution contexts so tools
+        # can enforce workspace roots and guardrails deterministically.
+        run_context.config = self._plugin_config
 
         # Build tool gateway
         tool_gateway = DefaultToolGateway()

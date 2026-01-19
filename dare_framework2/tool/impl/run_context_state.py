@@ -20,12 +20,14 @@ class RunContextState:
         task_id: Current task identifier
         milestone_id: Current milestone identifier
         metadata: Additional context data
+        config: Optional effective configuration snapshot
     """
     deps: Any | None = None
     run_id: str = ""
     task_id: str | None = None
     milestone_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    config: Any | None = None
 
     def build(self) -> RunContext[Any]:
         """Build a RunContext from the current state."""
@@ -35,4 +37,5 @@ class RunContextState:
             task_id=self.task_id,
             milestone_id=self.milestone_id,
             metadata=dict(self.metadata),
+            config=self.config,
         )
