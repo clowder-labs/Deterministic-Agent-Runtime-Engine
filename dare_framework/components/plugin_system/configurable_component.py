@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from dare_framework.components.plugin_system.component import IComponent
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 
 
 @runtime_checkable

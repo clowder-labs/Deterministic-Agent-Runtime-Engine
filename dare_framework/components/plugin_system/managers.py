@@ -97,15 +97,7 @@ class IHookManager(Protocol):
     def load_hooks(self, *, config: Any | None = None) -> list[object]: ...
 
 
-class IConfigProviderManager(Protocol):
-    """Loads configuration provider plugins.
 
-    Intended semantics:
-    - Config providers are single-select or ordered chain (implementation-defined).
-    - A provider yields an effective config snapshot for the session/build.
-    """
-
-    def load_config_provider(self, *, config: Any | None = None) -> object | None: ...
 
 
 # Optional placeholders (reserved for future capabilities).
@@ -142,7 +134,6 @@ class PluginManagers:
     remediators: IRemediatorManager | None = None
     protocol_adapters: IProtocolAdapterManager | None = None
     hooks: IHookManager | None = None
-    config_providers: IConfigProviderManager | None = None
     memory: IMemoryManager | None = None
     prompt_stores: IPromptStoreManager | None = None
     skills: ISkillManager | None = None
@@ -197,11 +188,7 @@ class NoOpHookManager:
         return []
 
 
-class NoOpConfigProviderManager:
-    """No-op config provider manager used as a safe default placeholder."""
 
-    def load_config_provider(self, *, config: Any | None = None) -> object | None:
-        return None
 
 
 class NoOpMemoryManager:

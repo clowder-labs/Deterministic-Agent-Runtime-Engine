@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dare_framework.components.base_component import ConfigurableComponent
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 
 from .protocols import IPromptStore
 

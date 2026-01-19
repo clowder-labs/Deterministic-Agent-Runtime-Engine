@@ -4,9 +4,61 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dare_framework.config.component_config import ComponentConfig
-from dare_framework.config.llm_config import LLMConfig
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
+
+
+@dataclass(frozen=True)
+class ComponentConfig:
+    """Per-component-type configuration with a disabled list and named entries."""
+
+    disabled: list[str] = field(default_factory=list)
+    entries: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ComponentConfig":
+        disabled_raw = data.get("disabled", [])
+        disabled = [str(item) for item in disabled_raw] if isinstance(disabled_raw, list) else []
+        entries = {key: value for key, value in data.items() if key != "disabled"}
+        return cls(disabled=disabled, entries=entries)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = dict(self.entries)
+        if self.disabled:
+             payload["disabled"] = list(self.disabled)
+        return payload
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    """Connectivity settings for LLM backends."""
+
+    adapter: str | None = None
+    endpoint: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "LLMConfig":
+        adapter = data.get("adapter")
+        endpoint = data.get("endpoint")
+        api_key = data.get("api_key")
+        model = data.get("model")
+        extra = {key: value for key, value in data.items() if key not in {"adapter", "endpoint", "api_key", "model"}}
+        return cls(adapter=adapter, endpoint=endpoint, api_key=api_key, model=model, extra=extra)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.adapter is not None:
+             payload["adapter"] = self.adapter
+        if self.endpoint is not None:
+             payload["endpoint"] = self.endpoint
+        if self.api_key is not None:
+             payload["api_key"] = self.api_key
+        if self.model is not None:
+             payload["model"] = self.model
+        payload.update(self.extra)
+        return payload
 
 
 def _default_workspace_roots() -> list[str]:

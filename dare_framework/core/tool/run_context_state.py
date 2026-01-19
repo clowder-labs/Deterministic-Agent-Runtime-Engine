@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dare_framework.contracts.run_context import RunContext
+from dare_framework.core.config import Config
 
 
 @dataclass
@@ -15,7 +16,7 @@ class RunContextState:
     task_id: str | None = None
     milestone_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    config: Any | None = None
+    config: Config | None = None
 
     def build(self) -> RunContext:
         return RunContext(

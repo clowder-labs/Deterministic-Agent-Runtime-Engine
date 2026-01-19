@@ -4,10 +4,10 @@ from typing import Any
 import json
 import logging
 
-from dare_framework.config.config import Config
+from dare_framework.core.config import Config
 from dare_framework.contracts.model import GenerateOptions, IModelAdapter, Message, ModelResponse
 from dare_framework.contracts.tool import ToolDefinition
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 from ..base_component import ConfigurableComponent
 
 try:

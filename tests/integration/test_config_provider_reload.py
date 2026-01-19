@@ -1,12 +1,12 @@
-from dare_framework.components.config_providers.default_config_provider import DefaultConfigProvider
+from dare_framework.core.config.manager import ConfigManager
 
 
-def test_static_config_provider_reload_returns_new_config():
-    provider = DefaultConfigProvider({"llm": {"model": "m1"}})
+def test_config_manager_reload_returns_new_config():
+    manager = ConfigManager(system={"llm": {"model": "m1"}})
 
-    current = provider.current()
-    reloaded = provider.reload()
+    current = manager.current
+    reloaded = manager.reload()
 
     assert current is not reloaded
     assert reloaded.llm.model == "m1"
-    assert provider.current() is reloaded
+    assert manager.current is reloaded

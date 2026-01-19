@@ -1,7 +1,7 @@
 """Entrypoint-based plugin loading utilities (v2)."""
 
 from .managers import PluginManagers
-from .component_type import ComponentType
+from dare_framework.contracts import ComponentType
 from .configurable_component import IConfigurableComponent
 from .component import IComponent
 

@@ -6,7 +6,7 @@ from dare_framework.contracts.ids import generator_id
 from dare_framework.core.plan.planning import ProposedPlan, ProposedStep, ValidatedPlan
 from dare_framework.core.plan.results import ExecuteResult, VerifyResult
 from dare_framework.core.protocols import IValidator
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 
 
 class FailingValidator(ConfigurableComponent, IValidator):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from dare_framework.components.base_component import ConfigurableComponent
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 from dare_framework.contracts.mcp import IMCPClient
 from dare_framework.contracts.run_context import RunContext
 from dare_framework.contracts.tool import ToolDefinition, ToolResult

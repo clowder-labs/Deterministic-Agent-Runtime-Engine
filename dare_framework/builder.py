@@ -30,7 +30,8 @@ from dare_framework.core.plan.results import RunResult
 from dare_framework.core.run_loop.protocols import IRunLoop
 from dare_framework.core.plan.task import Task
 from dare_framework.protocols.base import IProtocolAdapter
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
+from dare_framework.core.config import Config
 from dare_framework.components.plugin_system.managers import PluginManagers
 
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 from importlib import metadata
 from typing import Any, Callable, Iterable
 
-from dare_framework.config.config import Config
+from dare_framework.core.config import Config
 from dare_framework.contracts.model import IModelAdapter
 from dare_framework.contracts.tool import ITool
 from dare_framework.components.plugin_system.configurable_component import IConfigurableComponent

@@ -4,7 +4,7 @@ import sys
 from typing import Any
 
 from dare_framework.components.hooks.protocols import IHook
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 from dare_framework.core.hook.models import HookPhase
 
 

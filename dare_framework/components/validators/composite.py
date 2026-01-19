@@ -3,7 +3,7 @@ from __future__ import annotations
 from dare_framework.core.plan.planning import ProposedPlan, ValidatedPlan
 from dare_framework.core.plan.results import ExecuteResult, VerifyResult
 from dare_framework.core.protocols import IValidator
-from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.contracts import ComponentType
 from ..base_component import ConfigurableComponent
 
 

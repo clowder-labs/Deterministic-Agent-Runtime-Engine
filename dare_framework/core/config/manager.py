@@ -1,18 +1,44 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Iterable
 
-from dare_framework.components.base_component import BaseComponent
-from dare_framework.config.config import Config
-from dare_framework.config.config_provider import IConfigProvider, build_config_from_layers, merge_config_layers
+from .models import Config
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def merge_config_layers(layers: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Merge layered config dictionaries using deterministic override semantics."""
+    merged: dict[str, Any] = {}
+    for layer in layers:
+        merged = _deep_merge(merged, layer)
+    return merged
+
+
+def build_config_from_layers(layers: Iterable[dict[str, Any]]) -> Config:
+    """Build an effective Config from layered dictionaries."""
+    return Config.from_dict(merge_config_layers(layers))
+
+
+def _stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass
-class LayeredConfigProvider(BaseComponent, IConfigProvider):
-    """Config provider that deterministically merges layered config dictionaries.
+class ConfigManager:
+    """Manager that deterministically merges layered config dictionaries.
 
     Precedence: later layers override earlier layers (system < project < user < session).
     """
@@ -44,6 +70,7 @@ class LayeredConfigProvider(BaseComponent, IConfigProvider):
         """Deterministic hash of the merged config for cache keys and debugging."""
         return self._config_hash
 
+    @property
     def current(self) -> Config:
         return self._config
 
@@ -69,8 +96,3 @@ class LayeredConfigProvider(BaseComponent, IConfigProvider):
         self._merged = merge_config_layers(layers)
         self._config = build_config_from_layers([self._merged])
         self._config_hash = _stable_hash(self._merged)
-
-
-def _stable_hash(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
