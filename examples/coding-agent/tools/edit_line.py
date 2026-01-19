@@ -12,13 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from dare_framework.components.base_component import BaseComponent
-from dare_framework.core.errors import ToolError
-from dare_framework.core.dare_utils import generator_id
-from dare_framework.core.context.models import RunContext
-from dare_framework.core.risk_level import RiskLevel
-from dare_framework.core.models.evidence import Evidence
-from dare_framework.core.tool.models import ToolResult
-from dare_framework.core.tool.enums import ToolType
+from dare_framework.contracts.evidence import Evidence
+from dare_framework.contracts.ids import generator_id
+from dare_framework.contracts.risk import RiskLevel
+from dare_framework.contracts.run_context import RunContext
+from dare_framework.contracts.tool import ToolResult, ToolType
 
 
 class EditLineTool(BaseComponent):
@@ -118,18 +116,21 @@ Modes:
         strict_match = bool(input.get("strict_match", True))
 
         if mode not in {"insert", "delete"}:
-            raise ToolError(code="INVALID_MODE", message=f"Unsupported mode: {mode}")
+            return ToolResult(success=False, output={}, error=f"unsupported mode: {mode}", evidence=[])
         if mode == "insert" and not text:
-            raise ToolError(code="MISSING_TEXT", message="Insert mode requires text")
+            return ToolResult(success=False, output={}, error="insert mode requires text", evidence=[])
 
-        abs_path = self._resolve_path(path)
+        try:
+            abs_path = self._resolve_path(path)
+        except ValueError as exc:
+            return ToolResult(success=False, output={}, error=str(exc), evidence=[])
 
         try:
             content = abs_path.read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
-            raise ToolError(code="FILE_NOT_FOUND", message=f"File not found: {path}") from exc
-        except PermissionError as exc:
-            raise ToolError(code="PERMISSION_DENIED", message=f"Permission denied: {path}") from exc
+        except FileNotFoundError:
+            return ToolResult(success=False, output={}, error=f"file not found: {path}", evidence=[])
+        except PermissionError:
+            return ToolResult(success=False, output={}, error=f"permission denied: {path}", evidence=[])
 
         newline = _detect_newline(content)
         lines = content.splitlines(keepends=True)
@@ -147,20 +148,25 @@ Modes:
             after = insert_line.rstrip("\r\n")
         else:
             if not lines:
-                raise ToolError(code="EMPTY_FILE", message="Cannot delete from empty file")
+                return ToolResult(success=False, output={}, error="cannot delete from empty file", evidence=[])
             index = line_number - 1
             if index >= len(lines):
-                raise ToolError(code="LINE_OUT_OF_RANGE", message=f"Line {line_number} not found")
+                return ToolResult(success=False, output={}, error=f"line {line_number} not found", evidence=[])
             target = lines[index]
             before = target.rstrip("\r\n")
             if text and strict_match and before != text:
-                raise ToolError(
-                    code="LINE_MISMATCH",
-                    message="Target line does not match provided text",
+                return ToolResult(
+                    success=False,
+                    output={"before": before},
+                    error="target line does not match provided text",
+                    evidence=[],
                 )
             lines.pop(index)
 
-        abs_path.write_text("".join(lines), encoding="utf-8")
+        try:
+            abs_path.write_text("".join(lines), encoding="utf-8")
+        except OSError as exc:
+            return ToolResult(success=False, output={}, error=str(exc), evidence=[])
 
         return ToolResult(
             success=True,
@@ -183,7 +189,7 @@ Modes:
     def _resolve_path(self, path: str) -> Path:
         resolved = (self._workspace / path).resolve()
         if not resolved.is_relative_to(self._workspace):
-            raise ToolError(code="PATH_TRAVERSAL", message=f"Path traversal attempt: {path}")
+            raise ValueError(f"path traversal attempt: {path}")
         return resolved
 
 

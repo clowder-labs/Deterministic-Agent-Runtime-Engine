@@ -2,15 +2,10 @@ from __future__ import annotations
 
 import re
 
-from dare_framework.core.context.models import MilestoneContext
-from dare_framework.core.plan.models import (
-    DonePredicate,
-    Envelope,
-    EnvelopeBudget,
-    EvidenceCondition,
-    ProposedStep,
-)
-from dare_framework.core.dare_utils import generator_id
+from dare_framework.contracts.ids import generator_id
+from dare_framework.core.budget import Budget
+from dare_framework.core.plan.envelope import DonePredicate, Envelope, EvidenceCondition
+from dare_framework.core.plan.planning import ProposedStep
 
 FIX_HINTS = ("fix", "bug", "修复", "修正")
 SEARCH_HINTS = ("search", "grep", "搜索")
@@ -32,16 +27,16 @@ def build_demo_steps(
         steps.append(
             ProposedStep(
                 step_id=generator_id("step"),
-                tool_name="search_code",
-                tool_input={"pattern": extract_pattern(description)},
+                capability_id="tool:search_code",
+                params={"pattern": extract_pattern(description)},
             )
         )
     if contains_any(description, READ_HINTS) or not steps:
         steps.append(
             ProposedStep(
                 step_id=generator_id("step"),
-                tool_name="read_file",
-                tool_input={"path": default_read_path},
+                capability_id="tool:read_file",
+                params={"path": default_read_path},
                 envelope=read_envelope(),
             )
         )
@@ -49,8 +44,8 @@ def build_demo_steps(
         steps.append(
             ProposedStep(
                 step_id=generator_id("step"),
-                tool_name="edit_line",
-                tool_input={
+                capability_id="tool:edit_line",
+                params={
                     "path": default_read_path,
                     "line_number": extract_line_number(description),
                     "text": DEFAULT_EDIT_TEXT,
@@ -62,8 +57,8 @@ def build_demo_steps(
         steps.append(
             ProposedStep(
                 step_id=generator_id("step"),
-                tool_name="edit_line",
-                tool_input={
+                capability_id="tool:edit_line",
+                params={
                     "path": default_read_path,
                     "line_number": extract_line_number(description),
                     "text": DEFAULT_EDIT_TEXT,
@@ -76,8 +71,8 @@ def build_demo_steps(
         steps.append(
             ProposedStep(
                 step_id=generator_id("step"),
-                tool_name="write_file",
-                tool_input={
+                capability_id="tool:write_file",
+                params={
                     "path": "notes.txt",
                     "content": f"Task notes: {raw_description}",
                 },
@@ -87,8 +82,8 @@ def build_demo_steps(
         steps.append(
             ProposedStep(
                 step_id=generator_id("step"),
-                tool_name="run_tests",
-                tool_input={},
+                capability_id="tool:run_tests",
+                params={},
                 envelope=test_envelope(),
             )
         )
@@ -97,8 +92,8 @@ def build_demo_steps(
 
 def read_envelope() -> Envelope:
     return Envelope(
-        allowed_tools=["read_file"],
-        budget=EnvelopeBudget(max_tool_calls=2),
+        allowed_capability_ids=["tool:read_file"],
+        budget=Budget(max_tool_calls=2),
         done_predicate=DonePredicate(
             evidence_conditions=[
                 EvidenceCondition(condition_type="evidence_kind", params={"kind": "file_read"})
@@ -110,8 +105,8 @@ def read_envelope() -> Envelope:
 
 def test_envelope() -> Envelope:
     return Envelope(
-        allowed_tools=["run_tests"],
-        budget=EnvelopeBudget(max_tool_calls=1),
+        allowed_capability_ids=["tool:run_tests"],
+        budget=Budget(max_tool_calls=1),
         done_predicate=DonePredicate(
             evidence_conditions=[
                 EvidenceCondition(condition_type="evidence_kind", params={"kind": "test_report"})
@@ -132,9 +127,9 @@ def contains_any(description: str, tokens: tuple[str, ...]) -> bool:
     return any(token in description for token in tokens)
 
 
-def seen_plan_tool(milestone_ctx: MilestoneContext, tool_name: str) -> bool:
+def seen_plan_tool(reflections: list[str], tool_name: str) -> bool:
     marker = f"plan tool encountered: {tool_name}"
-    return any(marker in reflection for reflection in milestone_ctx.reflections)
+    return any(marker in reflection for reflection in reflections)
 
 
 def extract_line_number(description: str, default: int = 2) -> int:

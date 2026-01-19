@@ -10,13 +10,11 @@ from typing import Any
 import asyncio
 
 from dare_framework.components.base_component import BaseComponent
-from dare_framework.core.errors import ToolError
-from dare_framework.core.dare_utils import generator_id
-from dare_framework.core.context.models import RunContext
-from dare_framework.core.risk_level import RiskLevel
-from dare_framework.core.models.evidence import Evidence
-from dare_framework.core.tool.models import ToolResult
-from dare_framework.core.tool.enums import ToolType
+from dare_framework.contracts.evidence import Evidence
+from dare_framework.contracts.ids import generator_id
+from dare_framework.contracts.risk import RiskLevel
+from dare_framework.contracts.run_context import RunContext
+from dare_framework.contracts.tool import ToolResult, ToolType
 
 
 class RunTestsTool(BaseComponent):
@@ -169,7 +167,7 @@ Use this tool when you need to:
                 evidence=[],
             )
         except OSError as exc:
-            raise ToolError(code="TEST_RUN_FAILED", message=str(exc)) from exc
+            return ToolResult(success=False, output={"success": False, "output": str(exc)}, error=str(exc), evidence=[])
 
     def _parse_pytest_output(self, output: str) -> dict:
         return {

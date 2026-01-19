@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from dare_framework.core.plan.models import ProposedStep
-from dare_framework.core.dare_utils import generator_id
+from dare_framework.contracts.ids import generator_id
+from dare_framework.core.plan.planning import ProposedStep
 
 
 def _load_coding_agent():
@@ -26,13 +26,16 @@ async def test_example_agent_deterministic_flow(tmp_path):
     (tmp_path / "sample.txt").write_text("hello", encoding="utf-8")
 
     plan_steps = [
-        ProposedStep(step_id=generator_id("step"), tool_name="read_file", tool_input={"path": "sample.txt"})
+        ProposedStep(
+            step_id=generator_id("step"),
+            capability_id="tool:read_file",
+            params={"path": "sample.txt"},
+        )
     ]
 
     CodingAgent = _load_coding_agent()
     agent = CodingAgent(
         workspace=str(tmp_path),
-        mock_mode=True,
         plan_steps=plan_steps,
     )
 

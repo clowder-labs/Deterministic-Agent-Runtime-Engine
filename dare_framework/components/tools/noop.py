@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from ...core.component_type import ComponentType
-from dare_framework.core.dare_utils import generator_id
-from dare_framework.core.context.models import RunContext
-from ...core.risk_level import RiskLevel
-from ...core.models.evidence import Evidence
-from dare_framework.core.tool.models import ToolResult
-from dare_framework.core.tool.enums import ToolType
+from dare_framework.contracts.evidence import Evidence
+from dare_framework.contracts.ids import generator_id
+from dare_framework.contracts.risk import RiskLevel
+from dare_framework.contracts.run_context import RunContext
+from dare_framework.contracts.tool import ToolResult, ToolType
+from dare_framework.components.plugin_system.component_type import ComponentType
 from ..base_component import ConfigurableComponent
 
 

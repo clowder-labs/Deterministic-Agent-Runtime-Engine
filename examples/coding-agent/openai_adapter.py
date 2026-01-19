@@ -9,14 +9,12 @@ import urllib.request
 from typing import Any, Iterable
 
 from dare_framework.components.base_component import BaseComponent
-from dare_framework.components.registries import ToolRegistry
-from dare_framework.core.models.model_adapter import IModelAdapter
-from dare_framework.core.context.models import MilestoneContext, RunContext
-from dare_framework.core.models.model_adapter import GenerateOptions, Message, ModelResponse
-from dare_framework.core.plan.models import Milestone, ProposedPlan, ProposedStep
-from dare_framework.core.dare_utils import generator_id
-from dare_framework.core.tool.models import ToolDefinition
-from dare_framework.core.plan.plan_generator import IPlanGenerator
+from dare_framework.contracts.ids import generator_id
+from dare_framework.contracts.model import GenerateOptions, IModelAdapter, Message, ModelResponse
+from dare_framework.contracts.tool import ITool, ToolDefinition
+from dare_framework.core.context import AssembledContext
+from dare_framework.core.plan.planning import ProposedPlan, ProposedStep
+from dare_framework.core.protocols import IPlanner
 
 from plan_helpers import DEFAULT_EDIT_TEXT, read_envelope, seen_plan_tool, test_envelope
 
@@ -140,8 +138,8 @@ class OpenAIModelAdapter(BaseComponent, IModelAdapter):
         return headers
 
 
-class OpenAIPlanGenerator(IPlanGenerator):
-    """Plan generator that asks OpenAI for a JSON plan and maps it to ProposedStep objects."""
+class OpenAIPlanner(IPlanner):
+    """Planner that asks OpenAI for a JSON plan and maps it to v2 ProposedStep objects."""
 
     def __init__(
         self,
@@ -159,32 +157,27 @@ class OpenAIPlanGenerator(IPlanGenerator):
         self._default_read_path = default_read_path
         self._max_steps = max_steps
 
-    async def generate_plan(
-        self,
-        milestone: Milestone,
-        milestone_ctx: MilestoneContext,
-        plan_attempts: list[dict[str, Any]],
-        ctx: RunContext,
-    ) -> ProposedPlan:
+    async def plan(self, ctx: AssembledContext) -> ProposedPlan:
+        task = _last_user_message(ctx) or "unknown task"
+        reflections: list[str] = []
         if _debug_enabled():
             _debug_log(
                 "plan_request",
                 {
-                    "task": milestone.description,
-                    "attempt": len(plan_attempts),
-                    "reflections": len(milestone_ctx.reflections),
+                    "task": task,
+                    "reflections": len(reflections),
                 },
             )
         allowed_plan_tools = [
-            tool for tool in self._plan_tools if not seen_plan_tool(milestone_ctx, tool)
+            tool for tool in self._plan_tools if not seen_plan_tool(reflections, tool)
         ]
         messages = [
             Message(role="system", content=_plan_system_prompt()),
             Message(
                 role="user",
                 content=_plan_user_prompt(
-                    task=milestone.description,
-                    reflections=milestone_ctx.reflections,
+                    task=task,
+                    reflections=reflections,
                     tool_definitions=self._tool_definitions,
                     plan_tools=allowed_plan_tools,
                     default_read_path=self._default_read_path,
@@ -203,22 +196,21 @@ class OpenAIPlanGenerator(IPlanGenerator):
                 {
                     "plan_description": data.get("plan_description"),
                     "step_count": len(steps),
-                    "tools": [step.tool_name for step in steps],
+                    "tools": [step.capability_id for step in steps],
                 },
             )
         if not steps:
             steps = [
                 ProposedStep(
                     step_id=generator_id("step"),
-                    tool_name="read_file",
-                    tool_input={"path": self._default_read_path},
+                    capability_id="tool:read_file",
+                    params={"path": self._default_read_path},
                     envelope=read_envelope(),
                 )
             ]
         return ProposedPlan(
-            plan_description=str(data.get("plan_description") or milestone.description),
-            proposed_steps=steps,
-            attempt=len(plan_attempts),
+            plan_description=str(data.get("plan_description") or task),
+            steps=steps,
         )
 
     def _steps_from_payload(self, data: dict[str, Any]) -> list[ProposedStep]:
@@ -255,11 +247,12 @@ class OpenAIPlanGenerator(IPlanGenerator):
             elif tool_name == "run_tests":
                 envelope = test_envelope()
 
+            capability_id = f"plan:{tool_name}" if tool_name in self._plan_tools else f"tool:{tool_name}"
             steps.append(
                 ProposedStep(
                     step_id=generator_id("step"),
-                    tool_name=tool_name,
-                    tool_input=tool_input,
+                    capability_id=capability_id,
+                    params=tool_input,
                     description=str(raw_step.get("description") or ""),
                     envelope=envelope,
                 )
@@ -268,9 +261,34 @@ class OpenAIPlanGenerator(IPlanGenerator):
 
 
 def tool_definitions_from_tools(tools: Iterable[Any]) -> list[ToolDefinition]:
-    registry = ToolRegistry()
-    registry.register_many(tools)
-    return registry.list_tools()
+    """Build ToolDefinition metadata from in-process ITool objects."""
+
+    definitions: list[ToolDefinition] = []
+    for tool in tools:
+        if not isinstance(tool, ITool):
+            continue
+        definitions.append(
+            ToolDefinition(
+                name=tool.name,
+                description=tool.description,
+                input_schema=dict(tool.input_schema),
+                output_schema=dict(tool.output_schema),
+                tool_type=tool.tool_type,
+                risk_level=tool.risk_level,
+                requires_approval=tool.requires_approval,
+                timeout_seconds=tool.timeout_seconds,
+                produces_assertions=list(tool.produces_assertions),
+                is_work_unit=tool.is_work_unit,
+            )
+        )
+    return definitions
+
+
+def _last_user_message(ctx: AssembledContext) -> str | None:
+    for msg in reversed(ctx.messages):
+        if msg.role == "user" and msg.content:
+            return msg.content
+    return None
 
 
 def _serialize_messages(messages: list[Message]) -> list[dict[str, Any]]:

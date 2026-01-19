@@ -19,47 +19,13 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from typing import Iterable
 
-from dare_framework.core.context.models import AssembledContext, MilestoneContext, RunContext
-from dare_framework.core.context.protocols import IContextAssembler
-from dare_framework.core.models.model_adapter import Message
-from dare_framework.core.plan.models import Milestone
+from dare_framework.builder import AgentBuilder
+from dare_framework.core.event.local_event_log import LocalEventLog
 
-from agent import CodingAgent
-from openai_adapter import OpenAIModelAdapter, OpenAIPlanGenerator, tool_definitions_from_tools
+from openai_adapter import OpenAIModelAdapter, OpenAIPlanner, tool_definitions_from_tools
 from plan_helpers import DEFAULT_EDIT_TEXT
 from tools import EditLineTool, ReadFileTool, RunTestsTool, SearchCodeTool, WriteFileTool
-
-
-class StrictToolContextAssembler(IContextAssembler):
-    """Context assembler that nudges the model to only call the allowed tools."""
-
-    def __init__(self, tool_names: Iterable[str]) -> None:
-        self._tool_names = sorted(tool_names)
-
-    async def assemble(
-        self,
-        milestone: Milestone,
-        milestone_ctx: MilestoneContext,
-        ctx: RunContext,
-    ) -> AssembledContext:
-        tool_list = ", ".join(self._tool_names)
-        system_prompt = (
-            "You are a tool-using agent. "
-            "You MUST call one of the allowed tools to make progress. "
-            f"Allowed tools: {tool_list}. "
-            "Do not invent tool names. "
-            "Only respond with a final answer after tools are complete."
-        )
-        messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=milestone_ctx.user_input),
-        ]
-        return AssembledContext(messages=messages)
-
-    async def compress(self, context: AssembledContext, max_tokens: int) -> AssembledContext:
-        return context
 
 
 async def main() -> None:
@@ -78,24 +44,22 @@ async def main() -> None:
         RunTestsTool(),
     ]
 
-    tool_names = [tool.name for tool in tools]
     adapter = OpenAIModelAdapter(model=model_name, base_url=base_url)
-    plan_generator = OpenAIPlanGenerator(
+    planner = OpenAIPlanner(
         model=adapter,
         tool_definitions=tool_definitions_from_tools(tools),
         plan_tools=["fix_bug"],
         default_read_path=target_path,
     )
 
-    agent = CodingAgent(
-        workspace=workspace,
-        mock_mode=False,
-        model_adapter=adapter,
-        plan_generator=plan_generator,
-        context_assembler=StrictToolContextAssembler(tool_names),
-        event_log_path=".dare/examples/coding-agent/real/event_log.jsonl",
-        checkpoint_path=".dare/examples/coding-agent/real/checkpoints",
-        enable_skills=False,
+    agent = (
+        AgentBuilder("coding-agent-real")
+        .with_kernel_defaults()
+        .with_tools(*tools)
+        .with_planner(planner)
+        .with_event_log(LocalEventLog(path=".dare/examples/coding-agent/real/event_log.jsonl"))
+        .with_checkpoint_dir(".dare/examples/coding-agent/real/checkpoints")
+        .build()
     )
 
     result = await agent.run(

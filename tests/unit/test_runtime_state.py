@@ -1,58 +1,67 @@
 import pytest
 
-from dare_framework.components.base_context_assembler import BasicContextAssembler
-from dare_framework.components.checkpoint import FileCheckpoint
-from dare_framework.components.event_log import LocalEventLog
+from dare_framework.components.planners.deterministic import DeterministicPlanner
+from dare_framework.components.providers.native_tool_provider import NativeToolProvider
+from dare_framework.components.remediators import NoOpRemediator
 from dare_framework.components.tools.noop import NoOpTool
-from dare_framework.components.plan_generator import DeterministicPlanGenerator
-from dare_framework.components.policy_engine import AllowAllPolicyEngine
-from dare_framework.components.registries import SkillRegistry, ToolRegistry
-from dare_framework.components.remediator import NoOpRemediator
-from dare_framework.components.tool_runtime import ToolRuntime
-from dare_framework.components.validators.simple import SimpleValidator
-from dare_framework.core.plan.models import ProposedStep, Task
-from dare_framework.core.dare_utils import generator_id
-from dare_framework.core.models.runtime_state import RuntimeState
-from dare_framework.core.runtime_engine import AgentRuntime
+from dare_framework.components.validators.kernel_validator import GatewayValidator
+from dare_framework.contracts.ids import generator_id
+from dare_framework.core.budget import Budget
+from dare_framework.core.budget.in_memory import InMemoryResourceManager
+from dare_framework.core.context.default_context_manager import DefaultContextManager
+from dare_framework.core.execution_control.file_execution_control import FileExecutionControl
+from dare_framework.core.event.local_event_log import LocalEventLog
+from dare_framework.core.hook.default_extension_point import DefaultExtensionPoint
+from dare_framework.core.orchestrator.default_orchestrator import DefaultLoopOrchestrator
+from dare_framework.core.run_loop.default_run_loop import DefaultRunLoop
+from dare_framework.core.security.default_security_boundary import DefaultSecurityBoundary
+from dare_framework.core.tool.default_tool_gateway import DefaultToolGateway
+from dare_framework.core.tool.run_context_state import RunContextState
+from dare_framework.core.plan.planning import ProposedStep
+from dare_framework.core.run_loop import RunLoopState
+from dare_framework.core.plan.task import Task
 
 
 @pytest.mark.asyncio
-async def test_runtime_transitions_to_stopped(tmp_path):
-    plan_generator = DeterministicPlanGenerator(
-        [[ProposedStep(step_id=generator_id("step"), tool_name="noop", tool_input={})]]
+async def test_run_loop_transitions_to_completed(tmp_path):
+    event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))
+    run_context = RunContextState()
+
+    tools = [NoOpTool()]
+    tool_gateway = DefaultToolGateway()
+    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
+
+    planner = DeterministicPlanner(
+        [
+            [
+                ProposedStep(step_id=generator_id("step"), capability_id="tool:noop", params={}),
+            ]
+        ]
     )
+    validator = GatewayValidator(tool_gateway)
+    remediator = NoOpRemediator()
 
-    tool_registry = ToolRegistry()
-    tool_registry.register_tool(NoOpTool())
-    skill_registry = SkillRegistry()
-
-    policy_engine = AllowAllPolicyEngine()
-    validator = SimpleValidator()
-    tool_runtime = ToolRuntime(
-        toolkit=tool_registry,
-        skill_registry=skill_registry,
-        policy_engine=policy_engine,
+    orchestrator = DefaultLoopOrchestrator(
+        planner=planner,
         validator=validator,
-    )
-
-    runtime = AgentRuntime(
-        tool_runtime=tool_runtime,
-        plan_generator=plan_generator,
+        remediator=remediator,
         model_adapter=None,
-        validator=validator,
-        policy_engine=policy_engine,
-        remediator=NoOpRemediator(),
-        context_assembler=BasicContextAssembler(),
-        event_log=LocalEventLog(path=str(tmp_path / "events.jsonl")),
-        checkpoint=FileCheckpoint(path=str(tmp_path / "checkpoints")),
+        context_manager=DefaultContextManager(),
+        tool_gateway=tool_gateway,
+        security_boundary=DefaultSecurityBoundary(),
+        execution_control=FileExecutionControl(event_log=event_log, checkpoint_dir=str(tmp_path / "checkpoints")),
+        resource_manager=InMemoryResourceManager(default_budget=Budget(max_tool_calls=10, max_time_seconds=5)),
+        event_log=event_log,
+        extension_point=DefaultExtensionPoint(),
+        run_context_state=run_context,
     )
+    run_loop = DefaultRunLoop(orchestrator)
 
     task = Task(description="noop")
-    await runtime.init(task)
-    result = await runtime.run(task, None)
+    result = await run_loop.run(task)
 
     assert result.success is True
     assert result.session_summary is not None
     assert result.session_summary.success is True
     assert result.milestone_results[0].summary is not None
-    assert runtime.get_state() == RuntimeState.STOPPED
+    assert run_loop.state == RunLoopState.COMPLETED

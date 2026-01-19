@@ -95,41 +95,41 @@ async def invoke(
 **Execute Loop**: LLM 驱动执行，遇到 Plan Tool 回到 Milestone Loop  
 **Tool Loop**: WorkUnit 内部迭代，受 Envelope + DonePredicate 约束
 
-#### 核心组件
+#### 核心组件（v2 Kernel 化）
 
 ```
 dare_framework/
 ├── builder.py                 # AgentBuilder + Agent
-├── core/                      # 核心状态与协议
-│   ├── runtime.py             # AgentRuntime 五层循环
-│   ├── models.py              # 核心数据结构
-│   ├── interfaces.py          # 接口协议
-│   └── errors.py              # 错误定义
-├── components/                # 默认实现组件
-│   ├── event_log.py           # LocalEventLog
-│   ├── checkpoint.py          # FileCheckpoint
-│   ├── tool_runtime.py        # ToolRuntime
-│   ├── registries.py          # ToolRegistry / SkillRegistry
-│   ├── policy_engine.py       # AllowAllPolicyEngine
-│   ├── plan_generator.py      # DeterministicPlanGenerator
-│   ├── validator.py           # SimpleValidator
-│   ├── remediator.py          # NoOpRemediator
-│   ├── context_assembler.py   # BasicContextAssembler
-│   ├── model_adapter.py       # MockModelAdapter
-│   ├── memory.py              # InMemoryMemory
-│   ├── hooks.py               # NoOpHook
-│   ├── mcp_client.py          # MCP SDK client adapters
-│   └── mcp_toolkit.py         # MCPToolkit
-└── validators/                # 预留：信任边界/覆盖验证
+├── core/                      # Layer 0: Kernel (v2)
+│   ├── run_loop/              # IRunLoop / RunLoopState / TickResult (+ default)
+│   ├── orchestrator/          # ILoopOrchestrator (+ default)
+│   ├── execution_control/     # IExecutionControl / ExecutionSignal (+ default)
+│   ├── context/               # IContextManager (+ default)
+│   ├── budget/                # IResourceManager / Budget / ResourceType (+ default)
+│   ├── tool/                  # IToolGateway + capability types (+ default)
+│   ├── security/              # ISecurityBoundary / SandboxSpec (+ default)
+│   ├── event/                 # IEventLog / Event / RuntimeSnapshot (+ default)
+│   └── hook/                  # IExtensionPoint (+ default)
+├── contracts/                 # Shared contracts/types (v2)
+├── protocols/                 # Layer 1: Protocol Adapters (v2)
+│   ├── base.py                # IProtocolAdapter
+│   └── mcp_adapter.py         # MCPAdapter (optional)
+├── components/                # Layer 2: Pluggable Components (v2)
+│   ├── planners/              # DeterministicPlanner (MVP)
+│   ├── validators/            # GatewayValidator (MVP)
+│   ├── providers/             # NativeToolProvider / ProtocolAdapterProvider
+│   ├── tools/                 # Example tools (ITool)
+│   └── plugin_system/         # Entrypoint groups + component managers (v2)
 ```
 
-#### 核心接口（v1.3 UML A.1 + v1.1 Interface）
+#### 核心接口（v2）
 
-- Runtime/Orchestration: `IRuntime`, `IEventLog`, `ICheckpoint`, `IPolicyEngine`, `IPlanGenerator`, `IValidator`, `IRemediator`, `IContextAssembler`
-- Tools/Skills: `IToolRuntime`, `IToolkit`, `ITool`, `ISkillRegistry`, `ISkill`
-- Models/Composition: `IModelAdapter`, `IMemory`, `IHook`, `IMCPClient`
+- Kernel: `IRunLoop`, `ILoopOrchestrator`, `IExecutionControl`, `IContextManager`, `IResourceManager`, `IEventLog`, `IToolGateway`, `ISecurityBoundary`, `IExtensionPoint`
+- Layer 1: `IProtocolAdapter`
+- Strategies: `IPlanner`, `IValidator`, `IRemediator`, `IContextStrategy`
+- Capabilities: `ICapabilityProvider`, `IModelAdapter`, `IMemory`
 
-> MCP 客户端需要异步初始化；使用 `AgentBuilder.build_async()` 以加载 MCP 工具清单。
+> Protocol Adapters（如 MCP）为可选能力来源；Kernel 在未配置任何 Adapter 时仍可运行（native tools only）。
 
 ### Testing Strategy
 
@@ -157,7 +157,7 @@ def test_trust_boundary_derives_risk_level_from_registry():
     ...
 
 def test_tool_runtime_rejects_unknown_tool():
-    """ToolRuntime 应该拒绝未注册的工具"""
+    """ToolGateway 应该拒绝未注册的工具"""
     ...
 ```
 
@@ -177,6 +177,7 @@ def test_tool_runtime_rejects_unknown_tool():
 
 ```
 feat(tool-runtime): add approval checking for high-risk tools
+feat(tool-gateway): enforce envelope allow-listing
 fix(event-log): ensure hash chain continuity
 refactor(validators): extract common validation logic
 docs(readme): add architecture diagram
@@ -238,7 +239,7 @@ test(coverage): add deterministic coverage validator tests
 
 ### 安全约束
 
-- **所有工具调用必须经过 ToolRuntime** - 不允许绕过
+- **所有工具调用必须经过 IToolGateway** - 不允许绕过
 - **高风险工具需要审批** - `requires_approval: true`
 - **LLM 输出永不可信** - 安全关键字段必须从可信源派生
 - **Event Log 只追加** - 没有 update/delete 方法
@@ -280,6 +281,7 @@ test(coverage): add deterministic coverage validator tests
 
 ## References
 
+- [架构终稿评审 v2.1](/doc/design/Architecture_Final_Review_v2.1.md)
 - [架构终稿评审 v1.3](/doc/design/Architecture_Final_Review_v1.3.md)
 - [接口层设计 v1.1](/doc/design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md)
 - [Anthropic Engineering 博客](/doc/design/anthropic-engineering.md)

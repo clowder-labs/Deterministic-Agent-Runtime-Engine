@@ -6,8 +6,8 @@ import json
 from typing import Any
 
 from dare_framework.components.base_component import BaseComponent
-from dare_framework.core.config.config import Config
-from dare_framework.core.config.config_provider import IConfigProvider, build_config_from_layers, merge_config_layers
+from dare_framework.config.config import Config
+from dare_framework.config.config_provider import IConfigProvider, build_config_from_layers, merge_config_layers
 
 
 @dataclass
@@ -74,4 +74,3 @@ class LayeredConfigProvider(BaseComponent, IConfigProvider):
 def _stable_hash(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
-

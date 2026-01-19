@@ -3,12 +3,12 @@
 适用对象：在本仓库编写代码的所有开发者（含 Codex、Claude 等 AI Agent）。目标：在不破坏架构的前提下，产出简洁、可验证、可维护的代码。
 
 ## 总则
-- 先看架构：不得破坏五层循环与核心接口契约（见 `doc/design/Architecture_Final_Review_v1.3.md`、`openspec/project.md`）。重大能力/接口变更走 OpenSpec。
+- 先看架构：不得破坏五层循环与 Kernel 核心接口契约（见 `doc/design/Architecture_Final_Review_v2.1.md`、`openspec/project.md`；`doc/design/Architecture_Final_Review_v1.3.md` 仅作历史参考）。重大能力/接口变更走 OpenSpec。
 - 状态外化：所有进度、决策、证据写入文件/EventLog，避免依赖模型“记忆”。
-- 最小必要变更：新增功能时优先扩展现有组件/接口，避免跨层耦合或绕过 `ToolRuntime`/信任边界。
+- 最小必要变更：新增功能时优先扩展现有组件/接口，避免跨层耦合或绕过 `IToolGateway`/`ISecurityBoundary`。
 
 ## 设计准则（高内聚、低耦合）
-- 模块边界：`core` 定义协议与不可变约束，`components` 提供默认实现，业务/示例放在 `examples/`；不要让业务逻辑反向依赖 `core`。
+- 模块边界：`core` 定义不可变 Kernel contract 与控制面（Layer 0，并在各 domain package 内提供最小默认实现），`components` 提供可插拔组件实现（Layer 2，含 entrypoints 机制），`protocols` 提供协议适配（Layer 1），`builder` 提供组装 API（Layer 3），业务/示例放在 `examples/`；避免跨层耦合与“绕过内核边界”的捷径。
 - 接口优先：先定义/复用抽象接口，后实现；遵循 SOLID/DRY/KISS，小函数、小对象，避免静态全局单例。
 - 依赖注入：通过构造器或显式参数传递依赖，不隐式从全局获取，以便测试和替换。
 - 数据约束：使用 Pydantic v2 或严格类型别名表达输入输出，不信任 LLM 生成的字段；所有函数/方法必须完整类型标注。
@@ -34,7 +34,7 @@
 - 依赖管理：慎增依赖，避免引入与现有栈冲突的库；新增依赖需说明必要性和安全性，并补充最小化封装以便替换。
 
 ## 安全与信任边界
-- 不绕过 `ToolRuntime`；高风险工具必须显式审批，遵循风险级别与超时约束；EventLog 只追加，不修改/删除。
+- 不绕过 `IToolGateway`；高风险能力必须显式审批（HITL/Policy），遵循风险级别与超时约束；EventLog 只追加，不修改/删除。
 - 输入消毒：用户/LLM/外部输入一律视为不可信，使用校验器/类型转换；安全关键字段从可信源派生（注册表、策略引擎、配置）。
 - 资源控制：异步调用设置超时；任何执行型操作使用沙箱/隔离接口，不直接调用系统命令。
 

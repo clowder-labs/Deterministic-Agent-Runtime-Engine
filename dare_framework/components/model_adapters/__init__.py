@@ -1,1 +1,1 @@
-"""Model adapter implementations loaded via the `dare_framework.model_adapters` entry point group."""
+"""Model adapter implementations loaded via the `dare_framework.v2.model_adapters` entrypoint group."""

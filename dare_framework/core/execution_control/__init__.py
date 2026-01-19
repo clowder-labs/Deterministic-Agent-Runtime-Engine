@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from enum import Enum
+from typing import Protocol
+
+
+class ExecutionSignal(Enum):
+    """Signals used by the Kernel to pause/cancel or request HITL (v2.0)."""
+
+    NONE = "none"
+    PAUSE_REQUESTED = "pause_requested"
+    CANCEL_REQUESTED = "cancel_requested"
+    HUMAN_APPROVAL_REQUIRED = "human_approval_required"
+
+
+class PauseRequested(RuntimeError):
+    """Raised by poll_or_raise when the control plane requests a pause."""
+
+
+class CancelRequested(RuntimeError):
+    """Raised by poll_or_raise when the control plane requests cancellation."""
+
+
+class HumanApprovalRequired(RuntimeError):
+    """Raised by poll_or_raise when HITL approval is required."""
+
+
+class IExecutionControl(Protocol):
+    """Pause/resume/checkpoint control plane (v2.0)."""
+
+    def poll(self) -> ExecutionSignal: ...
+
+    def poll_or_raise(self) -> None:
+        """Raise a standardized exception for non-NONE signals."""
+
+    async def pause(self, reason: str) -> str:
+        """Enter PAUSED and create a checkpoint; returns checkpoint id."""
+
+    async def resume(self, checkpoint_id: str) -> None:
+        """Resume from a checkpoint."""
+
+    async def checkpoint(self, label: str, payload: dict) -> str:
+        """Create an explicit checkpoint with an attached payload."""
+
+    async def wait_for_human(self, checkpoint_id: str, reason: str) -> None:
+        """Request/record a HITL waiting point.
+
+        The v2.0 architecture requires an explicit "waiting" control-plane call after
+        pausing for approval. MVP implementations MAY be non-blocking (for example,
+        recording an audit event and returning immediately) as long as the interface
+        exists and the orchestrator wires it into approval-required paths.
+        """
+
+
+from .checkpoint import Checkpoint  # noqa: E402

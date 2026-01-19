@@ -9,10 +9,10 @@ Fix Bug Skill
 """
 
 from dare_framework.components.base_component import BaseComponent
-from dare_framework.core.dare_utils import generator_id
-from dare_framework.core.context.models import RunContext
-from dare_framework.core.models.evidence import Evidence
-from dare_framework.core.tool.models import ToolResult
+from dare_framework.contracts.evidence import Evidence
+from dare_framework.contracts.ids import generator_id
+from dare_framework.contracts.run_context import RunContext
+from dare_framework.contracts.tool import ToolResult
 
 
 class FixBugSkill(BaseComponent):

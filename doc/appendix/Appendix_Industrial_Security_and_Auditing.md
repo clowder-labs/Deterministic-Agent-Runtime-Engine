@@ -3,7 +3,7 @@
 ## Scope
 
 - Consolidates implementation-level practices for Event Log immutability (WORM) and verifiable batch sealing.
-- Provides audit verification procedures and integrity checks aligned with Architecture v1.3.
+- Provides audit verification procedures and integrity checks aligned with Architecture v2.0.
 - Complements design principles with operational, system-grade guarantees.
 
 ## Event Log Immutability (WORM)
@@ -36,9 +36,9 @@
 - Evidence: each step must emit evidence items; DonePredicate checks evidence and invariants (lint/compile/clean).
 - Audit Trails: persist input hash, output, duration, tool calls, and verification results in Event Log.
 
-## Alignment with Architecture v1.3
+## Alignment with Architecture v2.1
 
-- IEventLog: WORM + Hash Chain (Architecture_Final_Review_v1.3.md).
+- IEventLog: WORM + Hash Chain (Architecture_Final_Review_v2.1.md).
 - Approve(HITL): audited checkpoint before execution of sensitive plans.
 - Envelope/DonePredicate: explicit execution boundary and deterministic completion conditions.
 
@@ -50,7 +50,8 @@
 
 ## Source References
 
-- Architecture (current): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
+- Architecture (current): [Architecture_Final_Review_v2.1.md](../design/Architecture_Final_Review_v2.1.md)
+- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
 - Loop model (Envelope/DonePredicate): [Agent_Framework_Loop_Model_v2.2_Final.md](../design/archive/Agent_Framework_Loop_Model_v2.2_Final.md)
 - Industrial-grade verifiable closures (WORM, batch sealing, audit): [Industrial_Agent_Framework_v2.4_Verifiable_Closures.md](../design/archive/Industrial_Agent_Framework_v2.4_Verifiable_Closures.md)
 - Interface layer (historical, validator evolution): [Interface_Layer_Design_v1.md](../design/archive/Interface_Layer_Design_v1.md)

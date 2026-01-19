@@ -1,1 +1,1 @@
-"""Config provider implementations loaded via the `dare_framework.config_providers` entry point group."""
+"""Config provider implementations loaded via the `dare_framework.v2.config_providers` entrypoint group."""

@@ -2,16 +2,17 @@ import pytest
 
 from dare_framework.components.validators.composite import CompositeValidator
 from dare_framework.components.base_component import ConfigurableComponent
-from dare_framework.core.validator.validator import IValidator
-from dare_framework.core.component_type import ComponentType
-from dare_framework.core.plan.models import Milestone, ProposedStep, ValidationResult, VerifyResult
-from dare_framework.core.context.models import ExecuteResult, RunContext
-from dare_framework.core.dare_utils import generator_id
+from dare_framework.contracts.ids import generator_id
+from dare_framework.core.plan.planning import ProposedPlan, ProposedStep, ValidatedPlan
+from dare_framework.core.plan.results import ExecuteResult, VerifyResult
+from dare_framework.core.protocols import IValidator
+from dare_framework.components.plugin_system.component_type import ComponentType
 
 
 class FailingValidator(ConfigurableComponent, IValidator):
     component_type = ComponentType.VALIDATOR
-    def __init__(self, order: int, errors: list[str]):
+
+    def __init__(self, order: int, errors: list[str]) -> None:
         self._order = order
         self._errors = errors
 
@@ -19,19 +20,11 @@ class FailingValidator(ConfigurableComponent, IValidator):
     def order(self) -> int:
         return self._order
 
-    async def validate_plan(self, proposed_steps: list[ProposedStep], ctx: RunContext) -> ValidationResult:
-        return ValidationResult(success=False, errors=self._errors)
+    async def validate_plan(self, plan: ProposedPlan, ctx: dict) -> ValidatedPlan:
+        return ValidatedPlan(plan_description=plan.plan_description, steps=[], success=False, errors=self._errors)
 
-    async def validate_milestone(
-        self,
-        milestone: Milestone,
-        result: ExecuteResult,
-        ctx: RunContext,
-    ) -> VerifyResult:
+    async def verify_milestone(self, result: ExecuteResult, ctx: dict) -> VerifyResult:
         return VerifyResult(success=False, errors=self._errors, evidence=[])
-
-    async def validate_evidence(self, evidence, predicate) -> bool:
-        return False
 
 
 @pytest.mark.asyncio
@@ -40,10 +33,11 @@ async def test_composite_validator_aggregates_errors_in_order():
     validator_high = FailingValidator(order=50, errors=["high"])
     composite = CompositeValidator([validator_high, validator_low])
 
-    result = await composite.validate_plan(
-        [ProposedStep(step_id=generator_id("step"), tool_name="noop", tool_input={})],
-        RunContext(deps=None, run_id="run"),
+    plan = ProposedPlan(
+        plan_description="noop",
+        steps=[ProposedStep(step_id=generator_id("step"), capability_id="tool:noop", params={})],
     )
+    result = await composite.validate_plan(plan, {})
 
     assert result.success is False
     assert result.errors == ["low", "high"]
@@ -55,11 +49,7 @@ async def test_composite_validator_collects_verify_errors():
     validator_b = FailingValidator(order=10, errors=["b"])
     composite = CompositeValidator([validator_a, validator_b])
 
-    result = await composite.validate_milestone(
-        Milestone(milestone_id="m1", description="desc", user_input="input"),
-        result=ExecuteResult(success=False),
-        ctx=RunContext(deps=None, run_id="run"),
-    )
+    result = await composite.verify_milestone(ExecuteResult(success=False, errors=["failed"]), {})
 
     assert result.success is False
     assert result.errors == ["b", "a"]

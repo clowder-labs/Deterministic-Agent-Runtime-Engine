@@ -4,12 +4,10 @@ from typing import Any
 import json
 import logging
 
-from dare_framework.core.models.prompt_store import IPromptStore
-from dare_framework.core.models.model_adapter import IModelAdapter
-from dare_framework.core.config.config import Config
-from ...core.component_type import ComponentType
-from dare_framework.core.models.model_adapter import GenerateOptions, Message, ModelResponse
-from dare_framework.core.tool.models import ToolDefinition
+from dare_framework.config.config import Config
+from dare_framework.contracts.model import GenerateOptions, IModelAdapter, Message, ModelResponse
+from dare_framework.contracts.tool import ToolDefinition
+from dare_framework.components.plugin_system.component_type import ComponentType
 from ..base_component import ConfigurableComponent
 
 try:
@@ -41,7 +39,7 @@ class OpenAIModelAdapter(ConfigurableComponent, IModelAdapter):
         self._extra: dict[str, Any] = {}
         self._client = None
 
-    async def init(self, config: Config | None = None, prompts: IPromptStore | None = None) -> None:
+    async def init(self, config: Config | None = None, prompts: object | None = None) -> None:
         if config is not None:
             llm = config.llm
             if self._model is None:

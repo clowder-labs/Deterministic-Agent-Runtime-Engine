@@ -2,45 +2,42 @@
 
 > 目的：用“实现视角”快速解释项目是怎么拼起来的，并给出一份可执行的优先级 TODO（带完成勾选）。
 >
-> 状态来源：代码目录结构 + `openspec list` / `openspec/changes/*/tasks.md`（最后更新：2026-01-15）。
+> 状态来源：代码目录结构 + `openspec list` / `openspec/changes/*/tasks.md`（最后更新：2026-01-18）。
 
 ## 1. 架构现状（实现视角）
 
 ### 1.1 分层与目录职责
 
-- `dare_framework/core/`：协议（Protocol/Interface）+ 数据模型（`core/models/*`）+ 运行时引擎（`core/runtime_engine.py`）
-- `dare_framework/components/`：默认组件实现（EventLog/Checkpoint/ToolRuntime/PlanGenerator/ModelAdapter/Hook/Validator 等）
-- `dare_framework/composition/`：组装与插件发现（`AgentBuilder`、`ComponentManager`、entry points）
+- `dare_framework/core/`：Layer 0 Kernel（v2）核心 contract + 数据结构（以 `doc/design/Architecture_Final_Review_v2.1.md` 为准）
+  - Kernel 默认实现按 domain package 归档（例如 `core/event/local_event_log.py`、`core/execution_control/file_execution_control.py`、`core/tool/default_tool_gateway.py`）
+- `dare_framework/contracts/`：共享 contracts/types（tools/model/evidence/risk/run_context 等；供 components/protocols/builder 复用）
+- `dare_framework/protocols/`：Layer 1 Protocol Adapters（如 MCP），负责能力发现/调用的协议适配
+- `dare_framework/components/`：Layer 2 Pluggable Components（planner/validator/remediator/providers/tools 等默认实现）
+- `dare_framework/components/plugin_system/`：entrypoints 插件机制（组件发现 + manager 接口/实现；不进入 Kernel）
+- `dare_framework/builder.py`：Layer 3 Developer API（`AgentBuilder` + `Agent` wrapper），用于显式组装 Kernel 与组件
 - `examples/`：可运行示例（例如 stdin/stdout chat）
 - `tests/`：单元/集成测试
 
 ### 1.2 关键运行链路（从 build 到 RunResult）
 
-1. `AgentBuilder.build()`/`build_async()` 组装 `AgentRuntime`（`dare_framework/core/runtime_engine.py`）
-2. `Agent.run(task, deps)` → `runtime.init(task)` → `runtime.run(task, deps)`
-3. `AgentRuntime.run()` 创建 `SessionContext`（携带有效 `Config`），将 Task 拆成 Milestones 执行
-4. 每个 Milestone 进入闭环：
-   - **Plan Loop**：`IContextAssembler.assemble()` → `IPlanGenerator.generate_plan()` → `IValidator.validate_plan()`
-   - **Execute Loop**：
-     - 未配置 `IModelAdapter`：按已验证计划逐步调用工具（plan-driven）
-     - 配置了 `IModelAdapter`：进入 model tool-call 循环（model-driven）
-   - **Verify/Remediate**：`IValidator.validate_milestone()` 失败后由 `IRemediator.remediate()` 产出 reflection 并重试
-5. 所有工具执行统一通过 `ToolRuntime.invoke()`，并可选进入 **Tool Loop**（Envelope/DonePredicate + 证据校验）
+1. `AgentBuilder.build()` 组装 v2 Kernel 默认实现 + Layer 2 组件 + providers，返回 `Agent`（见 `dare_framework/builder.py`）
+2. `Agent.run(task, deps)` 将 `deps` 绑定到运行态上下文（不进入 Task 以保持可序列化审计），随后调用 `IRunLoop.run(Task)`
+3. `IRunLoop` 驱动 `ILoopOrchestrator` 跑五层循环骨架（Session/Milestone/Plan/Execute/Tool）
+4. **Plan Loop（信息隔离）**：`IContextManager.assemble(PLAN)` → `IPlanner.plan()` → `IValidator.validate_plan()`；失败会在预算内重试或交给 `IRemediator`（可先 no-op）
+5. **Execute/Tool Loop（副作用边界）**：所有外部动作都经由 `IToolGateway.invoke(capability_id, params, envelope)`；`ToolLoopRequest + Envelope + DonePredicate` 决定“何时完成/何时重试”
+6. **控制面与外化**：预算由 `IResourceManager` 约束，暂停/恢复/Checkpoint 由 `IExecutionControl` 统一处理，证据与决策写入 `IEventLog`（WORM，可重放）
 
 ### 1.3 状态、审计与可观测性
 
-- 事件日志：`LocalEventLog` 追加写入 `.dare/event_log.jsonl`，维护 `prev_hash`/`event_hash` 形成 hash-chain（审计/WORM 基础）
-- 快照：`FileCheckpoint` 写入 `.dare/checkpoints/*.json`（为跨 context window 预留）
-- Hooks：`AgentRuntime._log_event()` 对每个 `Event` 调用 `IHook.on_event()`；Hook 异常会写入 `hook.error` 事件
-- 终端可观测：`StdoutHook` 将 runtime/plan/model/tool 关键事件格式化输出
+- 事件日志（WORM）：`LocalEventLog` 追加写入 `.dare/<agent_name>/event_log.jsonl`，维护 `prev_hash`/`event_hash` hash-chain，支持最小 replay/query
+- Checkpoint：`FileExecutionControl` 写入 `.dare/<agent_name>/checkpoints/*.json`（pause/HITL/显式 checkpoint）
+- 资源预算：`InMemoryResourceManager` 提供粗粒度预算（tool calls/time/token/cost 可逐步细化）
+- 扩展点：`DefaultExtensionPoint` 作为 best-effort hooks registry（便于后续接入 tracing/telemetry/policy taps）
 
 ### 1.4 配置与插件扩展点
 
-- 配置模型：`dare_framework/core/models/config.py` → `Config`（`llm/mcp/tools/allowtools/allowmcps/components/workspace_roots`）
-- 配置来源：`IConfigProvider`（当前默认 `StaticConfigProvider`），支持 `current()` + `reload()`
-- 组件发现：`dare_framework/composition/component_manager.py` 通过 Python entry points 加载：
-  - validators / memory / model_adapters / tools / skills / mcp_clients / hooks / config_providers / prompt_stores
-- 组件开关：`Config.components` 支持按 `ComponentType + component_name` 禁用组件；工具可通过 `RunContext.config.workspace_roots` 约束执行范围（`RunCommandTool`）
+- v2 builder 采取“显式组装优先”：通过 `AgentBuilder.with_*()` 注入 planner/validator/remediator/tools/protocol adapters/model 等依赖，避免隐式全局插件带来的不确定性。
+- entrypoints 插件机制位于 `dare_framework/components/plugin_system/`：builder 可选择性接入 managers 做确定性的发现/过滤/排序（无需 Kernel 依赖 `importlib.metadata`）。
 
 ## 2. 优先级清单（Checklist）
 
@@ -48,14 +45,15 @@
 
 ### P0（必须）：保证核心链路可跑通、可验证
 
-- [ ] `hierarchical-config-management`：执行并确认受影响测试通过（`openspec/changes/hierarchical-config-management/tasks.md` 3.3）
-- [ ] `add-runtime-config-model`：补齐分层 runtime 配置模型/合并规则/会话注入/组件选择（`openspec/changes/add-runtime-config-model/tasks.md` 1.1 ~ 3.2）
-- [ ] 修复 `BaseComponentManager.load()` 中 `config_provider` 未定义导致的加载路径异常（`dare_framework/composition/component_manager.py`）
+- [x] v2 Kernel 五层循环跑通（Session/Milestone/Plan/Execute/Tool）
+- [x] v2 EventLog/预算/Checkpoint 接口打通，核心流程形成证据闭环
+- [x] 示例与测试可回归（`pytest`）
 
 ### P1（应该）：让示例链路可复现、可回归
 
-- [ ] `add-basic-chat-flow`：手动 smoke run stdin/stdout chat 示例（`openspec/changes/add-basic-chat-flow/tasks.md` 2.1）
-- [ ] `add-basic-chat-flow`：补 stdout hook 的单测覆盖（`openspec/changes/add-basic-chat-flow/tasks.md` 2.2）
+- [ ] HITL 语义：将“pause 后立即 resume”的 stub 替换为可外部驱动的等待/恢复（`IRunLoop.state = WAITING_HUMAN`）
+- [ ] 协议适配：MCP/其它 adapters 在 invoke 时接入 v2 RuntimeStateView（替换当前 stub RunContext）
+- [ ] Context 工程：补齐 `IContextManager` 的 no-op 占位方法（compress/retrieve/ensure_index/route）的事件记录与预算归因
 
 ### 已完成（来源：`openspec list`）
 
@@ -68,5 +66,6 @@
 ## 3. 相关“权威设计”文档入口（阅读顺序）
 
 1. `openspec/project.md`（项目上下文/约束/架构总览）
-2. `doc/design/Architecture_Final_Review_v1.3.md`（架构终稿）
-3. `doc/design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`（接口层设计）
+2. `doc/design/Architecture_Final_Review_v2.1.md`（架构终稿评审 v2.1：Kernel contracts）
+3. `doc/guides/Development_Constraints.md`（开发约束清单）
+4. `doc/design/Architecture_Final_Review_v1.3.md`（历史参考）

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from dare_framework.core.config.config_provider import IConfigProvider
-from dare_framework.core.config.config import Config
+from dare_framework.config.config import Config
+from dare_framework.config.config_provider import IConfigProvider
 from ..base_component import BaseComponent
 
 

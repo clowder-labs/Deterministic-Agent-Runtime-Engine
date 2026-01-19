@@ -1,25 +1,22 @@
 import pytest
 
-from dare_framework.composition.base_component_manager import (
-    ENTRYPOINT_MODEL_ADAPTERS,
-    ENTRYPOINT_TOOLS,
-    ENTRYPOINT_VALIDATORS,
-)
-from dare_framework.composition.validator_manager import ValidatorManager
-from dare_framework.composition.model_adapter_manager import ModelAdapterManager
-from dare_framework.composition.tool_manager import ToolManager
 from dare_framework.components.base_component import ConfigurableComponent
-from dare_framework.components.registries import ToolRegistry
-from dare_framework.core.models.model_adapter import IModelAdapter
-from dare_framework.core.tool.protocols import ITool
-from dare_framework.core.validator.validator import IValidator
-from dare_framework.core.config.config import Config
-from dare_framework.core.component_type import ComponentType
-from dare_framework.core.models.model_adapter import ModelResponse
-from dare_framework.core.plan.models import Milestone, ProposedStep, ValidationResult, VerifyResult
-from dare_framework.core.context.models import ExecuteResult, RunContext
-from dare_framework.core.risk_level import RiskLevel
-from dare_framework.core.tool.enums import ToolType
+from dare_framework.config.config import Config
+from dare_framework.contracts.model import IModelAdapter, ModelResponse
+from dare_framework.contracts.risk import RiskLevel
+from dare_framework.contracts.run_context import RunContext
+from dare_framework.contracts.tool import ITool, ToolResult, ToolType
+from dare_framework.components.plugin_system.component_type import ComponentType
+from dare_framework.components.plugin_system.entrypoint_managers import (
+    EntrypointModelAdapterManager,
+    EntrypointToolManager,
+    EntrypointValidatorManager,
+)
+from dare_framework.components.plugin_system.entrypoints import (
+    ENTRYPOINT_V2_MODEL_ADAPTERS,
+    ENTRYPOINT_V2_TOOLS,
+    ENTRYPOINT_V2_VALIDATORS,
+)
 
 
 class FakeEntryPoint:
@@ -39,13 +36,17 @@ class FakeEntryPoints:
         return list(self._mapping.get(group, []))
 
 
-class RecordingValidator(ConfigurableComponent, IValidator):
+class RecordingValidator(ConfigurableComponent):
     component_type = ComponentType.VALIDATOR
 
     def __init__(self, name: str, order: int, log: list[str]):
         self._name = name
         self._order = order
         self._log = log
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     @property
     def order(self) -> int:
@@ -56,21 +57,6 @@ class RecordingValidator(ConfigurableComponent, IValidator):
 
     def register(self, registrar) -> None:
         self._log.append(f"register:{self._name}")
-        registrar.register_component(self)
-
-    async def validate_plan(self, proposed_steps: list[ProposedStep], ctx: RunContext) -> ValidationResult:
-        return ValidationResult(success=True, errors=[])
-
-    async def validate_milestone(
-        self,
-        milestone: Milestone,
-        result: ExecuteResult,
-        ctx: RunContext,
-    ) -> VerifyResult:
-        return VerifyResult(success=True, errors=[], evidence=[])
-
-    async def validate_evidence(self, evidence, predicate) -> bool:
-        return True
 
 
 class DummyTool(ConfigurableComponent, ITool):
@@ -117,11 +103,12 @@ class DummyTool(ConfigurableComponent, ITool):
         return False
 
     async def execute(self, input: dict, context: RunContext):
-        raise RuntimeError("Not implemented")
+        return ToolResult(success=True, output={"ok": True}, error=None, evidence=[])
 
 
 class DummyModelAdapter(ConfigurableComponent, IModelAdapter):
     component_type = ComponentType.MODEL_ADAPTER
+    name = "dummy"
 
     async def generate(self, messages, tools=None, options=None) -> ModelResponse:
         return ModelResponse(content="ok", tool_calls=[])
@@ -130,8 +117,7 @@ class DummyModelAdapter(ConfigurableComponent, IModelAdapter):
         return output_schema()
 
 
-@pytest.mark.asyncio
-async def test_validator_manager_orders_components():
+def test_entrypoint_validator_manager_orders_components():
     log: list[str] = []
 
     def low_factory():
@@ -142,48 +128,96 @@ async def test_validator_manager_orders_components():
 
     entry_points = FakeEntryPoints(
         {
-            ENTRYPOINT_VALIDATORS: [
+            ENTRYPOINT_V2_VALIDATORS: [
                 FakeEntryPoint("low", low_factory),
                 FakeEntryPoint("high", high_factory),
             ]
         }
     )
-    manager = ValidatorManager(entry_points_loader=lambda: entry_points)
+    manager = EntrypointValidatorManager(entry_points_loader=lambda: entry_points)
+    validators = manager.load_validators(config=None)
 
-    await manager.load(None)
-
-    assert log == ["init:low", "register:low", "init:high", "register:high"]
-
-
-@pytest.mark.asyncio
-async def test_tool_manager_registers_tools():
-    registry = ToolRegistry()
-    entry_points = FakeEntryPoints({ENTRYPOINT_TOOLS: [FakeEntryPoint("dummy", DummyTool)]})
-    manager = ToolManager(registry, entry_points_loader=lambda: entry_points)
-
-    await manager.load(None)
-
-    assert registry.get_tool("dummy") is not None
+    assert [getattr(v, "name", None) for v in validators] == ["low", "high"]
 
 
-@pytest.mark.asyncio
-async def test_model_adapter_manager_returns_ordered_list():
-    entry_points = FakeEntryPoints({ENTRYPOINT_MODEL_ADAPTERS: [FakeEntryPoint("adapter", DummyModelAdapter)]})
-    manager = ModelAdapterManager(entry_points_loader=lambda: entry_points)
+def test_entrypoint_tool_manager_filters_and_orders_tools():
+    class ToolA(DummyTool):
+        @property
+        def name(self) -> str:
+            return "a"
 
-    adapters = await manager.load(None)
+        @property
+        def order(self) -> int:
+            return 20
 
-    assert len(adapters) == 1
-    assert isinstance(adapters[0], DummyModelAdapter)
+    class ToolB(DummyTool):
+        @property
+        def name(self) -> str:
+            return "b"
+
+        @property
+        def order(self) -> int:
+            return 10
+
+    class DisabledTool(DummyTool):
+        @property
+        def name(self) -> str:
+            return "disabled"
+
+    entry_points = FakeEntryPoints(
+        {ENTRYPOINT_V2_TOOLS: [FakeEntryPoint("a", ToolA), FakeEntryPoint("b", ToolB), FakeEntryPoint("x", DisabledTool)]}
+    )
+    manager = EntrypointToolManager(entry_points_loader=lambda: entry_points)
+    config = Config.from_dict({"components": {"tool": {"disabled": ["disabled"]}}})
+
+    tools = manager.load_tools(config=config)
+    assert [tool.name for tool in tools] == ["b", "a"]
 
 
-@pytest.mark.asyncio
-async def test_component_manager_skips_disabled_components():
-    registry = ToolRegistry()
-    entry_points = FakeEntryPoints({ENTRYPOINT_TOOLS: [FakeEntryPoint("dummy", DummyTool)]})
-    manager = ToolManager(registry, entry_points_loader=lambda: entry_points)
-    config = Config.from_dict({"components": {"tool": {"disabled": ["dummy"]}}})
+def test_entrypoint_model_adapter_manager_selects_by_config():
+    class MockAdapter(DummyModelAdapter):
+        name = "mock"
 
-    await manager.load(config)
+    class OtherAdapter(DummyModelAdapter):
+        name = "other"
 
-    assert registry.get_tool("dummy") is None
+    entry_points = FakeEntryPoints(
+        {
+            ENTRYPOINT_V2_MODEL_ADAPTERS: [
+                FakeEntryPoint("mock", MockAdapter),
+                FakeEntryPoint("other", OtherAdapter),
+            ]
+        }
+    )
+    manager = EntrypointModelAdapterManager(entry_points_loader=lambda: entry_points)
+    config = Config.from_dict({"llm": {"adapter": "mock"}})
+
+    adapter = manager.load_model_adapter(config=config)
+    assert adapter is not None
+    assert getattr(adapter, "name", None) == "mock"
+
+
+def test_entrypoint_model_adapter_manager_missing_name_returns_none():
+    entry_points = FakeEntryPoints({ENTRYPOINT_V2_MODEL_ADAPTERS: [FakeEntryPoint("dummy", DummyModelAdapter)]})
+    manager = EntrypointModelAdapterManager(entry_points_loader=lambda: entry_points)
+    config = Config.from_dict({"llm": {"model": "m1"}})
+
+    assert manager.load_model_adapter(config=config) is None
+
+
+def test_entrypoint_model_adapter_manager_missing_entrypoint_raises():
+    manager = EntrypointModelAdapterManager(entry_points_loader=lambda: FakeEntryPoints({}))
+    config = Config.from_dict({"llm": {"adapter": "missing"}})
+    with pytest.raises(KeyError):
+        manager.load_model_adapter(config=config)
+
+
+def test_entrypoint_model_adapter_manager_rejects_disabled_adapter():
+    class MockAdapter(DummyModelAdapter):
+        name = "mock"
+
+    entry_points = FakeEntryPoints({ENTRYPOINT_V2_MODEL_ADAPTERS: [FakeEntryPoint("mock", MockAdapter)]})
+    manager = EntrypointModelAdapterManager(entry_points_loader=lambda: entry_points)
+    config = Config.from_dict({"llm": {"adapter": "mock"}, "components": {"model_adapter": {"disabled": ["mock"]}}})
+    with pytest.raises(RuntimeError):
+        manager.load_model_adapter(config=config)

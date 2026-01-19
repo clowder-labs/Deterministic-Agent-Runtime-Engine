@@ -3,7 +3,7 @@
 ## Purpose
 
 - Provide system-level enforcement guidance for secure code execution and immutable auditing.
-- Translate design abstractions (ToolRuntime Gate, Envelope, DonePredicate) into enforceable runtime controls.
+- Translate design abstractions (ToolGateway, Envelope, DonePredicate) into enforceable runtime controls.
 
 ## Secure Sandbox Execution
 
@@ -52,7 +52,7 @@
 
 ## Envelope and DonePredicate in Practice
 
-- Envelope: enforce tool whitelist, risk level, and budget limits at runtime gate.
+- Envelope: enforce capability whitelist, risk level, and budget limits at the ToolGateway + SecurityBoundary.
 - DonePredicate: require evidence conditions and invariant checks before step completion.
 - Stagnation detection: terminate iterative steps if progress halts within budget.
 
@@ -70,6 +70,7 @@
 
 ## Source References
 
-- Architecture (current): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
+- Architecture (current): [Architecture_Final_Review_v2.1.md](../design/Architecture_Final_Review_v2.1.md)
+- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
 - Loop model (Envelope/DonePredicate): [Agent_Framework_Loop_Model_v2.2_Final.md](../design/archive/Agent_Framework_Loop_Model_v2.2_Final.md)
 - Industrial-grade security details (sandbox, WORM closures): [Industrial_Agent_Framework_v2.4_Verifiable_Closures.md](../design/archive/Industrial_Agent_Framework_v2.4_Verifiable_Closures.md)
