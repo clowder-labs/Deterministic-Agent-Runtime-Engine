@@ -11,20 +11,14 @@ The system SHALL locate canonical types within their owning domains (context, to
 #### Scenario: Tool loop returns canonical ToolResult
 - **GIVEN** a tool invocation through the v3 Tool Loop
 - **WHEN** it completes
-- **THEN** the result is represented using the canonical `ToolResult` type from `dare_framework3/tool/types.py`.
+- **THEN** the result is represented using the canonical `ToolResult` type from `dare_framework3_3/tool/types.py`.
 
 ### Requirement: Core Interface Coverage
-The domain component layer SHALL define the Kernel contracts and component interfaces, including:
+The domain interface layer SHALL define Kernel and Component contracts, including:
 
-- Context: `IContextManager`, `IContextStrategy`, `IResourceManager`
-- Model: `IModelAdapter`
-- Memory: `IMemory`, `IPromptStore`
-- Tool: `IToolGateway`, `ITool`, `ISkill`, `ICapabilityProvider`, `IProtocolAdapter`, `IMCPClient`, `IExecutionControl`
-- Plan: `IPlanner`, `IValidator`, `IRemediator`
-- Event: `IEventLog`, `IEventListener`
-- Hook: `IExtensionPoint`, `IHook`
-- Security: `ISecurityBoundary`
-- Config: `IConfigProvider`
+- Kernel: `IContextManager`, `IResourceManager`, `IToolGateway`, `IExecutionControl`, `IEventLog`, `IExtensionPoint`, `IConfigProvider`, `ISecurityBoundary`
+- Component: `IContextStrategy`, `IModelAdapter`, `IMemory`, `IPromptStore`, `ITool`, `ISkill`, `ICapabilityProvider`, `IProtocolAdapter`, `IMCPClient`, `IPlanner`, `IValidator`, `IRemediator`, `IEventListener`, `IHook`
+- Component Managers (config domain): `IToolManager`, `IModelAdapterManager`, `IPlannerManager`, `IValidatorManager`, `IRemediatorManager`, `IProtocolAdapterManager`, `IHookManager`, `IConfigProviderManager`, `IMemoryManager`, `IPromptStoreManager`, `ISkillManager`
 
 #### Scenario: Developer implements a custom component
 - **WHEN** a developer imports and implements any domain interface

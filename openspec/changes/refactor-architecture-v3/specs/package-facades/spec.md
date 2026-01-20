@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 ### Requirement: Package facades
-Domain packages (`dare_framework3.agent`, `dare_framework3.context`, `dare_framework3.model`, `dare_framework3.memory`, `dare_framework3.tool`, `dare_framework3.plan`, `dare_framework3.event`, `dare_framework3.hook`, `dare_framework3.security`, `dare_framework3.config`, `dare_framework3.utils`) SHALL re-export the symbols intended for public use via `__init__.py` and `__all__ = [...]`. Separate `interfaces` or `types` facade packages SHALL NOT be required.
+Domain packages (`dare_framework3_3.agent`, `dare_framework3_3.context`, `dare_framework3_3.model`, `dare_framework3_3.memory`, `dare_framework3_3.tool`, `dare_framework3_3.plan`, `dare_framework3_3.event`, `dare_framework3_3.hook`, `dare_framework3_3.security`, `dare_framework3_3.config`, `dare_framework3_3.utils`) SHALL re-export the symbols intended for public use via `__init__.py` and `__all__ = [...]`. Separate `interfaces` or `types` facade packages SHALL NOT be required.
 
 #### Scenario: Domain package exports public members
 - **GIVEN** a domain package directory with submodules

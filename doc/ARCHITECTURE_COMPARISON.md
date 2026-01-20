@@ -264,6 +264,115 @@ class BaseAgent(ABC):
 
 ---
 
+## 🆕 v3.3 架构设计
+
+> **设计日期**: 2026-01-22  
+> **基于**: v3.2 架构 + DDD Kernel 修正 + 接口注释规范 + 归属调整
+
+---
+
+### 一、核心变化
+
+| 变化 | v3.2 | v3.3 | 理由 |
+|------|------|------|------|
+| kernel 接口 | kernel.py 为空 | **明确稳定接口**（config/hook/tool/event/context/security） | 保障 Layer 0 真实可用 |
+| 注释规范 | 未标注作用域 | **必须标注作用域/场景** | 降低误用与耦合 |
+| manager/gateway 归属 | 分散或层级不清 | **回归所属域 + 明确层级** | 强化 DDD 边界 |
+| impl/ | impl/ | **internal/** | 避免与组件/接口语义冲突 |
+
+---
+
+### 二、目录结构（10 个域，impl → internal）
+
+```
+dare_framework3_3/
+├── tool/
+│   ├── kernel.py            # IToolGateway, IExecutionControl
+│   ├── component.py         # ITool, ISkill, ICapabilityProvider...
+│   ├── types.py
+│   └── internal/
+│       ├── default_tool_gateway.py
+│       ├── file_execution_control.py
+│       └── ...
+├── hook/
+│   ├── kernel.py            # IExtensionPoint
+│   ├── component.py         # IHook
+│   ├── types.py
+│   └── internal/
+│       ├── default_extension_point.py
+│       └── ...
+└── config/
+    ├── kernel.py            # IConfigProvider
+    ├── component.py         # Config loaders / manager interfaces
+    ├── types.py
+    └── internal/
+```
+
+> 注：v3.3 实现包位于 `dare_framework3_3/`。
+
+---
+
+### 三、Kernel / Component 归属修正
+
+**Kernel（Layer 0，稳定接口）**：
+- context/kernel.py：`IContextManager`, `IResourceManager`
+- tool/kernel.py：`IToolGateway`, `IExecutionControl`
+- event/kernel.py：`IEventLog`
+- hook/kernel.py：`IExtensionPoint`
+- config/kernel.py：`IConfigProvider`
+- security/kernel.py：`ISecurityBoundary`
+
+**Component（Layer 2，可插拔接口）**：
+- context/component.py：`IContextStrategy`
+- tool/component.py：`ITool`, `ISkill`, `ICapabilityProvider`, `IProtocolAdapter`, `IMCPClient`
+- plan/component.py：`IPlanner`, `IValidator`, `IRemediator`
+- model/component.py：`IModelAdapter`
+- memory/component.py：`IMemory`, `IPromptStore`
+- event/component.py：`IEventListener`
+- hook/component.py：`IHook`
+- config/component.py：组件管理器/加载器接口（如 `IToolManager` 等）
+
+---
+
+### 四、接口注释规范（必须标注作用域 + 场景）
+
+**要求**：所有 Protocol / 接口类必须在 docstring 中标注作用域和典型使用场景。
+
+**示例**：
+
+```python
+class IToolGateway(Protocol):
+    """[Kernel] Tool invocation boundary.
+
+    Usage: Called by Agent to list/invoke capabilities across providers.
+    """
+```
+
+建议标签：
+- `[Kernel]`：稳定内核接口，仅 Kernel 使用
+- `[Component]`：可插拔组件接口
+- `[Types]`：数据结构/枚举
+
+---
+
+### 五、Manager / Gateway 归属调整
+
+- **Gateway**：归 Tool 域 Kernel（`IToolGateway`, `IExecutionControl`）
+- **ExtensionPoint**：归 Hook 域 Kernel
+- **ConfigProvider**：归 Config 域 Kernel
+- **Manager（插件加载/配置组合）**：归 Config 域 Component（避免散落在 utils 或 agent）
+
+---
+
+### 六、迁移要点
+
+1. 所有 `impl/` 目录改为 `internal/`
+2. Kernel 接口补齐并迁移到各域 `kernel.py`
+3. 所有接口 docstring 增加作用域与使用场景说明
+4. 调整 manager/gateway 的定义与引用位置
+
+---
+
 ## 🆕 v3.1 架构设计
 
 > **设计日期**: 2026-01-19
