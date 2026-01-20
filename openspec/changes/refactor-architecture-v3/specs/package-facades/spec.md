@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 ### Requirement: Package facades
-Designated facade packages (`dare_framework3`, `dare_framework3.interfaces`, `dare_framework3.types`, `dare_framework3.presets`, `dare_framework3.builder`) SHALL re-export the symbols intended for public use via `from .module import Class` and `__all__ = [...]`. Other packages SHALL NOT be treated as facades.
+Domain packages (`dare_framework3.agent`, `dare_framework3.context`, `dare_framework3.model`, `dare_framework3.memory`, `dare_framework3.tool`, `dare_framework3.plan`, `dare_framework3.event`, `dare_framework3.hook`, `dare_framework3.security`, `dare_framework3.config`, `dare_framework3.utils`) SHALL re-export the symbols intended for public use via `__init__.py` and `__all__ = [...]`. Separate `interfaces` or `types` facade packages SHALL NOT be required.
 
-#### Scenario: Facade subpackage exports public members
-- **GIVEN** a facade package directory with submodules
+#### Scenario: Domain package exports public members
+- **GIVEN** a domain package directory with submodules
 - **WHEN** the package is imported
 - **THEN** its `__init__.py` re-exports the classes and objects intended for public use.
 
@@ -13,7 +13,7 @@ Designated facade packages (`dare_framework3`, `dare_framework3.interfaces`, `da
 #### Scenario: Definitions stay in submodules
 - **GIVEN** a need for a new class in a package
 - **WHEN** the developer implements it
-- **THEN** it is defined in a separate submodule (like `models.py` or `protocols.py`), not in `__init__.py`.
+- **THEN** it is defined in a separate submodule (like `types.py` or `component.py`), not in `__init__.py`.
 
 ### Requirement: Documentation in initializers
 Every `__init__.py` file SHALL have a docstring or comments describing the package's purpose.

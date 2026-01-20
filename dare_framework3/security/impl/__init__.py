@@ -1,7 +1,5 @@
-"""Security implementations (compat shim)."""
+"""Security domain implementations."""
 
-from dare_framework3._internal.security.impl.noop_policy import NoOpPolicyEngine
-from dare_framework3._internal.security.impl.noop_sandbox import NoOpSandbox
-from dare_framework3._internal.security.impl.noop_trust import NoOpTrustVerifier
+from dare_framework3.security.impl.default_security_boundary import DefaultSecurityBoundary
 
-__all__ = ["NoOpPolicyEngine", "NoOpSandbox", "NoOpTrustVerifier"]
+__all__ = ["DefaultSecurityBoundary"]

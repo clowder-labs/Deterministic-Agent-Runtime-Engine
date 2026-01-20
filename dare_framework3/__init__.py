@@ -1,82 +1,15 @@
-"""DARE Framework v3 package."""
+"""DARE Framework v3 (v3.2 architecture)."""
 
-from dare_framework3.builder import Agent, AgentBuilder
-from dare_framework3.interfaces import (
-    IRunLoop,
-    ILoopOrchestrator,
-    IExecutionControl,
-    IResourceManager,
-    IEventLog,
-    IExtensionPoint,
-    IContextManager,
-    ISecurityBoundary,
-    IToolGateway,
-    IContextStrategy,
-    IMemory,
-    IPromptStore,
-    IRetriever,
-    IIndexer,
-    ITrustVerifier,
-    IPolicyEngine,
-    ISandbox,
-    ITool,
-    ICapabilityProvider,
-    ISkill,
-    IPlanner,
-    IValidator,
-    IRemediator,
-    IModelAdapter,
-    IHook,
-)
-from dare_framework3.types import (
-    Task,
-    Milestone,
-    Plan,
-    Envelope,
-    Budget,
-    RunResult,
-    ToolResult,
-)
-from dare_framework3.presets import MinimalPreset, AutoGPTPreset, ReflexionPreset
+from dare_framework3.agent import BaseAgent, FiveLayerAgent, SimpleChatAgent
+from dare_framework3.plan.types import Task, Milestone, RunResult
 
 __all__ = [
-    "Agent",
-    "AgentBuilder",
-    "IRunLoop",
-    "ILoopOrchestrator",
-    "IExecutionControl",
-    "IResourceManager",
-    "IEventLog",
-    "IExtensionPoint",
-    "IContextManager",
-    "ISecurityBoundary",
-    "IToolGateway",
-    "IContextStrategy",
-    "IMemory",
-    "IPromptStore",
-    "IRetriever",
-    "IIndexer",
-    "ITrustVerifier",
-    "IPolicyEngine",
-    "ISandbox",
-    "ITool",
-    "ICapabilityProvider",
-    "ISkill",
-    "IPlanner",
-    "IValidator",
-    "IRemediator",
-    "IModelAdapter",
-    "IHook",
+    "BaseAgent",
+    "FiveLayerAgent",
+    "SimpleChatAgent",
     "Task",
     "Milestone",
-    "Plan",
-    "Envelope",
-    "Budget",
     "RunResult",
-    "ToolResult",
-    "MinimalPreset",
-    "AutoGPTPreset",
-    "ReflexionPreset",
 ]
 
-__version__ = "3.0.0"
+__version__ = "3.2.0"

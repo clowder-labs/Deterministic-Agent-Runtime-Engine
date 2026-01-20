@@ -1,14 +1,14 @@
 ## MODIFIED Requirements
 ### Requirement: Model Partitioning
-Core data models SHALL be exposed from the stable type facade (`dare_framework3/types/`) and organized internally by domain under `dare_framework3/_internal/<domain>/types.py` (execution, context, security, tool, plan, model, protocols).
+Core data models SHALL be defined per domain in `dare_framework3/<domain>/types.py` and re-exported from the corresponding domain package. A global `dare_framework3.types` facade SHALL NOT be required.
 
 #### Scenario: Locating a data model
 - **WHEN** a contributor needs `ToolDefinition`
-- **THEN** it is available from `dare_framework3.types` and defined under `dare_framework3/_internal/tool/types.py`.
+- **THEN** it is defined under `dare_framework3/tool/types.py` and re-exported from `dare_framework3.tool`.
 
 ### Requirement: Plan Model Staging
 The framework SHALL keep proposed and validated plan step models distinct, without aliasing proposal models as validated models.
 
 #### Scenario: Distinguishing plan stages
 - **WHEN** a contributor reads the plan models
-- **THEN** proposed steps and validated steps are represented by separate types with explicit names in `dare_framework3/_internal/plan/types.py`.
+- **THEN** proposed steps and validated steps are represented by separate types with explicit names in `dare_framework3/plan/types.py`.

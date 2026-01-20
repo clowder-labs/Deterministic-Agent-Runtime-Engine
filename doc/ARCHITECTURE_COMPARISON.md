@@ -6,6 +6,519 @@
 
 ---
 
+## 🆕 v3.2 架构设计
+
+> **设计日期**: 2026-01-20
+> **基于**: v3.1 架构 + runtime 分解讨论 + 接口稳定性分析
+
+---
+
+### 一、核心变化
+
+| 变化 | v3.1 | v3.2 | 理由 |
+|------|------|------|------|
+| runtime/ | 存在 | **删除** | Agent 直接组织组件，无需中间层 |
+| event/ | 不存在 | **新增** | EventLog、EventListener 独立成域 |
+| hook/ | 不存在 | **新增** | ExtensionPoint、Hook 独立成域 |
+| IResourceManager | runtime/ | **context/** | 主要管理上下文资源（token、时间） |
+| IExecutionControl | runtime/ | **tool/** | 主要控制工具执行的暂停/恢复 |
+| interfaces.py | 存在 | **改名 component.py** | 明确当前接口不稳定 |
+| kernel.py | 不存在 | **新增（空）** | 预留稳定接口位置 |
+| 工厂函数 | 存在 | **删除** | `__init__.py` 直接导出 Protocol 和实现类 |
+
+---
+
+### 二、目录结构（10 个域）
+
+```
+dare_framework4/
+├── __init__.py              # 顶层导出
+│
+├── agent/                   # 用户 API
+│   ├── __init__.py
+│   ├── base.py              # BaseAgent
+│   ├── five_layer.py        # FiveLayerAgent
+│   └── simple_chat.py       # SimpleChatAgent [占位]
+│
+├── context/                 # 上下文域
+│   ├── __init__.py          # 导出 Protocol + 常用类型 + 实现类
+│   ├── kernel.py            # 空（预留稳定接口）
+│   ├── component.py         # IContextManager, IResourceManager
+│   ├── types.py             # Context, Message, Budget, ResourceType
+│   └── impl/
+│
+├── model/                   # 模型域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IModelAdapter
+│   ├── types.py
+│   └── impl/
+│
+├── memory/                  # 记忆域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IMemory, IPromptStore
+│   ├── types.py
+│   └── impl/
+│
+├── tool/                    # 工具域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IToolGateway, ITool, IProtocolAdapter, IExecutionControl
+│   ├── types.py             # ToolSchema, ToolResult, ExecutionSignal, Checkpoint
+│   └── impl/
+│
+├── plan/                    # 规划域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IPlanner, IValidator, IRemediator
+│   ├── types.py             # Task, Milestone, RunResult, Envelope
+│   └── impl/
+│
+├── event/                   # 【新增】事件域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IEventLog, IEventListener
+│   ├── types.py             # Event, RuntimeSnapshot
+│   └── impl/
+│
+├── hook/                    # 【新增】钩子域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IExtensionPoint, IHook
+│   ├── types.py             # HookPhase
+│   └── impl/
+│
+├── security/                # 安全域（保留独立）
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # ISecurityBoundary
+│   ├── types.py             # RiskLevel
+│   └── impl/
+│
+├── config/                  # 配置域
+│   ├── __init__.py
+│   ├── kernel.py
+│   ├── component.py         # IConfigProvider
+│   ├── types.py
+│   └── impl/
+│
+└── utils/                   # 工具函数
+    ├── __init__.py
+    ├── ids.py
+    ├── errors.py
+    └── types.py
+```
+
+---
+
+### 三、文件命名规范
+
+| 文件 | 内容 | 稳定性 |
+|------|------|--------|
+| `kernel.py` | 预留稳定接口（当前为空） | **稳定** |
+| `component.py` | Protocol 定义（可插拔组件接口） | **不稳定** |
+| `types.py` | 数据类型、枚举、DTO | 相对稳定 |
+| `__init__.py` | 导出 Protocol + 常用类型 + 实现类 | - |
+
+**演进路径**：当某个 Protocol 足够稳定时，从 `component.py` 提升到 `kernel.py`。
+
+---
+
+### 四、`__init__.py` 导出模式
+
+**设计**：直接导出 Protocol、常用类型、实现类，不使用工厂函数。
+
+```python
+# event/__init__.py
+"""Event domain"""
+
+# Protocol（用于类型注解、自定义实现）
+from dare_framework4.event.component import IEventLog, IEventListener
+
+# 常用类型（用户可能直接构造或用于类型注解）
+from dare_framework4.event.types import Event
+
+# 默认实现类（直接实例化使用）
+from dare_framework4.event.impl.local_event_log import LocalEventLog
+from dare_framework4.event.impl.noop_listener import NoopListener
+
+# 不导出 RuntimeSnapshot（内部使用，用户很少直接构造）
+
+__all__ = [
+    "IEventLog", "IEventListener",
+    "Event",
+    "LocalEventLog", "NoopListener",
+]
+```
+
+**导出原则**：
+- **导出**：用户可能直接构造或用于类型注解的类型
+- **不导出**：内部使用、用户很少直接接触的类型
+
+**用户使用方式**：
+
+```python
+# 方式 1：直接使用实现类（最常见）
+from dare_framework4.event import LocalEventLog
+log = LocalEventLog(path="events.jsonl")
+
+# 方式 2：类型注解
+from dare_framework4.event import IEventLog, Event
+async def process(log: IEventLog) -> list[Event]: ...
+
+# 方式 3：自定义实现（只导入 Protocol）
+from dare_framework4.event import IEventLog
+class MyEventLog:  # 符合 IEventLog 协议即可
+    async def append(self, event_type, payload): ...
+```
+
+---
+
+### 五、类型迁移
+
+| 类型 | v3.1 位置 | v3.2 位置 |
+|------|-----------|-----------|
+| Budget, ResourceType, ResourceExhausted | runtime/types.py | context/types.py |
+| ExecutionSignal, Checkpoint, PauseRequested | runtime/types.py | tool/types.py |
+| Event, RuntimeSnapshot | runtime/types.py | event/types.py |
+| HookPhase | runtime/types.py | hook/types.py |
+| RiskLevel | tool/types.py | security/types.py |
+
+---
+
+### 六、BaseAgent 变化
+
+Agent 直接组织组件，内部使用实现类创建默认组件：
+
+```python
+class BaseAgent(ABC):
+    def __init__(self, name: str, *, event_log: "IEventLog | None" = None, ...):
+        # 用户传入则使用，否则创建默认实现
+        if event_log is None:
+            from dare_framework4.event import LocalEventLog
+            self._event_log = LocalEventLog(path=f".dare/{name}/events.jsonl")
+        else:
+            self._event_log = event_log
+```
+
+---
+
+### 七、Hook 与 Event 的关系
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    BaseAgent                             │
+│                                                          │
+│  IHook ──register──> IExtensionPoint ──emit──> 回调执行  │
+│                            │                             │
+│                            │ (可选) 写入审计日志         │
+│                            ▼                             │
+│                       IEventLog                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **IExtensionPoint** (hook/)：管理钩子注册和触发
+- **IHook** (hook/)：用户定义的回调
+- **IEventLog** (event/)：WORM 审计日志，用于回放
+- **IEventListener** (event/)：实时事件监听（可选）
+
+---
+
+### 八、设计权衡
+
+#### 优点
+
+| 优点 | 说明 |
+|------|------|
+| 职责单一 | 每个域专注单一职责，event/hook 分离 |
+| 无中间层 | Agent 直接组装组件，无 runtime 黑盒 |
+| 稳定性分层 | kernel.py 预留稳定接口，component.py 允许演进 |
+| 简单直接 | 无工厂函数，用户直接使用实现类 |
+| 透明 | 用户明确知道自己在用什么类 |
+
+#### 代价
+
+| 代价 | 应对 |
+|------|------|
+| 域数量增加（8→10） | 职责更清晰，长期维护更容易 |
+| IExecutionControl 在 tool/ | 主要用于暂停工具执行，归属合理 |
+| 迁移成本 | 一次性重构，v3.1→v3.2 变化集中 |
+
+---
+
+### 九、实施任务
+
+| 任务 | 说明 |
+|------|------|
+| 创建 event/ | component.py, types.py, impl/ |
+| 创建 hook/ | component.py, types.py, impl/ |
+| 删除 runtime/ | 职责已分散 |
+| 迁移 IResourceManager | → context/component.py |
+| 迁移 IExecutionControl | → tool/component.py |
+| 重命名 interfaces.py | → component.py |
+| 创建空 kernel.py | 各域预留 |
+| 迁移类型 | 按上表迁移 |
+| 删除工厂函数 | `__init__.py` 直接导出实现类 |
+| 更新 BaseAgent | 直接导入实现类 |
+
+---
+
+## 🆕 v3.1 架构设计
+
+> **设计日期**: 2026-01-19
+> **基于**: v3 架构 + 用户 API 讨论 + 模块职责分析
+
+---
+
+### 一、设计目标
+
+| 目标 | 说明 |
+|------|------|
+| 简化用户 API | 用户只需了解 Agent 类，不需要同时理解 Builder 和 Preset |
+| 执行策略可扩展 | 用户可通过继承 BaseAgent 实现任意执行模式 |
+| Kernel 更纯粹 | 只保留真正的基础设施，移除策略性接口 |
+| 依赖倒置 | 通过工厂函数隔离 impl 细节，高层不直接依赖低层实现 |
+| 只重构不新增 | 保持与原代码对应，新功能仅放占位 |
+
+---
+
+### 二、用户 API
+
+#### 2.1 使用方式
+
+```python
+from dare_framework2.agent import FiveLayerAgent, BaseAgent
+
+# 方式 1：预定义 Agent + 默认配置
+agent = FiveLayerAgent(name="my-agent", model=model, tools=[tool1, tool2])
+result = await agent.run("完成这个任务")
+
+# 方式 2：预定义 Agent + 定制组件
+agent = FiveLayerAgent(
+    name="my-agent",
+    model=model,
+    tools=[tool1, tool2],
+    planner=MyPlanner(),
+    validator=MyValidator(),
+    budget=Budget(max_tool_calls=100),
+    config=config,                    # 可选配置
+    protocol_adapters=[mcp_adapter],  # 可选协议适配器
+)
+
+# 方式 3：继承 BaseAgent 完全自定义
+class MyReActAgent(BaseAgent):
+    async def _execute(self, task: Task) -> RunResult:
+        # 自定义执行逻辑，可使用 self._model, self._tools 等组件
+        ...
+```
+
+#### 2.2 类继承关系
+
+```
+BaseAgent (抽象基类)
+    ├── FiveLayerAgent      # 五层循环（从 DefaultLoopOrchestrator 迁移）
+    ├── SimpleChatAgent     # 简单对话 [占位]
+    └── [用户自定义]         # 继承 BaseAgent，实现 _execute()
+```
+
+---
+
+### 三、目录结构
+
+```
+dare_framework2/
+├── __init__.py                     # 导出 Agent 类
+│
+├── agent/                          # 【新增】用户 API 层
+│   ├── __init__.py
+│   ├── base.py                     # BaseAgent 抽象基类
+│   ├── five_layer.py               # FiveLayerAgent
+│   └── simple_chat.py              # SimpleChatAgent [占位]
+│
+├── runtime/                        # 运行时基础设施（原 execution/，重命名）
+│   ├── __init__.py                 # 接口 + 工厂函数
+│   ├── interfaces.py               # IExecutionControl, IResourceManager,
+│   │                               # IEventLog, IExtensionPoint, IHook
+│   ├── types.py
+│   └── impl/
+│
+├── security/                       # 【新增】从 tool/ 独立
+│   ├── __init__.py                 # 接口 + 工厂函数
+│   ├── interfaces.py               # ISecurityBoundary
+│   └── impl/
+│
+├── context/                        # 上下文管理
+│   ├── __init__.py                 # 接口 + 工厂函数
+│   ├── interfaces.py               # IContextManager
+│   └── impl/
+│
+├── memory/                         # 记忆存储（保持独立）
+│   ├── __init__.py
+│   ├── interfaces.py               # IMemory, IPromptStore
+│   └── impl/
+│
+├── tool/                           # 工具系统
+│   ├── __init__.py                 # 接口 + 工厂函数
+│   ├── interfaces.py               # IToolGateway (Layer 0)
+│   │                               # IProtocolAdapter (Layer 1)
+│   │                               # ITool, ICapabilityProvider (Layer 2)
+│   └── impl/
+│
+├── plan/                           # 计划系统
+│   ├── __init__.py                 # 接口 + 工厂函数
+│   ├── interfaces.py               # IPlanner, IValidator, IRemediator
+│   └── impl/
+│
+├── model/                          # 模型适配
+│   ├── __init__.py
+│   ├── interfaces.py               # IModelAdapter
+│   └── impl/
+│
+├── config/                         # 配置管理
+│   ├── __init__.py                 # 接口 + 工厂函数
+│   ├── interfaces.py               # IConfigProvider
+│   ├── types.py                    # Config, LLMConfig, ComponentConfig
+│   └── impl/
+│
+└── utils/                          # 通用工具
+    ├── __init__.py
+    ├── errors.py                   # 异常类型
+    ├── ids.py                      # ID 生成
+    └── types.py                    # 从 builder/types.py 迁移的有用类型
+```
+
+---
+
+### 四、Kernel 接口（7 个）
+
+| 接口 | 域 | 职责 |
+|------|-----|------|
+| IExecutionControl | runtime | 暂停/恢复/检查点 |
+| IResourceManager | runtime | 预算控制 |
+| IEventLog | runtime | 审计日志 |
+| IExtensionPoint | runtime | Hook 扩展 |
+| IToolGateway | tool | 工具调用入口 |
+| ISecurityBoundary | security | 安全边界 |
+| IContextManager | context | 上下文组装 |
+
+**移除的接口**：
+- `IRunLoop` → `Agent.run()` 替代
+- `ILoopOrchestrator` → `FiveLayerAgent._execute()` 替代
+
+---
+
+### 五、模块职责
+
+| 模块 | 层级 | 职责 | v3.1 变化 |
+|------|------|------|----------|
+| agent/ | Layer 3 | 用户 API + 执行策略 | **新增** |
+| runtime/ | Layer 0 | 运行时基础设施 | 原 execution/，移除 IRunLoop, ILoopOrchestrator |
+| security/ | Layer 0 | 安全边界 | **新增**（从 tool/ 独立） |
+| context/ | Layer 0 | 上下文组装 | 不变 |
+| memory/ | Layer 2 | 记忆存储 | 保持独立 |
+| tool/ | Layer 0/1/2 | 工具调用 + 协议适配 | 移除 ISecurityBoundary |
+| plan/ | Layer 2 | 计划/验证/修复 | 不变 |
+| model/ | Layer 1 | 模型适配 | 不变 |
+| config/ | Layer 3 | 配置管理 | 不变，添加工厂函数 |
+| utils/ | - | 通用工具 | 接收 builder/ 迁移的类型 |
+| execution/ | - | - | **重命名为 runtime/** |
+| builder/ | - | - | **删除** |
+
+---
+
+### 六、工厂函数模式
+
+解决 builder.py 直接 import impl 的 DIP 违规问题：
+
+```python
+# runtime/__init__.py
+from .interfaces import IResourceManager, IEventLog
+
+def create_default_resource_manager(budget=None) -> IResourceManager:
+    from .impl.in_memory_resource_manager import InMemoryResourceManager
+    return InMemoryResourceManager(default_budget=budget)
+
+def create_default_event_log(path: str) -> IEventLog:
+    from .impl.local_event_log import LocalEventLog
+    return LocalEventLog(path=path)
+```
+
+```python
+# agent/base.py
+class BaseAgent:
+    def _build_resource_manager(self, budget):
+        from dare_framework2.runtime import create_default_resource_manager
+        return create_default_resource_manager(budget)
+```
+
+**好处**：BaseAgent 只依赖工厂函数，不知道具体实现类。
+
+---
+
+### 七、关键设计决策
+
+| 决策 | 内容 | 理由 |
+|------|------|------|
+| Agent 类替代 Builder + Preset | 用户只需知道 Agent 类 | 降低学习成本，API 更直观 |
+| ILoopOrchestrator 移到 Agent | 五层循环是执行策略 | Kernel 只放基础设施，不放策略 |
+| IRunLoop 移除 | Agent.run() 直接驱动 | 减少不必要的抽象层 |
+| Security 独立成域 | ISecurityBoundary 被多域使用 | 不应依附于 tool/ |
+| Memory 保持独立 | Context 依赖 IMemory 接口即可 | 符合依赖倒置，不需要物理合并 |
+| IProtocolAdapter 保留在 tool/ | 与 IToolGateway 关系紧密 | 用注释标注 Layer 1，不单独建目录 |
+| config/ 保持独立 | 配置管理是独立功能 | Agent 可选择性使用 config 参数 |
+| 删除 builder/ | 职责被 BaseAgent 吸收 | 避免职责重叠 |
+
+---
+
+### 八、实施任务
+
+#### ✅ 需要做的
+
+| 任务 | 说明 |
+|------|------|
+| 创建 agent/ | base.py, five_layer.py, simple_chat.py |
+| 实现 BaseAgent | 组件组装 + run() |
+| 实现 FiveLayerAgent | 从 DefaultLoopOrchestrator 迁移 |
+| 重命名 execution/ → runtime/ | 更准确的模块命名 |
+| 独立 security/ | 从 tool/ 提取 ISecurityBoundary |
+| 添加工厂函数 | 各域 __init__.py |
+| 移除 IRunLoop, ILoopOrchestrator | 从 runtime/interfaces.py |
+| 删除相关 impl | default_run_loop.py, default_orchestrator.py |
+| 删除 builder/ | 有用类型移到 utils/types.py |
+
+#### ❌ 不需要做的
+
+| 任务 | 原因 |
+|------|------|
+| 实现 SimpleChatAgent | 新功能，只放占位 |
+| 合并 memory 到 context | 保持独立更合理 |
+| 独立 protocols/ | IProtocolAdapter 保留在 tool/，注释标注层级 |
+
+---
+
+### 九、设计权衡
+
+#### 优点
+
+| 优点 | 说明 |
+|------|------|
+| 概念简化 | 用户只需理解 Agent 类，不需要 Builder + Preset |
+| 扩展性强 | 继承 BaseAgent 可实现任意执行模式（ReAct、工作流等） |
+| Kernel 更纯粹 | 只剩 7 个基础设施接口，无策略性代码 |
+| 依赖正确 | 工厂函数解决了 DIP 违规 |
+| API 直观 | 构造函数参数比链式调用更清晰 |
+
+#### 潜在问题
+
+| 问题 | 应对 |
+|------|------|
+| FiveLayerAgent 代码量大（~700 行） | 拆分为 5 个私有方法（_run_xxx_loop），每个 ~100-150 行 |
+| 失去 tick-by-tick 调试 | 可在 Agent 内部实现调试模式，或通过 Hook 机制 |
+| 链式调用的动态组合能力丢失 | 影响小，复杂场景可继承 BaseAgent |
+
+---
+
 ## 前言：理解 DARE 的四层架构
 
 根据 Architecture_Final_Review_v2.1.md，DARE Framework 采用严格的四层架构：

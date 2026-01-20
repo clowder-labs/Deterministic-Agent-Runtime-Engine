@@ -1,37 +1,41 @@
-"""Context domain facade (compat shim)."""
+"""Context domain: context assembly and resource accounting."""
 
-from dare_framework3.context.kernel import IContextManager
-from dare_framework3.context.components import (
-    IContextStrategy,
-    IMemory,
-    IPromptStore,
-    IRetriever,
-    IIndexer,
-)
+from dare_framework3.context.component import IContextManager, IContextStrategy, IResourceManager
 from dare_framework3.context.types import (
     AssembledContext,
-    Prompt,
-    RetrievedContext,
-    IndexStatus,
+    Context,
     ContextPacket,
     ContextStage,
+    IndexStatus,
+    Prompt,
+    RetrievedContext,
     RuntimeStateView,
     SessionContext,
+    Message,
+    Budget,
+    ResourceType,
+    ResourceExhausted,
 )
+from dare_framework3.context.impl.default_context_manager import DefaultContextManager
+from dare_framework3.context.impl.in_memory_resource_manager import InMemoryResourceManager
 
 __all__ = [
     "IContextManager",
     "IContextStrategy",
-    "IMemory",
-    "IPromptStore",
-    "IRetriever",
-    "IIndexer",
+    "IResourceManager",
     "AssembledContext",
-    "Prompt",
-    "RetrievedContext",
-    "IndexStatus",
+    "Context",
     "ContextPacket",
     "ContextStage",
+    "IndexStatus",
+    "Prompt",
+    "RetrievedContext",
     "RuntimeStateView",
     "SessionContext",
+    "Message",
+    "Budget",
+    "ResourceType",
+    "ResourceExhausted",
+    "DefaultContextManager",
+    "InMemoryResourceManager",
 ]

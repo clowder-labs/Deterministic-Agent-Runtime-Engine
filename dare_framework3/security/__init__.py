@@ -1,15 +1,14 @@
-"""Security domain facade (compat shim)."""
+"""Security domain: trust, policy, and sandbox boundaries."""
 
-from dare_framework3.security.kernel import ISecurityBoundary
-from dare_framework3.security.components import ITrustVerifier, IPolicyEngine, ISandbox
-from dare_framework3.security.types import PolicyDecision, TrustedInput, SandboxSpec
+from dare_framework3.security.component import ISecurityBoundary
+from dare_framework3.security.types import RiskLevel, PolicyDecision, TrustedInput, SandboxSpec
+from dare_framework3.security.impl.default_security_boundary import DefaultSecurityBoundary
 
 __all__ = [
     "ISecurityBoundary",
-    "ITrustVerifier",
-    "IPolicyEngine",
-    "ISandbox",
+    "RiskLevel",
     "PolicyDecision",
     "TrustedInput",
     "SandboxSpec",
+    "DefaultSecurityBoundary",
 ]
