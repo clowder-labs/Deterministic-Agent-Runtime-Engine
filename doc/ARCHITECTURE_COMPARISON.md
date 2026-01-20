@@ -115,6 +115,76 @@ class IToolGateway(Protocol):
 
 ---
 
+### 七、完整架构设计说明
+
+#### 7.1 设计目标
+
+| 目标 | 说明 |
+|------|------|
+| DDD 边界清晰 | 域内自洽、跨域接口最小化 |
+| Kernel 稳定 | 核心边界稳定、可长期演进 |
+| 组件可插拔 | 策略/适配器/插件可替换 |
+| 审计可追溯 | EventLog 记录全链路关键事件 |
+| 安全可控 | SecurityBoundary 统一入口与沙箱 |
+
+#### 7.2 分层与依赖规则
+
+| 层级 | 文件位置 | 角色 | 依赖规则 |
+|------|---------|------|----------|
+| Kernel | `<domain>/kernel.py` | 稳定接口 | 只依赖 Types |
+| Component | `<domain>/component.py` | 可插拔接口 | 依赖 Types，可依赖 Kernel 语义 |
+| Types | `<domain>/types.py` | 数据模型 | 不依赖 Component/Kernel |
+| Internal | `<domain>/internal/` | 默认实现 | 可依赖 Kernel/Component/Types |
+
+**约束**：
+- Kernel 不导入 Component 或 Internal
+- Component 不依赖 Internal
+- Internal 可引用 Kernel/Component/Types
+
+#### 7.3 域职责与核心接口
+
+| 域 | 核心职责 | Kernel | Component | Internal |
+|----|----------|--------|-----------|----------|
+| agent | 编排与执行 | BaseAgent/FiveLayerAgent | - | 默认执行逻辑 |
+| context | 上下文工程与预算 | IContextManager/IResourceManager | IContextStrategy | DefaultContextManager/InMemoryResourceManager |
+| model | 模型适配 | - | IModelAdapter | OpenAI/Mock Adapter |
+| memory | 记忆存储 | - | IMemory/IPromptStore | NoOpMemory/NoOpPromptStore |
+| tool | 能力调用 | IToolGateway/IExecutionControl | ITool/ISkill/ICapabilityProvider/IProtocolAdapter/IMCPClient | DefaultToolGateway/RunCommandTool |
+| plan | 规划策略 | - | IPlanner/IValidator/IRemediator | DeterministicPlanner/GatewayValidator |
+| event | 审计事件 | IEventLog | IEventListener | LocalEventLog/NoOpListener |
+| hook | 生命周期扩展 | IExtensionPoint | IHook | DefaultExtensionPoint/NoOpHook |
+| security | 信任与策略 | ISecurityBoundary | - | DefaultSecurityBoundary |
+| config | 配置与插件 | IConfigProvider | Manager Interfaces | DefaultConfigProvider |
+| utils | 通用辅助 | - | - | ids/errors/BaseComponent |
+
+#### 7.4 关键流程
+
+**执行主链路（简化）**：
+```
+Task -> ContextManager.assemble -> Planner.plan
+     -> Validator.validate_plan -> SecurityBoundary.verify_trust/check_policy
+     -> ToolGateway.invoke -> EventLog.append
+```
+
+**Hook 与 Event**：
+```
+Hook(IHook) -> ExtensionPoint.emit -> (可选) EventLog.append
+```
+
+#### 7.5 组件装配与默认实现
+
+- `BaseAgent` 负责装配默认 Internal 实现（当用户未显式注入时）
+- `IConfigProvider` 负责配置层叠与解析
+- `config.component` 中的 Manager 负责插件发现与组件实例化
+
+#### 7.6 稳定性与演进策略
+
+- Kernel 接口为长期稳定边界
+- Component 允许演进，但需明确作用域与场景注释
+- Internal 无稳定性承诺，仅用于默认实现
+
+---
+
 ## 🆕 v3.2 架构设计
 
 > **设计日期**: 2026-01-20
