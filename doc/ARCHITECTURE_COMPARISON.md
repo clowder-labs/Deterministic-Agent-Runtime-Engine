@@ -6,6 +6,220 @@
 
 ---
 
+## 🆕 v3.4 Base Context 重构设计
+
+> **设计日期**: 2026-01-21  
+> **基于**: v3.3 架构 + Context 模块重新设计
+
+---
+
+### 一、设计目标
+
+| 目标 | 说明 |
+|------|------|
+| **层级解耦** | Base Context 通用，上层（Session/Plan/Agent）按需扩展 |
+| **概念精简** | 减少冗余概念，职责清晰 |
+| **灵活组装** | messages 每次调 LLM 前临时组装，支持多数据源 |
+| **外部能力挂载** | 长期记忆、RAG、工具通过引用访问 |
+
+---
+
+### 二、核心概念
+
+| 概念 | 定义 |
+|------|------|
+| **Message** | 统一消息格式 `(role, content, name?, metadata?)` |
+| **Budget** | 资源预算 = 限制 + 使用记录 |
+| **Context** | 上下文本体，管理短期记忆 + 预算 + 外部引用 |
+| **short_term_memory** | 当前任务的消息列表，Context 直接持有 |
+| **long_term_memory** | 跨会话持久记忆，外部服务引用 |
+| **rag** | 检索增强，外部服务引用 |
+| **tools** | 工具能力，外部服务引用 |
+
+---
+
+### 三、数据类型
+
+#### 3.1 Message
+
+| 字段 | 类型 | 必须 | 说明 |
+|------|------|------|------|
+| `role` | `str` | ✓ | `"system"` / `"user"` / `"assistant"` / `"tool"` |
+| `content` | `str` | ✓ | 消息内容 |
+| `name` | `str \| None` | ✗ | 工具名称（role=tool 时使用） |
+| `metadata` | `dict` | ✗ | 扩展字段 |
+
+#### 3.2 Budget
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `max_tokens` | `int \| None` | Token 上限 |
+| `max_cost` | `float \| None` | 费用上限 |
+| `max_time_seconds` | `int \| None` | 时间上限 |
+| `max_tool_calls` | `int \| None` | 工具调用上限 |
+| `used_tokens` | `float` | 已用 Token |
+| `used_cost` | `float` | 已用费用 |
+| `used_time_seconds` | `float` | 已用时间 |
+| `used_tool_calls` | `int` | 已用工具调用次数 |
+
+---
+
+### 四、外部服务接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `IMemory` | `recall(query, limit?) -> list` | 长期记忆召回 |
+| | `store(content)` | 存入长期记忆 |
+| `IRAG` | `retrieve(query, top_k?) -> list` | 检索 |
+| `IToolProvider` | `list_tools() -> list` | 获取工具列表 |
+| | `get_tool(name) -> Tool` | 获取单个工具 |
+
+---
+
+### 五、Context 设计
+
+#### 5.1 字段
+
+| 字段 | 类型 | 持有/引用 | 说明 |
+|------|------|----------|------|
+| `id` | `str` | 持有 | 唯一标识 |
+| `short_term_memory` | `list[Message]` | 持有 | 短期记忆 |
+| `budget` | `Budget` | 持有 | 资源预算 |
+| `long_term_memory` | `IMemory \| None` | 引用 | 长期记忆服务 |
+| `rag` | `IRAG \| None` | 引用 | 检索服务 |
+| `tools` | `IToolProvider \| None` | 引用 | 工具服务 |
+
+#### 5.2 方法
+
+| 分组 | 方法 | 签名 | 说明 |
+|------|------|------|------|
+| **短期记忆** | `stm_add` | `(role, content, **kwargs)` | 添加消息 |
+| | `stm_get` | `() -> list[Message]` | 获取所有消息 |
+| | `stm_clear` | `()` | 清空消息 |
+| **预算** | `budget_use` | `(resource, amount)` | 记录消耗 |
+| | `budget_check` | `()` | 超限抛异常 |
+| | `budget_remaining` | `(resource) -> float` | 剩余额度 |
+| **长期记忆** | `ltm_recall` | `(query, limit?) -> list` | 召回 |
+| **RAG** | `rag_retrieve` | `(query, top_k?) -> list` | 检索 |
+| **工具** | `tools_list` | `() -> list` | 获取工具列表 |
+| **组装** | `assemble` | `(**options) -> list[Message]` | 组装消息，**可被子类覆盖** |
+
+---
+
+### 六、消息组装流程
+
+**核心思路**：`messages` 不是 Context 字段，而是每次调 LLM 前**临时组装**的输出。
+
+```
+Context
+├── short_term_memory ──────┐
+├── long_term_memory ───────┼──→ assemble() ──→ list[Message] ──→ LLM
+├── rag ────────────────────┘
+└── tools (提供工具定义)
+```
+
+**组装逻辑**（默认实现）：
+```python
+def assemble(self, **options) -> list[Message]:
+    """组装消息，子类可覆盖扩展"""
+    return list(self.short_term_memory)
+```
+
+**上层扩展示例**：
+```python
+class SessionContext(Context):
+    # 可添加新字段
+    task_id: str
+    
+    # 覆盖 assemble 实现自定义组装逻辑
+    def assemble(self, **options) -> list[Message]:
+        messages = []
+        # 1. 从长期记忆召回
+        messages.extend(self.ltm_recall(options.get("query", "")))
+        # 2. 从 RAG 检索
+        messages.extend(self.rag_retrieve(options.get("query", "")))
+        # 3. 加入短期记忆
+        messages.extend(self.stm_get())
+        return messages
+```
+
+---
+
+### 七、完整架构图
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                        Context                           │
+├──────────────────────────────────────────────────────────┤
+│  字段                                                    │
+│  ├── id: str                                             │
+│  ├── short_term_memory: list[Message]                    │
+│  ├── budget: Budget                                      │
+│  ├── long_term_memory: IMemory | None   ──→ 外部服务     │
+│  ├── rag: IRAG | None                   ──→ 外部服务     │
+│  └── tools: IToolProvider | None        ──→ 外部服务     │
+├──────────────────────────────────────────────────────────┤
+│  方法                                                    │
+│  ├── stm_add(role, content)                              │
+│  ├── stm_get() -> list[Message]                          │
+│  ├── stm_clear()                                         │
+│  ├── budget_use(resource, amount)                        │
+│  ├── budget_check()                                      │
+│  ├── budget_remaining(resource) -> float                 │
+│  ├── ltm_recall(query, limit?) -> list                   │
+│  ├── rag_retrieve(query, top_k?) -> list                 │
+│  ├── tools_list() -> list                                │
+│  └── assemble(**options) -> list[Message]  ← 可覆盖扩展  │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           │ assemble()
+                           ▼
+                    list[Message]
+                           │
+                           │ ModelAdapter.convert()
+                           ▼
+                        LLM API
+```
+
+---
+
+### 八、与 v3.3 的对比
+
+| 维度 | v3.3 | v3.4 |
+|------|------|------|
+| **Context 字段** | messages 是字段 | messages 是组装输出，不存储 |
+| **短期记忆** | 无明确概念 | `short_term_memory: list[Message]` |
+| **长期记忆** | IMemory 在 memory 域 | 作为 Context 引用 `long_term_memory` |
+| **RAG** | 无 | 作为 Context 引用 `rag` |
+| **组装** | IContextAssembler 独立接口 | `Context.assemble()` 方法，可覆盖 |
+| **扩展方式** | 不清晰 | 继承 Context，覆盖 `assemble()` |
+
+---
+
+### 九、统计
+
+| 项目 | 数量 |
+|------|------|
+| 数据类型 | 2（Message, Budget） |
+| 外部接口 | 3（IMemory, IRAG, IToolProvider） |
+| Context 字段 | 6 |
+| Context 方法 | 10 |
+
+---
+
+### 十、扩展方式
+
+上层（如 SessionContext、PlanContext）通过**继承 + 覆盖 assemble()** 实现自定义：
+
+- **Base Context**：通用能力，不绑定任何层级语义
+- **SessionContext**：添加 `task_id`、`user_input` 等，覆盖 `assemble()` 加入 session 级逻辑
+- **PlanContext**：添加 `attempt`、`constraints` 等，覆盖 `assemble()` 加入 plan 级逻辑
+- **AgentContext**：添加 agent 特定字段，覆盖 `assemble()` 加入 agent 级逻辑
+
+**关键**：Base Context 不预设上层需要什么，上层按需扩展。
+
+---
+
 ## 🆕 v3.3 架构设计
 
 > **设计日期**: 2026-01-22  
