@@ -5,8 +5,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from dare_framework3_4.plan import Task, RunResult
-
 
 class BaseAgent(ABC):
     """Abstract base class for all agent implementations.
@@ -27,28 +25,27 @@ class BaseAgent(ABC):
         """Agent name."""
         return self._name
 
-    async def run(self, task: str | Task, deps: Any | None = None) -> RunResult:
+    async def run(self, task: str, deps: Any | None = None) -> str:
         """Run a task and return the result.
 
         Args:
-            task: Task description (string) or Task object.
+            task: Task description (string).
             deps: Optional dependencies (unused in v3.4, kept for compatibility).
 
         Returns:
-            RunResult with execution outcome.
+            Model response as string.
         """
-        task_obj = task if isinstance(task, Task) else Task(description=task)
-        return await self._execute(task_obj)
+        return await self._execute(task)
 
     @abstractmethod
-    async def _execute(self, task: Task) -> RunResult:
+    async def _execute(self, task: str) -> str:
         """Execute task - must be implemented by subclasses.
 
         Args:
-            task: Task to execute.
+            task: Task description to execute.
 
         Returns:
-            RunResult with execution outcome.
+            Model response as string.
         """
         ...
 

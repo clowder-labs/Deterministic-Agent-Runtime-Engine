@@ -11,9 +11,7 @@ from typing import TYPE_CHECKING
 from dare_framework3_4.agent.base import BaseAgent
 from dare_framework3_4.context import Context, Message
 from dare_framework3_4.model import IModelAdapter, Prompt
-from dare_framework3_4.plan import Task, RunResult, SessionSummary
 from dare_framework3_4.tool import IToolProvider
-from dare_framework3_4.tool.types import ToolResult
 
 if TYPE_CHECKING:
     from dare_framework3_4.context import Budget
@@ -85,7 +83,7 @@ class SimpleChatAgent(BaseAgent):
         """Agent context."""
         return self._context
 
-    async def _execute(self, task: Task) -> RunResult:
+    async def _execute(self, task: str) -> str:
         """Execute task using simple chat strategy.
 
         Flow:
@@ -93,75 +91,46 @@ class SimpleChatAgent(BaseAgent):
         2. Assemble context (messages + tools)
         3. Call model to generate response
         4. Add assistant response to short-term memory
-        5. Return result
+        5. Return model response content
 
         Args:
-            task: Task to execute.
+            task: Task description to execute.
 
         Returns:
-            RunResult with model response.
+            Model response content as string.
         """
-        try:
-            # 1. Add user message to short-term memory
-            user_message = Message(role="user", content=task.description)
-            self._context.stm_add(user_message)
+        # 1. Add user message to short-term memory
+        user_message = Message(role="user", content=task)
+        self._context.stm_add(user_message)
 
-            # 2. Assemble context for LLM call
-            assembled = self._context.assemble()
+        # 2. Assemble context for LLM call
+        assembled = self._context.assemble()
 
-            # 3. Convert to Prompt format
-            prompt = Prompt(
-                messages=assembled.messages,
-                tools=assembled.tools,
-                metadata=assembled.metadata,
-            )
+        # 3. Convert to Prompt format
+        prompt = Prompt(
+            messages=assembled.messages,
+            tools=assembled.tools,
+            metadata=assembled.metadata,
+        )
 
-            # 4. Generate model response
-            response = await self._model.generate(prompt)
+        # 4. Generate model response
+        response = await self._model.generate(prompt)
 
-            # 5. Add assistant response to short-term memory
-            assistant_message = Message(role="assistant", content=response.content)
-            self._context.stm_add(assistant_message)
+        # 5. Add assistant response to short-term memory
+        assistant_message = Message(role="assistant", content=response.content)
+        self._context.stm_add(assistant_message)
 
-            # 6. Record token usage if available
-            if response.usage:
-                tokens = response.usage.get("total_tokens", 0)
-                if tokens:
-                    self._context.budget_use("tokens", tokens)
+        # 6. Record token usage if available
+        if response.usage:
+            tokens = response.usage.get("total_tokens", 0)
+            if tokens:
+                self._context.budget_use("tokens", tokens)
 
-            # 7. Check budget
-            self._context.budget_check()
+        # 7. Check budget
+        self._context.budget_check()
 
-            # 8. Create ToolResult for compatibility with 3.2 format
-            # 3.2 expects result.output to be a list of ToolResult objects
-            tool_result = ToolResult(
-                success=True,
-                output={"content": response.content},
-            )
-
-            # 9. Return result (compatible with 3.2 format)
-            return RunResult(
-                success=True,
-                output=[tool_result],  # List format for 3.2 compatibility
-                errors=[],
-                session_summary=SessionSummary(
-                    session_id=f"session_{task.task_id}",
-                    milestone_count=1,
-                    success=True,
-                ),
-            )
-
-        except Exception as e:
-            return RunResult(
-                success=False,
-                output=None,
-                errors=[str(e)],
-                session_summary=SessionSummary(
-                    session_id=f"session_{task.task_id}",
-                    milestone_count=1,
-                    success=False,
-                ),
-            )
+        # 8. Return model response content directly
+        return response.content
 
 
 __all__ = ["SimpleChatAgent"]

@@ -24,7 +24,7 @@ from dare_framework3_4.model import OpenAIModelAdapter
 
 # Configuration
 MODEL = os.getenv("CHAT_MODEL", "qwen-plus")  # e.g., "qwen-plus", "gpt-4o-mini"
-API_KEY = os.getenv("CHAT_API_KEY", "sk-eb0bfb321f4747d093b445c7e11359dd")  # your API key
+API_KEY = os.getenv("CHAT_API_KEY", "")  # your API key
 ENDPOINT = os.getenv("CHAT_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 # httpx 0.28 (used by openai client) does not expose allow_env_proxies; set trust_env=False to bypass proxies.
 HTTP_CLIENT_OPTIONS = {"trust_env": False, "proxy": None}
@@ -87,25 +87,12 @@ async def main() -> None:
 
         logger.info("running prompt", extra={"prompt": _preview(prompt)})
         try:
-            result = await agent.run(prompt)
+            content = await agent.run(prompt)
         except Exception as exc:  # noqa: BLE001
             logger.exception("agent run failed")
             print(f"[error] model call failed: {exc}", file=sys.stderr, flush=True)
             continue
 
-        if not result.success:
-            logger.warning("agent returned failure", extra={"errors": result.errors})
-            print(f"[error] run failed: {result.errors}", file=sys.stderr, flush=True)
-            continue
-
-        # Extract content from result (compatible with 3.2 format)
-        content = ""
-        if isinstance(result.output, list) and result.output:
-            last = result.output[-1]
-            content = getattr(last, "output", {}).get("content", "")
-        elif isinstance(result.output, str):
-            # Fallback: if output is directly a string
-            content = result.output
         if not content:
             logger.warning("no content returned from agent")
             print("No output returned.", flush=True)
