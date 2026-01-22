@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dare_framework3_3.config.types import Config
+    from dare_framework3_3.context.component import IAssemblyContext
 
 
 class ResourceType(Enum):
@@ -32,11 +36,20 @@ class ResourceExhausted(RuntimeError):
 
 @dataclass(frozen=True)
 class Message:
-    """Canonical message representation."""
+    """Canonical message representation.
+
+    Notes:
+        - tool_calls/tool_call_id are optional fields used by model adapters
+          that support tool calling (e.g., OpenAI-compatible adapters).
+        - Tools available to the model should be described via system messages
+          during context assembly (Context Engineering Layer 3).
+    """
 
     role: str
     content: str
     name: str | None = None
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    tool_call_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -79,6 +92,39 @@ class RetrievedContext:
 
 
 @dataclass(frozen=True)
+class RetrievalRequest:
+    """Request envelope for retrieval (Context Engineering Layer 2).
+
+    Retrieval sources (STM/LTM/knowledge) all accept the same request shape.
+    Implementations should treat limits as best-effort; hard enforcement
+    happens during context assembly under the final budget.
+    """
+
+    query: str
+    stage: "ContextStage | None" = None
+    state: "RuntimeStateView | None" = None
+    budget: Budget | None = None
+    top_k: int | None = None
+    filters: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AssemblyRequest:
+    """Request envelope for context assembly (Context Engineering Layer 3).
+
+    Assembly is responsible for:
+    - Injecting tool catalogs/usage guidance as messages
+    - Merging retrieval outputs into a single message sequence
+    - Applying compaction/truncation to satisfy the budget
+    """
+
+    stage: ContextStage
+    state: RuntimeStateView
+    query: str | None = None
+    budget: Budget | None = None
+
+
+@dataclass(frozen=True)
 class IndexStatus:
     """Index readiness status for a scope."""
 
@@ -111,10 +157,20 @@ class RuntimeStateView:
 
 @dataclass
 class SessionContext:
-    """A session-scoped context holder."""
+    """A session-scoped context holder.
+
+    Notes:
+        SessionContext holds the session-scoped AssemblyContext as `assembly`.
+        Callers should use `await session.assembly.assemble(AssemblyRequest(...))`
+        to obtain a `list[Message]` that can be sent directly to the LLM.
+    """
 
     user_input: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Effective config snapshot for the session lifecycle (resolved by ConfigProvider at session start).
+    # Keep this off the message path; it is runtime-internal and may contain secrets (e.g., API keys).
+    config: "Config | None" = None
+    assembly: "IAssemblyContext | None" = None
 
 
 __all__ = [
@@ -127,6 +183,8 @@ __all__ = [
     "AssembledContext",
     "Prompt",
     "RetrievedContext",
+    "RetrievalRequest",
+    "AssemblyRequest",
     "IndexStatus",
     "ContextPacket",
     "RuntimeStateView",

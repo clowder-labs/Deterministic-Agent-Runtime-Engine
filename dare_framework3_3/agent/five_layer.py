@@ -21,7 +21,13 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from dare_framework3_3.agent.base import BaseAgent
-from dare_framework3_3.context.types import ContextStage, RuntimeStateView, ResourceType
+from dare_framework3_3.context.types import (
+    AssemblyRequest,
+    ContextStage,
+    RuntimeStateView,
+    ResourceType,
+    SessionContext,
+)
 from dare_framework3_3.model.types import Message
 from dare_framework3_3.plan.types import (
     Task,
@@ -124,6 +130,7 @@ class FiveLayerAgent(BaseAgent):
         self._task: Task | None = None
         self._run_id: str | None = None
         self._milestone_state: _MilestoneState | None = None
+        self._session_context: SessionContext | None = None
 
     async def _execute(self, task: Task) -> RunResult:
         """Execute task using five-layer loop strategy."""
@@ -144,6 +151,15 @@ class FiveLayerAgent(BaseAgent):
         if self._run_context_state is not None:
             self._run_context_state.run_id = self._run_id
             self._run_context_state.task_id = task.task_id
+        
+        if self._context_manager is None:
+            raise RuntimeError("context manager not initialized")
+        # Session-scoped context is the primary entry point for context assembly in v3.4.
+        self._session_context = self._context_manager.open_session(task)
+        if self._run_context_state is not None:
+            # Propagate the session's effective config snapshot into tool RunContext so tools
+            # can enforce policies such as workspace_roots without reading config directly.
+            self._run_context_state.config = self._session_context.config
 
         await self._log_event("session.start", {
             "task_id": task.task_id,
@@ -517,12 +533,21 @@ class FiveLayerAgent(BaseAgent):
         """Execute using model-driven tool calling."""
         if self._task is None or self._milestone_state is None or self._run_id is None:
             raise RuntimeError("_run_session_loop must be called first")
+        if self._session_context is None:
+            raise RuntimeError("_run_session_loop must be called first")
+        if self._session_context.assembly is None:
+            raise RuntimeError("SessionContext.assembly is not set")
 
-        assembled = await self._context_manager.assemble(
-            ContextStage.EXECUTE,
-            self._runtime_state(stage=ContextStage.EXECUTE),
+        query = self._milestone_state.milestone.user_input
+        messages = await self._session_context.assembly.assemble(
+            AssemblyRequest(
+                stage=ContextStage.EXECUTE,
+                state=self._runtime_state(stage=ContextStage.EXECUTE),
+                query=query,
+                budget=self._resource_manager.get_budget(scope="execute"),
+            )
         )
-        messages = list(assembled.messages)
+        messages = list(messages)
         tools = await self._tool_definitions_for_model()
         tool_index = {tool.name: tool for tool in tools}
 

@@ -180,8 +180,14 @@ class BaseAgent(ABC):
 
     def _build_context_manager(self) -> "IContextManager":
         from dare_framework3_3.context.internal.default_context_manager import DefaultContextManager
+        from dare_framework3_3.config import DefaultConfigProvider
 
-        return self._user_context_manager or DefaultContextManager(memory=self._user_memory)
+        config_provider = DefaultConfigProvider(self._config) if self._config is not None else DefaultConfigProvider()
+        return self._user_context_manager or DefaultContextManager(
+            memory=self._user_memory,
+            config_provider=config_provider,
+            tool_gateway=self._tool_gateway,
+        )
 
     def _build_planner(self) -> "IPlanner":
         if self._user_planner is not None:
