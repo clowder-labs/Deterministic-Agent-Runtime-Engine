@@ -1,5 +1,5 @@
 ## Context
-The current package layout places most interfaces and data models in single files and exposes many top-level modules that only re-export deeper symbols. This blurs the three-layer architecture described in `doc/design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` and `doc/design/Architecture_Final_Review_v1.3.md`, and makes it harder to locate core contracts during the ongoing interface/model design phase.
+The current package layout places most interfaces and data models in single files and exposes many top-level modules that only re-export deeper symbols. This blurs the three-layer architecture described in `doc/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` and `doc/design/archive/Architecture_Final_Review_v1.3.md`, and makes it harder to locate core contracts during the ongoing interface/model design phase.
 
 ## Pythonic Organization References
 To make the layout more idiomatic for Python contributors, the re-organization follows common library patterns (explicit subpackages by domain, minimal `__init__.py` files, and no re-export glue). This aligns with how mature Python libraries keep entry points obvious while preserving internal modularity, without relying on deep inheritance hierarchies or overly broad modules.

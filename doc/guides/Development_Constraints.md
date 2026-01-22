@@ -3,7 +3,7 @@
 适用对象：在本仓库编写代码的所有开发者（含 Codex、Claude 等 AI Agent）。目标：在不破坏架构的前提下，产出简洁、可验证、可维护的代码。
 
 ## 总则
-- 先看架构：不得破坏五层循环与 Kernel 核心接口契约（见 `doc/design/Architecture_Final_Review_v2.1.md`、`openspec/project.md`；`doc/design/Architecture_Final_Review_v1.3.md` 仅作历史参考）。重大能力/接口变更走 OpenSpec。
+- 先看架构：不得破坏五层循环编排骨架、系统调用边界与核心接口契约（见 `doc/design/Architecture_v4.0.md`、`doc/design/Interfaces_v4.0.md`、`openspec/project.md`；历史参考见 `doc/design/archive/`）。重大能力/接口变更走 OpenSpec。
 - 状态外化：所有进度、决策、证据写入文件/EventLog，避免依赖模型“记忆”。
 - 最小必要变更：新增功能时优先扩展现有组件/接口，避免跨层耦合或绕过 `IToolGateway`/`ISecurityBoundary`。
 

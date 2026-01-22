@@ -6,23 +6,29 @@
 
 ## 📖 推荐阅读顺序
 
-### 快速上手（以 v2.1 为当前实现标准）
+### 快速上手（最终架构设计以 v4.0 为准）
 
 ```text
 1. 项目概览
    └── /openspec/project.md (项目上下文、技术栈、架构概览)
 
-2. 核心架构（当前标准）
-   └── design/Architecture_Final_Review_v2.1.md
+2. 核心架构（权威设计）
+   └── design/Architecture_v4.0.md
 
-3. 接口设计（当前标准）
-   ├── design/Architecture_Final_Review_v2.1.md（v2.1 Kernel contracts）
-   └── dare_framework/core/（代码侧接口定义与默认实现）
+3. 接口设计（权威设计）
+   └── design/Interfaces_v4.0.md
 
-4. 示例实现
+4. 设计对齐与证据（可选但推荐）
+   ├── design/DARE_v4.0_alignment.md
+   └── design/DARE_v4.0_evidence.yaml
+
+5. 代码实现（以代码为准）
+   └── dare_framework/（当前实现；可能与 v4.0 目标存在差异）
+
+6. 示例实现
    └── /examples/coding-agent/ (示例 Agent)
 
-5. 开发规范
+7. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
    └── guides/Development_Constraints.md (开发约束清单)
 ```
@@ -31,45 +37,33 @@
 
 ```text
 1. v1.3 架构终稿（历史参考）
-   └── design/Architecture_Final_Review_v1.3.md
+   └── design/archive/Architecture_Final_Review_v1.3.md
 
 2. v1.1 接口层设计（历史参考）
-   └── design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md
+   └── design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md
 ```
 
 ---
 
 ## 📂 文档分类
 
-### 1️⃣ 核心设计文档（当前实现标准）
+### 1️⃣ 核心设计文档（v4.0：最终架构设计）
 
 | 文档 | 作用 | 状态 |
 |---|---|---|
-| `design/Architecture_Final_Review_v2.1.md` | **架构终稿评审 v2.1**<br/>Kernel 化、上下文工程、协议适配层、长任务控制面 | ⭐ 当前标准 |
-| `dare_framework/core/` | **Kernel 代码契约（v2）**<br/>接口定义 + 默认实现（以代码为准） | ⭐ 当前标准 |
+| `design/Architecture_v4.0.md` | **架构设计 v4.0**<br/>不变量、分层/分域、核心流程与关键约束、清理计划 | ⭐ 最终架构设计 |
+| `design/Interfaces_v4.0.md` | **接口设计 v4.0**<br/>按 domain 的接口位与数据结构（权威签名/类型） | ⭐ 权威接口 |
+| `design/DARE_v4.0_alignment.md` | **对齐清单**<br/>v4.0 架构/接口的 claim → 证据/实现映射 | ✅ 对齐与追溯 |
+| `design/DARE_v4.0_evidence.yaml` | **证据索引**<br/>claims + sources + anchors（用于文档一致性与回归） | ✅ 对齐与追溯 |
 
-### 2️⃣ 历史架构与接口（v1.x）
+### 2️⃣ 代码与工程入口（实现以代码为准）
 
-| 文档 | 作用 | 状态 |
+| 文档/目录 | 作用 | 状态 |
 |---|---|---|
-| `design/Architecture_Final_Review_v1.3.md` | **架构终稿 v1.3**<br/>五层循环、Plan/Execute/Tool、HITL/Remediate | 🗄️ 历史参考 |
-| `design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` | **接口层设计 v1.1**<br/>三层模型、MCP 支持、内置实现 | 🗄️ 历史参考 |
+| `dare_framework/` | 框架实现主目录（目标收敛到单一架构；详见 v4.0） | ✅ 实现入口 |
+| `Project_Architecture_and_Priorities.md` | 以“实现视角”梳理现状与优先级（阅读入口指向 v4.0） | ✅ 实现视角 |
 
-### 3️⃣ 对比分析文档
-
-| 文档 | 作用 |
-|---|---|
-| `design/Framework_Comparison_PydanticAI.md` | PydanticAI 对比：泛型依赖注入、结构化输出、类型安全 |
-| `design/Framework_Comparison_AgentScope.md` | AgentScope 对比：平台化能力、Runtime/Studio、DARE 差异化 |
-| `design/anthropic-engineering.md` | Anthropic 工程最佳实践参考 |
-
-### 4️⃣ 辅助文档
-
-| 文档 | 作用 |
-|---|---|
-| `design/Gemini_Generated_Image_im2qiuim2qiuim2q.png` | 架构示意图（生成图） |
-
-### 5️⃣ 附录与工程实践
+### 3️⃣ 附录与工程实践
 
 | 文档 | 作用 |
 |---|---|
@@ -85,6 +79,22 @@
 
 <details>
 <summary>点击展开归档列表</summary>
+
+### v1.x / v2.x 设计终稿与草案（已被 v4.0 取代）
+
+| 文档（位于 `design/archive/`） | 版本/类型 | 备注 |
+|---|---|---|
+| `Architecture_Final_Review_v1.3.md` | v1.3（终稿） | 历史参考 |
+| `Architecture_Final_Review_v2.0.md` | v2.0（终稿评审） | 历史参考 |
+| `Architecture_Final_Review_v2.1.md` | v2.1（终稿评审） | 历史参考 |
+| `Architecture_v2.0_Proposal.md` | v2.0（草案） | 历史参考 |
+| `Interface_Layer_Design_v1.1_MCP_and_Builtin.md` | v1.1（接口层设计） | 历史参考 |
+
+### v3.x 对比与演进材料（历史参考）
+
+| 文档（位于 `design/archive/`） | 类型 | 备注 |
+|---|---|---|
+| `ARCHITECTURE_COMPARISON.md` | v1 vs v2 vs v3 愿景 | 包含 v3.3/v3.4 的演进记录（历史资料） |
 
 ### 设计版本归档（已被 v1.3 取代）
 
@@ -115,6 +125,15 @@
 | `Architecture_v1.3_Claude_Feedback_1.md` | 原始反馈 | Claude 对 v1.3 的反馈（1） |
 | `Architecture_v1.3_Claude_Feedback_2.md` | 原始反馈 | Claude 对 v1.3 的反馈（2） |
 
+### 对比/研究资料（历史参考）
+
+| 文档（位于 `design/archive/`） | 类型 | 备注 |
+|---|---|---|
+| `Framework_Comparison_PydanticAI.md` | 对比分析 | PydanticAI 对比（历史资料） |
+| `Framework_Comparison_AgentScope.md` | 对比分析 | AgentScope 对比（历史资料） |
+| `anthropic-engineering.md` | 参考资料 | Anthropic 工程最佳实践参考（历史资料） |
+| `Gemini_Generated_Image_im2qiuim2qiuim2q.png` | 图片 | 生成的架构示意图（未必与 v4.0 对齐） |
+
 </details>
 
 ---
@@ -124,27 +143,29 @@
 ### 架构师 / Tech Lead
 
 ```text
-1. design/Architecture_Final_Review_v2.0.md
-2. dare_framework/core/（Kernel contract 代码侧真相）
-3. /openspec/project.md（项目约束与变更流程）
-4. guides/Development_Constraints.md
-5. design/Architecture_Final_Review_v1.3.md / design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md（历史参考）
+1. design/Architecture_v4.0.md（最终架构设计）
+2. design/Interfaces_v4.0.md（权威接口）
+3. design/DARE_v4.0_alignment.md（对齐与证据入口）
+4. /openspec/project.md（项目约束与变更流程）
+5. guides/Development_Constraints.md
+6. dare_framework/（当前实现入口）
 ```
 
 ### 后端工程师（实现框架）
 
 ```text
-1. design/Architecture_Final_Review_v2.0.md
-2. dare_framework/core/
-3. /openspec/project.md
-4. guides/Development_Constraints.md
+1. design/Architecture_v4.0.md
+2. design/Interfaces_v4.0.md
+3. dare_framework/
+4. /openspec/project.md
+5. guides/Development_Constraints.md
 ```
 
 ### Agent 开发者（使用框架）
 
 ```text
 1. /examples/coding-agent/README.md
-2. design/Architecture_Final_Review_v2.0.md
+2. design/Architecture_v4.0.md（理解框架目标形态与边界）
 3. dare_framework/builder.py（组装 API）
 ```
 
@@ -156,7 +177,7 @@
 
 1. **主设计文档**：使用版本号（如 `_v2.0.md`），并在本 README 中更新
 2. **补充/对比文档**：使用清晰主题命名（如 `Framework_Comparison_*.md`）
-3. **过程材料/过时文档**：移动到 `doc/design/archive/` 目录
+3. **过程材料/过时文档**：移动到 `design/archive/` 目录
 
 ### 更新文档时
 
@@ -177,25 +198,29 @@
 
 ```text
 Phase 1: 初始设计（Industrial Agent Framework v2.0 → v2.4，已归档）
-├── Industrial_Agent_Framework_Design_v2.md
-└── v2.1 ~ v2.4 Supplements
+├── archive/Industrial_Agent_Framework_Design_v2.md
+└── archive/v2.1 ~ v2.4 Supplements
 
 Phase 2: 接口设计（v1.0 → v1.1）
-├── Interface_Layer_Design_v1.md
-└── Interface_Layer_Design_v1.1_MCP_and_Builtin.md
+├── archive/Interface_Layer_Design_v1.md
+└── archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md
 
 Phase 3: 框架对比与融合
-├── Framework_Comparison_PydanticAI.md
-├── Framework_Comparison_AgentScope.md
-└── anthropic-engineering.md
+├── archive/Framework_Comparison_PydanticAI.md
+├── archive/Framework_Comparison_AgentScope.md
+└── archive/anthropic-engineering.md
 
 Phase 4: 架构终稿 v1.3（历史参考）
-└── Architecture_Final_Review_v1.3.md
+└── archive/Architecture_Final_Review_v1.3.md
 
-Phase 5: 架构内核化 v2.x（当前实现标准：v2.1）
-├── Architecture_v2.0_Proposal.md
-├── Architecture_Final_Review_v2.0.md
-└── Architecture_Final_Review_v2.1.md
+Phase 5: 架构内核化 v2.x（历史参考）
+├── archive/Architecture_v2.0_Proposal.md
+├── archive/Architecture_Final_Review_v2.0.md
+└── archive/Architecture_Final_Review_v2.1.md
+
+Phase 6: 架构设计 v4.0（最终架构设计）
+├── Architecture_v4.0.md
+└── Interfaces_v4.0.md
 ```
 
 ---
@@ -204,22 +229,25 @@ Phase 5: 架构内核化 v2.x（当前实现标准：v2.1）
 
 ### Q: 现在应该以哪个文档为准？
 
-**A:** 当前实现标准以 v2 为准：
-- **架构**：`design/Architecture_Final_Review_v2.1.md`
-- **接口**：`dare_framework/core/`（以代码为准）
+**A:** 最终架构设计以 v4.0 为准：
+- **架构**：`design/Architecture_v4.0.md`
+- **接口**：`design/Interfaces_v4.0.md`
+- **对齐/证据**：`design/DARE_v4.0_alignment.md` + `design/DARE_v4.0_evidence.yaml`
+
+> 说明：实现侧仍以代码为准；若发现实现与 v4.0 设计不一致，请优先在对齐清单中记录差异并补齐证据/迁移计划。
 
 ### Q: 为什么会看到两个 “v2.0”？
 
 **A:** 这是历史原因导致的命名重叠：
 - `design/archive/Industrial_Agent_Framework_Design_v2.md`：早期工业框架草案（已归档）
-- `design/Architecture_Final_Review_v2.0.md`：v2.0 终稿评审（基线）
-- `design/Architecture_Final_Review_v2.1.md`：v2.1 终稿评审（对 v2.0 的增量修订）
+- `design/archive/Architecture_Final_Review_v2.0.md`：v2.0 终稿评审（基线，已归档）
+- `design/archive/Architecture_Final_Review_v2.1.md`：v2.1 终稿评审（对 v2.0 的增量修订，已归档）
 
 ### Q: 接口设计文档有两个版本，用哪个？
 
-**A:** 当前以 v2 为准：
-- **Kernel contracts**：`design/Architecture_Final_Review_v2.1.md` + `dare_framework/core/`（以代码为准）
-- **历史参考**：`design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`（v1.x 时代接口层设计）
+**A:** 以 v4.0 为准：
+- **权威接口**：`design/Interfaces_v4.0.md`
+- **历史参考**：`design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`（v1.x 时代接口层设计，已归档）
 
 ---
 
@@ -229,19 +257,14 @@ Phase 5: 架构内核化 v2.x（当前实现标准：v2.1）
 doc/
 ├── README.md
 ├── design/
-│   ├── Architecture_Final_Review_v1.3.md
-│   ├── Architecture_Final_Review_v2.0.md
-│   ├── Architecture_Final_Review_v2.1.md
-│   ├── Architecture_v2.0_Proposal.md
-│   ├── Interface_Layer_Design_v1.1_MCP_and_Builtin.md
-│   ├── Framework_Comparison_PydanticAI.md
-│   ├── Framework_Comparison_AgentScope.md
-│   ├── anthropic-engineering.md
-│   ├── Gemini_Generated_Image_im2qiuim2qiuim2q.png
-│   └── archive/
-│       ├── Architecture_v2.0_Claude_Feedback_Analysis.md
-│       ├── Architecture_v1.3_Claude_Feedback_1.md
-│       ├── Architecture_v1.3_Claude_Feedback_2.md
+│   ├── Architecture_v4.0.md
+│   ├── Interfaces_v4.0.md
+│   ├── DARE_v4.0_alignment.md
+│   ├── DARE_v4.0_evidence.yaml
+│   └── archive/（历史参考）
+│       ├── Architecture_Final_Review_v2.1.md
+│       ├── Interface_Layer_Design_v1.1_MCP_and_Builtin.md
+│       ├── ARCHITECTURE_COMPARISON.md
 │       └── ...（更多历史文档）
 ├── guides/
 │   ├── Development_Constraints.md
@@ -252,5 +275,5 @@ doc/
 
 ---
 
-*最后更新：2026-01-18*  
+*最后更新：2026-01-22*  
 *维护者：DARE Framework Team*

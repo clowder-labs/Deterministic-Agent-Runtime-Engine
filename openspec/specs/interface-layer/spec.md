@@ -12,18 +12,20 @@ The system SHALL locate shared canonical types (evidence, risk levels, tool resu
 - **THEN** the result is represented using the canonical v2 `ToolResult` type (not a legacy v1-only type)
 
 ### Requirement: Core Interface Coverage
-The interface layer SHALL define the v2.0 Kernel contracts from `doc/design/Architecture_Final_Review_v2.0.md`, including:
+The interface layer SHALL define the v4.0 stable interface surface from `doc/design/Interfaces_v4.0.md` (consistent with `doc/design/Architecture_v4.0.md`), including:
 
-- Kernel: `IRunLoop`, `ILoopOrchestrator`, `IExecutionControl`, `IContextManager`, `IResourceManager`, `IEventLog`, `IToolGateway`, `ISecurityBoundary`, `IExtensionPoint`
-- Strategies: `IPlanner`, `IValidator`, `IRemediator`, `IContextStrategy`
-- Capabilities: `IModelAdapter`, `IMemory`, `ICapabilityProvider`
+- Agent: `IAgent`（可选：`IAgentOrchestration`）
+- Context: `IContext`, `IRetrievalContext`
+- Tool/control planes: `IToolGateway`, `IExecutionControl`, `ISecurityBoundary`
+- Plan: `IPlanner`, `IValidator`, `IRemediator`
+- Cross-cutting: `IEventLog`, `IExtensionPoint`, `IConfigProvider`, `IModelAdapter`
 
 #### Scenario: Developer implements a custom Kernel component
 - **WHEN** a developer imports and implements any Kernel interface
 - **THEN** the contract surface is available, typed, and usable for composition
 
 ### Requirement: Core Data Models
-The interface layer SHALL provide canonical data models for v2.0, including:
+The interface layer SHALL provide canonical data models for v4.0, including:
 `CapabilityDescriptor`, `CapabilityType`, `Envelope`, `Budget`, `DonePredicate`, `Checkpoint`, and `ContextPacket`, plus task/milestone/run result models used by the Kernel flow.
 
 #### Scenario: Kernel and providers exchange canonical models
@@ -35,7 +37,7 @@ The developer API (AgentBuilder or equivalent) SHALL support composing:
 Kernel defaults, strategies (planner/validator/remediator/context strategy), tools and providers, optional protocol adapters, memory, and explicit budgets.
 
 #### Scenario: Minimal v2 build and run
-- **WHEN** a developer builds an agent with Kernel defaults and a minimal tool set
+- **WHEN** a developer builds an agent with v4.0 defaults and a minimal tool set
 - **THEN** the agent can execute a deterministic end-to-end flow without external network dependencies
 
 ### Requirement: Optional MCP Integration Surface
@@ -44,4 +46,3 @@ The interface layer SHALL define IMCPClient and MCPToolkit, and MCP integration 
 #### Scenario: MCP is not configured
 - **WHEN** no MCP clients are provided
 - **THEN** the runtime operates with local tools only and does not attempt MCP discovery
-

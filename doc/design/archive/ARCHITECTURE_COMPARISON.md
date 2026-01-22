@@ -2,7 +2,7 @@
 
 > **分析日期**: 2026-01-19
 > **对比范围**: dare_framework (master) vs dare_framework2 (framework2)
-> **参考文档**: doc/design/Architecture_Final_Review_v2.1.md
+> **参考文档**: doc/design/archive/Architecture_Final_Review_v2.1.md
 
 ---
 
@@ -2054,4 +2054,4 @@ print(result.success)
 ---
 
 **参考文档**：
-- [Architecture_Final_Review_v2.1.md](./design/Architecture_Final_Review_v2.1.md) - DARE 架构规范
+- [Architecture_Final_Review_v2.1.md](./Architecture_Final_Review_v2.1.md) - DARE 架构规范

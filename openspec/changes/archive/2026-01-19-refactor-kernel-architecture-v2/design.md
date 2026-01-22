@@ -1,5 +1,5 @@
 ## Context
-The current codebase implements a v1.3-shaped runtime (`IRuntime` + `AgentRuntime`) and related contracts (`IContextAssembler`, `IToolRuntime`, `ICheckpoint`, `IPolicyEngine`, `ITrustBoundary`). The v2.0 architecture (`doc/design/Architecture_Final_Review_v2.0.md`) reorganizes the framework into a 4-layer model and introduces a Kernel contract that standardizes:
+The current codebase implements a v1.3-shaped runtime (`IRuntime` + `AgentRuntime`) and related contracts (`IContextAssembler`, `IToolRuntime`, `ICheckpoint`, `IPolicyEngine`, `ITrustBoundary`). The v2.0 architecture (`doc/design/archive/Architecture_Final_Review_v2.0.md`) reorganizes the framework into a 4-layer model and introduces a Kernel contract that standardizes:
 
 - Scheduling as immutable infrastructure (`IRunLoop`, `ILoopOrchestrator`)
 - Context engineering as a first-class control plane (`IContextManager`)
@@ -77,4 +77,3 @@ The v2.0 document leaves several “needs iteration” items; this change propos
 - Broad breaking changes across `dare_framework/*` and examples/tests.
 - Temporary no-op surfaces can mask missing behaviors; mitigated by interface-level tests and explicit event logging of no-op paths.
 - Increased up-front contract surface; mitigated by strict layering (Kernel does not import components) and minimal default implementations.
-

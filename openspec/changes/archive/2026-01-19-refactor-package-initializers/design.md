@@ -1,6 +1,6 @@
 ## Context
 The v2 Kernel architecture organizes contracts and default implementations by functional domain under
-`dare_framework/core/` (see `doc/design/Architecture_Final_Review_v2.1.md`).
+`dare_framework/core/` (see `doc/design/archive/Architecture_Final_Review_v2.1.md`).
 
 In `c4b18582`, several Kernel domains consolidated their contract type definitions (enums/dataclasses and
 `Protocol` interfaces) directly into package `__init__.py` files:

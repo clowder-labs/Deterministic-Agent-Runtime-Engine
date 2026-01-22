@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 ### Requirement: Core Interface Coverage
-The interface layer SHALL define the v2.0 Kernel contracts from `doc/design/Architecture_Final_Review_v2.0.md`, including:
+The interface layer SHALL define the v2.0 Kernel contracts from `doc/design/archive/Architecture_Final_Review_v2.0.md`, including:
 
 - Kernel: `IRunLoop`, `ILoopOrchestrator`, `IExecutionControl`, `IContextManager`, `IResourceManager`, `IEventLog`, `IToolGateway`, `ISecurityBoundary`, `IExtensionPoint`
 - Strategies: `IPlanner`, `IValidator`, `IRemediator`, `IContextStrategy`
@@ -33,4 +33,3 @@ Kernel defaults, strategies (planner/validator/remediator/context strategy), too
 #### Scenario: v1.3 surface is not required
 - **WHEN** a developer uses the framework per v2.0
 - **THEN** the primary execution surface is `IRunLoop` + `ILoopOrchestrator` and the old v1.3 surface is not required for functionality
-

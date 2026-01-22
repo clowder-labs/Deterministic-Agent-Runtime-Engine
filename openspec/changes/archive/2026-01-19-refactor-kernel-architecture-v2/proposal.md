@@ -1,7 +1,7 @@
 # Change: Refactor framework to the v2.0 kernelized architecture
 
 ## Why
-`doc/design/Architecture_Final_Review_v2.0.md` updates the framework architecture to a kernelized, protocol-agnostic, context-engineering-first design. The current implementation is aligned with the v1.3 runtime shape (monolithic `IRuntime` + `IToolRuntime` + `IContextAssembler` + `ICheckpoint`), which diverges from the v2.0 contracts and execution flow.
+`doc/design/archive/Architecture_Final_Review_v2.0.md` updates the framework architecture to a kernelized, protocol-agnostic, context-engineering-first design. The current implementation is aligned with the v1.3 runtime shape (monolithic `IRuntime` + `IToolRuntime` + `IContextAssembler` + `ICheckpoint`), which diverges from the v2.0 contracts and execution flow.
 
 The project goal is to make the implementation conform to the v2.0 architecture (no backwards-compatibility required) and ensure an end-to-end closed loop with complete interfaces. Non-core interfaces MAY be implemented as no-ops initially, but must exist and be correctly wired into the core loop.
 
@@ -23,5 +23,5 @@ The project goal is to make the implementation conform to the v2.0 architecture 
 - Affected specs: `core-runtime`, `interface-layer`, `protocol-adapters`, `example-agent` (v2 rewrites, **BREAKING**).
 - Affected code: `dare_framework/core/*`, `dare_framework/components/*`, `dare_framework/builder.py`, `examples/*`, `tests/*`.
 - References:
-  - `doc/design/Architecture_Final_Review_v2.0.md` (authoritative)
+  - `doc/design/archive/Architecture_Final_Review_v2.0.md` (authoritative)
   - `doc/guides/Development_Constraints.md` (implementation principles)

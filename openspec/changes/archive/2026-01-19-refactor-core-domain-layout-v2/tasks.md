@@ -16,7 +16,7 @@
   - and tests.
 - [x] 2.5 Fix risk/approval derivation to come from capability registry for both plan-driven and model-driven execution paths.
 - [x] 2.6 Add missing placeholder component packages/interfaces (e.g., prompt store, MCP client) with no-op defaults and clear docstrings.
-- [x] 2.7 Update docs (`openspec/project.md`, architecture overview docs, and `doc/design/Architecture_Final_Review_v2.1.md`) to match the new layout and updated contracts.
+- [x] 2.7 Update docs (`openspec/project.md`, architecture overview docs, and `doc/design/archive/Architecture_Final_Review_v2.1.md`) to match the new layout and updated contracts.
 
 ## 3. Validation
 - [x] 3.1 Run `openspec validate refactor-core-domain-layout-v2 --strict` and fix all issues.

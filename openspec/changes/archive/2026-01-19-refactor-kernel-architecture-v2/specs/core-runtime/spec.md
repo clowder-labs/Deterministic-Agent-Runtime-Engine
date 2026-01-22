@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 ### Requirement: Five-Layer Runtime Orchestration
-The runtime SHALL implement the five-layer loop (Session, Milestone, Plan, Execute, Tool) as an explicit Kernel contract via `ILoopOrchestrator`, and SHALL expose a tick-based run surface via `IRunLoop` as defined in `doc/design/Architecture_Final_Review_v2.0.md`.
+The runtime SHALL implement the five-layer loop (Session, Milestone, Plan, Execute, Tool) as an explicit Kernel contract via `ILoopOrchestrator`, and SHALL expose a tick-based run surface via `IRunLoop` as defined in `doc/design/archive/Architecture_Final_Review_v2.0.md`.
 
 #### Scenario: Execute loop returns to Milestone loop on plan tool
 - **WHEN** the Execute Loop encounters a Plan Tool / re-plan trigger
@@ -34,4 +34,3 @@ The Kernel SHALL append structured events to `IEventLog` for state transitions, 
 #### Scenario: Tool invocation is logged
 - **WHEN** `IToolGateway.invoke()` is called
 - **THEN** an event is appended to `IEventLog` including capability id, derived risk, decision, and outcome
-

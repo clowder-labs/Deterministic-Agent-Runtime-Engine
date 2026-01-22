@@ -70,7 +70,8 @@
 
 ## Source References
 
-- Architecture (current): [Architecture_Final_Review_v2.1.md](../design/Architecture_Final_Review_v2.1.md)
-- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
+- Architecture (authoritative): [Architecture_v4.0.md](../design/Architecture_v4.0.md)
+- Interfaces (authoritative): [Interfaces_v4.0.md](../design/Interfaces_v4.0.md)
+- Architecture (archived): [Architecture_Final_Review_v2.1.md](../design/archive/Architecture_Final_Review_v2.1.md)
 - Loop model (Envelope/DonePredicate): [Agent_Framework_Loop_Model_v2.2_Final.md](../design/archive/Agent_Framework_Loop_Model_v2.2_Final.md)
 - Industrial-grade security details (sandbox, WORM closures): [Industrial_Agent_Framework_v2.4_Verifiable_Closures.md](../design/archive/Industrial_Agent_Framework_v2.4_Verifiable_Closures.md)

@@ -2,13 +2,15 @@
 
 > 目的：用“实现视角”快速解释项目是怎么拼起来的，并给出一份可执行的优先级 TODO（带完成勾选）。
 >
-> 状态来源：代码目录结构 + `openspec list` / `openspec/changes/*/tasks.md`（最后更新：2026-01-18）。
+> 最终架构设计以 `doc/design/Architecture_v4.0.md` 为准；本文档仅描述“当前实现视角”，并尽量通过引用保持与 v4.0 一致。
+>
+> 状态来源：代码目录结构 + `openspec list` / `openspec/changes/*/tasks.md`（最后更新：2026-01-22）。
 
 ## 1. 架构现状（实现视角）
 
 ### 1.1 分层与目录职责
 
-- `dare_framework/core/`：Layer 0 Kernel（v2）核心 contract + 数据结构（以 `doc/design/Architecture_Final_Review_v2.1.md` 为准）
+- `dare_framework/core/`：当前实现中的 Kernel contracts + 数据结构（设计基线：`doc/design/Architecture_v4.0.md`；接口清单：`doc/design/Interfaces_v4.0.md`）
   - Kernel 默认实现按 domain package 归档（例如 `core/event/local_event_log.py`、`core/execution_control/file_execution_control.py`、`core/tool/default_tool_gateway.py`）
 - `dare_framework/contracts/`：共享 contracts/types（tools/model/evidence/risk/run_context 等；供 components/protocols/builder 复用）
 - `dare_framework/protocols/`：Layer 1 Protocol Adapters（如 MCP），负责能力发现/调用的协议适配
@@ -21,8 +23,8 @@
 ### 1.2 关键运行链路（从 build 到 RunResult）
 
 1. `AgentBuilder.build()` 组装 v2 Kernel 默认实现 + Layer 2 组件 + providers，返回 `Agent`（见 `dare_framework/builder.py`）
-2. `Agent.run(task, deps)` 将 `deps` 绑定到运行态上下文（不进入 Task 以保持可序列化审计），随后调用 `IRunLoop.run(Task)`
-3. `IRunLoop` 驱动 `ILoopOrchestrator` 跑五层循环骨架（Session/Milestone/Plan/Execute/Tool）
+2. `Agent.run(task, deps)` 将 `deps` 绑定到运行态上下文（不进入 Task 以保持可序列化审计），随后进入编排执行（当前实现：`IRunLoop.run(Task)`）
+3. 编排驱动五层循环骨架（Session/Milestone/Plan/Execute/Tool）（当前实现：`IRunLoop` → `ILoopOrchestrator`；v4.0 设计：编排归入 `agent` 域，详见 `doc/design/Architecture_v4.0.md`）
 4. **Plan Loop（信息隔离）**：`IContextManager.assemble(PLAN)` → `IPlanner.plan()` → `IValidator.validate_plan()`；失败会在预算内重试或交给 `IRemediator`（可先 no-op）
 5. **Execute/Tool Loop（副作用边界）**：所有外部动作都经由 `IToolGateway.invoke(capability_id, params, envelope)`；`ToolLoopRequest + Envelope + DonePredicate` 决定“何时完成/何时重试”
 6. **控制面与外化**：预算由 `IResourceManager` 约束，暂停/恢复/Checkpoint 由 `IExecutionControl` 统一处理，证据与决策写入 `IEventLog`（WORM，可重放）
@@ -66,6 +68,8 @@
 ## 3. 相关“权威设计”文档入口（阅读顺序）
 
 1. `openspec/project.md`（项目上下文/约束/架构总览）
-2. `doc/design/Architecture_Final_Review_v2.1.md`（架构终稿评审 v2.1：Kernel contracts）
-3. `doc/guides/Development_Constraints.md`（开发约束清单）
-4. `doc/design/Architecture_Final_Review_v1.3.md`（历史参考）
+2. `doc/design/Architecture_v4.0.md`（最终架构设计：权威）
+3. `doc/design/Interfaces_v4.0.md`（权威接口清单）
+4. `doc/design/DARE_v4.0_alignment.md`（对齐清单：claims → 证据/实现）
+5. `doc/guides/Development_Constraints.md`（开发约束清单）
+6. `doc/design/archive/Architecture_Final_Review_v2.1.md` / `doc/design/archive/Architecture_Final_Review_v1.3.md`（历史参考）

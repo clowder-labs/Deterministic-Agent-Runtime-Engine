@@ -1,6 +1,6 @@
 ## ADDED Requirements
 ### Requirement: Five-Layer Runtime Orchestration
-The runtime SHALL orchestrate the five-layer loop (Session, Milestone, Plan, Execute, Tool) as defined in `doc/design/Architecture_Final_Review_v1.3.md`, delegating to IPlanGenerator, IValidator, IPolicyEngine, IToolRuntime, and IRemediator.
+The runtime SHALL orchestrate the five-layer loop (Session, Milestone, Plan, Execute, Tool) as defined in `doc/design/archive/Architecture_Final_Review_v1.3.md`, delegating to IPlanGenerator, IValidator, IPolicyEngine, IToolRuntime, and IRemediator.
 
 #### Scenario: Execute encounters a Plan Tool
 - **WHEN** the Execute Loop encounters a tool classified as a Plan Tool

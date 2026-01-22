@@ -17,13 +17,13 @@ meta:
 
 sources:
   - id: doc-v2-proposal
-    path: doc/design/Architecture_v2.0_Proposal.md
+    path: doc/design/archive/Architecture_v2.0_Proposal.md
     why: "v2 core ideas: kernelization, context engineering, protocol adapters, long-task control planes"
   - id: doc-v2-final
-    path: doc/design/Architecture_Final_Review_v2.1.md
+    path: doc/design/archive/Architecture_Final_Review_v2.1.md
     why: "v2.1: five-layer loop, tool loop boundaries, derived security fields, control planes"
   - id: doc-arch-compare
-    path: doc/ARCHITECTURE_COMPARISON.md
+    path: doc/design/archive/ARCHITECTURE_COMPARISON.md
     why: "v3.3/v3.4: DDD domains, base context refactor, moving orchestration into agent"
   - id: doc-project
     path: openspec/project.md
