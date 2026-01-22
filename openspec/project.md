@@ -281,7 +281,8 @@ test(coverage): add deterministic coverage validator tests
 
 ## References
 
-- [架构终稿评审 v2.1](/doc/design/Architecture_Final_Review_v2.1.md)
-- [架构终稿评审 v1.3](/doc/design/Architecture_Final_Review_v1.3.md)
-- [接口层设计 v1.1](/doc/design/Interface_Layer_Design_v1.1_MCP_and_Builtin.md)
-- [Anthropic Engineering 博客](/doc/design/anthropic-engineering.md)
+- [架构终稿评审 v3.4（Final）](/doc/design/Architecture_Final_Review_v3.4.md)
+- [归档：架构终稿评审 v2.1](/doc/design/archive/2026-01-22-pre-v3.4/Architecture_Final_Review_v2.1.md)
+- [归档：架构终稿评审 v1.3](/doc/design/archive/2026-01-22-pre-v3.4/Architecture_Final_Review_v1.3.md)
+- [归档：接口层设计 v1.1](/doc/design/archive/2026-01-22-pre-v3.4/Interface_Layer_Design_v1.1_MCP_and_Builtin.md)
+- [归档：Anthropic Engineering](/doc/design/archive/2026-01-22-pre-v3.4/anthropic-engineering.md)

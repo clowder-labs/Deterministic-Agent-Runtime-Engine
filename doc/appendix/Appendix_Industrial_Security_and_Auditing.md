@@ -3,8 +3,10 @@
 ## Scope
 
 - Consolidates implementation-level practices for Event Log immutability (WORM) and verifiable batch sealing.
-- Provides audit verification procedures and integrity checks aligned with Architecture v2.0.
+- Provides audit verification procedures and integrity checks aligned with the project’s execution/auditing architecture (Reserved in v3.4).
 - Complements design principles with operational, system-grade guarantees.
+
+> 注：v3.4 最小集（`dare_framework3_4/`）当前未实现 EventLog/WORM/Envelope 等执行控制面；本文档内容作为 **后续版本的工程化落地参考**（Reserved）。
 
 ## Event Log Immutability (WORM)
 
@@ -36,11 +38,10 @@
 - Evidence: each step must emit evidence items; DonePredicate checks evidence and invariants (lint/compile/clean).
 - Audit Trails: persist input hash, output, duration, tool calls, and verification results in Event Log.
 
-## Alignment with Architecture v2.1
+## Alignment with Architecture v3.4（Reserved）
 
-- IEventLog: WORM + Hash Chain (Architecture_Final_Review_v2.1.md).
-- Approve(HITL): audited checkpoint before execution of sensitive plans.
-- Envelope/DonePredicate: explicit execution boundary and deterministic completion conditions.
+- v3.4 当前仅定义 Context-centric 最小集；审计闭环/执行控制面（EventLog/WORM/审批/Envelope/DonePredicate）属于 Reserved（见 `Architecture_Final_Review_v3.4.md` 的 Reserved 清单）。
+- 本文档提供的 WORM/Hash Chain/Merkle sealing/外部审计复验流程，可作为后续实现这些 Reserved 能力时的工程参考。
 
 ## Operational Recommendations
 
@@ -50,8 +51,9 @@
 
 ## Source References
 
-- Architecture (current): [Architecture_Final_Review_v2.1.md](../design/Architecture_Final_Review_v2.1.md)
-- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
+- Architecture (current): [Architecture_Final_Review_v3.4.md](../design/Architecture_Final_Review_v3.4.md)
+- Architecture (historical): [Architecture_Final_Review_v2.1.md](../design/archive/2026-01-22-pre-v3.4/Architecture_Final_Review_v2.1.md)
+- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/archive/2026-01-22-pre-v3.4/Architecture_Final_Review_v1.3.md)
 - Loop model (Envelope/DonePredicate): [Agent_Framework_Loop_Model_v2.2_Final.md](../design/archive/Agent_Framework_Loop_Model_v2.2_Final.md)
 - Industrial-grade verifiable closures (WORM, batch sealing, audit): [Industrial_Agent_Framework_v2.4_Verifiable_Closures.md](../design/archive/Industrial_Agent_Framework_v2.4_Verifiable_Closures.md)
 - Interface layer (historical, validator evolution): [Interface_Layer_Design_v1.md](../design/archive/Interface_Layer_Design_v1.md)

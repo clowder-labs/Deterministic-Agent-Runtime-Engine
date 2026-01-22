@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeAlias
+
+
+ToolDefinition: TypeAlias = dict[str, Any]
 
 
 @dataclass
@@ -30,4 +33,4 @@ class ToolResult:
     evidence: list[Evidence] = field(default_factory=list)
 
 
-__all__ = ["ToolResult", "Evidence"]
+__all__ = ["ToolDefinition", "ToolResult", "Evidence"]

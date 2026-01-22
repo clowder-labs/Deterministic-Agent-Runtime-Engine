@@ -3,7 +3,8 @@
 ## Purpose
 
 - Provide system-level enforcement guidance for secure code execution and immutable auditing.
-- Translate design abstractions (ToolGateway, Envelope, DonePredicate) into enforceable runtime controls.
+- Translate **reserved** design abstractions (ToolGateway/Envelope/DonePredicate 等) into enforceable runtime controls.  
+  注：这些抽象在 v3.4 最小集中尚未实现，属于后续版本的落地范围（见 v3.4 设计文档的 Reserved 清单）。
 
 ## Secure Sandbox Execution
 
@@ -70,7 +71,8 @@
 
 ## Source References
 
-- Architecture (current): [Architecture_Final_Review_v2.1.md](../design/Architecture_Final_Review_v2.1.md)
-- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/Architecture_Final_Review_v1.3.md)
+- Architecture (current): [Architecture_Final_Review_v3.4.md](../design/Architecture_Final_Review_v3.4.md)
+- Architecture (historical): [Architecture_Final_Review_v2.1.md](../design/archive/2026-01-22-pre-v3.4/Architecture_Final_Review_v2.1.md)
+- Architecture (historical): [Architecture_Final_Review_v1.3.md](../design/archive/2026-01-22-pre-v3.4/Architecture_Final_Review_v1.3.md)
 - Loop model (Envelope/DonePredicate): [Agent_Framework_Loop_Model_v2.2_Final.md](../design/archive/Agent_Framework_Loop_Model_v2.2_Final.md)
 - Industrial-grade security details (sandbox, WORM closures): [Industrial_Agent_Framework_v2.4_Verifiable_Closures.md](../design/archive/Industrial_Agent_Framework_v2.4_Verifiable_Closures.md)
