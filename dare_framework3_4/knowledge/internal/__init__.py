@@ -1,0 +1,1 @@
+"""Knowledge domain internal implementations."""

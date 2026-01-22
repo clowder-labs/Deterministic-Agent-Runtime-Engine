@@ -1,0 +1,1 @@
+"""Model domain internal implementations."""
