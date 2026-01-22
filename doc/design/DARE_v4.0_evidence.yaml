@@ -39,12 +39,6 @@ sources:
   - id: code-v3-agent-five-layer
     path: dare_framework3_3/agent/five_layer.py
     why: "five-layer loop implemented as an agent orchestration"
-  - id: code-v3-ctx-types
-    path: dare_framework3_3/context/types.py
-    why: "SessionContext/AssemblyRequest/RetrievalRequest/RuntimeStateView shapes"
-  - id: code-v3-ctx-impl
-    path: dare_framework3_3/context/internal/default_context_manager.py
-    why: "SessionContext.assembly; tool catalog injected as system message"
   - id: code-v3-plan-validator
     path: dare_framework3_3/plan/internal/gateway_validator.py
     why: "security fields derived from registry metadata; plan tool special-case"
@@ -55,6 +49,12 @@ sources:
   - id: code-v3_4-model-types
     path: dare_framework3_4/model/types.py
     why: "Prompt(messages+tools+metadata) shape (v3.4)"
+  - id: code-v3_4-tool-provider
+    path: dare_framework3_4/tool/component.py
+    why: "IToolProvider.list_tools provides structured tool defs for Context.assemble"
+  - id: code-v3_4-agent-simple-chat
+    path: dare_framework3_4/agent/simple_chat.py
+    why: "Context usage: stm_add -> assemble -> Prompt(messages+tools+metadata)"
 
   - id: code-v2-entrypoints
     path: dare_framework/builder/plugin_system/entrypoint_managers.py
@@ -139,8 +139,8 @@ claims:
 
   - id: C-CTX-002
     type: observed
-    statement: "SessionContext holds an AssemblyContext; tools are injected as a tool-catalog system message for auditability."
-    refs: [doc-arch-compare, code-v3-ctx-types, code-v3-ctx-impl]
+    statement: "Context holds retrieval refs (STM/LTM/Knowledge) + Budget and assembles messages/tools on-demand (AssembledContext); tools are provided as structured tool defs (list[dict]) via a tool provider."
+    refs: [doc-arch-compare, code-v3_4-context, code-v3_4-tool-provider, code-v3_4-agent-simple-chat]
     anchors:
       architecture:
         - "Architecture_v4.0.md#4.4 上下文工程（Context Engineering）"

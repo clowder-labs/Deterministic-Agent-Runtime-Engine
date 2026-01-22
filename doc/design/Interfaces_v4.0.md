@@ -74,97 +74,74 @@ class IAgentOrchestration(Protocol):
 
 ---
 
-## 2. context（上下文工程 + 预算）
+## 2. context（上下文工程）
+
+> 本节以 `dare_framework3_4` 的 context-centric 设计为准：Context 是核心实体，messages 在每次模型调用前 request-time 组装。
 
 ### 2.1 `context/types.py`（核心类型）
 
 建议最小集合：
-- `Message`, `ContextStage`, `RuntimeStateView`
-- `Budget`, `ResourceType`, `ResourceExhausted`
-- `SessionContext`, `AssembledContext`
-- `RetrievalRequest`, `AssemblyRequest`
-- `RetrievedContext`, `IndexStatus`, `ContextPacket`（可选）
+- `Message`：统一消息格式（role/content/name/metadata）
+- `Budget`：资源预算（max_* + used_*）
+- `AssembledContext`：单次模型调用的 request-time 上下文（messages + tools + metadata）
 
-### 2.2 `context/interfaces.py`（Kernel 稳定接口）
+### 2.2 `context/interfaces.py`（核心稳定契约）
 
 ```python
 from __future__ import annotations
 
-from typing import Protocol
-
-from dare_framework.context.types import (
-    AssembledContext,
-    Budget,
-    ContextPacket,
-    ContextStage,
-    IndexStatus,
-    RetrievedContext,
-    ResourceType,
-    RuntimeStateView,
-    SessionContext,
-)
+from typing import Any, Protocol
 
 
-class IContextManager(Protocol):
-    def open_session(self, task: "Task") -> SessionContext: ...
-
-    async def assemble(self, stage: ContextStage, state: RuntimeStateView) -> AssembledContext: ...
-
-    async def retrieve(self, query: str, *, budget: Budget) -> RetrievedContext: ...
-
-    async def ensure_index(self, scope: str) -> IndexStatus: ...
-
-    async def compress(self, context: AssembledContext, *, budget: Budget) -> AssembledContext: ...
-
-    async def route(self, packet: ContextPacket, target: str) -> None: ...
-
-
-class IResourceManager(Protocol):
-    def get_budget(self, scope: str) -> Budget: ...
-
-    def acquire(self, resource: ResourceType, amount: float, *, scope: str) -> None: ...
-
-    def record(self, resource: ResourceType, amount: float, *, scope: str) -> None: ...
-
-    def check_limit(self, *, scope: str) -> None: ...
-```
-
-### 2.3 `context/components.py`（可插拔上下文工程接口）
-
-```python
-from __future__ import annotations
-
-from typing import Protocol, runtime_checkable
-
-from dare_framework.context.types import AssemblyRequest, Message, RetrievalRequest
-
-
-@runtime_checkable
 class IRetrievalContext(Protocol):
-    async def get(self, req: RetrievalRequest) -> list[Message]: ...
+    """统一检索接口（STM/LTM/Knowledge 等实现该接口）。"""
 
-    async def recall(self, req: RetrievalRequest) -> list[Message]: ...
-
-    async def retrieve(self, req: RetrievalRequest) -> list[Message]: ...
-
-
-class RetrievalContextAliases:
-    async def recall(self, req: RetrievalRequest) -> list[Message]:
-        return await self.get(req)  # type: ignore[attr-defined]
-
-    async def retrieve(self, req: RetrievalRequest) -> list[Message]:
-        return await self.get(req)  # type: ignore[attr-defined]
+    def get(self, query: str = "", **kwargs: Any) -> list["Message"]:
+        ...
 
 
-@runtime_checkable
-class IAssemblyContext(Protocol):
-    async def assemble(self, req: AssemblyRequest) -> list[Message]: ...
+class IContext(Protocol):
+    """Context-centric 核心实体。
+
+    语义：
+      - messages 不作为长期字段存储，而是每次调用前 assemble() 临时组装。
+      - budget 与 external retrieval refs 挂在 Context 上，便于审计与复验。
+    """
+
+    # Fields
+    id: str
+    budget: "Budget"
+    config: dict[str, Any] | None
+
+    short_term_memory: IRetrievalContext
+    long_term_memory: IRetrievalContext | None
+    knowledge: IRetrievalContext | None
+
+    toollist: list[dict[str, Any]] | None
+
+    # Short-term memory methods
+    def stm_add(self, message: "Message") -> None: ...
+    def stm_get(self) -> list["Message"]: ...
+    def stm_clear(self) -> list["Message"]: ...
+
+    # Budget methods
+    def budget_use(self, resource: str, amount: float) -> None: ...
+    def budget_check(self) -> None: ...
+    def budget_remaining(self, resource: str) -> float: ...
+
+    # Tool listing (for Prompt.tools)
+    def listing_tools(self) -> list[dict[str, Any]]: ...
+
+    # Assembly (core)
+    def assemble(self, **options: Any) -> "AssembledContext": ...
+
+    # Config
+    def config_update(self, patch: dict[str, Any]) -> None: ...
 ```
 
 补充语义（v4 关键约束）：
-- `SessionContext` 应持有 session-scoped 的 `IAssemblyContext`。
-- tools 必须以 tool catalog system message 的形式注入（审计友好）。
-- 结构化 tool defs（给 function-calling adapter）必须可追溯到 `ToolGateway.list_capabilities()` 的可信 registry。
+- tool defs 的来源必须可追溯到 `IToolGateway.list_capabilities()` 的可信 registry（同源可信）。
+- （可选兼容）如果某模型需要“文本化的 tool catalog”，由 adapter/策略层渲染，不作为 Context 的必选语义。
 
 ---
 
@@ -218,6 +195,13 @@ from __future__ import annotations
 from typing import Any, Protocol, Sequence, runtime_checkable
 
 from dare_framework.tool.types import CapabilityDescriptor, RunContext, ToolResult
+
+
+@runtime_checkable
+class IToolProvider(Protocol):
+    """为 Context.assemble 提供结构化 tool defs（Prompt.tools）。"""
+
+    def list_tools(self) -> list[dict[str, Any]]: ...
 
 
 @runtime_checkable
@@ -289,7 +273,7 @@ v4.0 标准化模型输入为：
 
 规则：
 - tool defs 必须可追溯到 ToolGateway 的可信 registry。
-- tool catalog system message 为审计提供 reasoning surface。
+- （可选）对不支持结构化 tools 的模型：可由 adapter/策略层渲染 tool catalog system message（审计友好）。
 
 ### 5.2 Adapter 接口（`model/components.py`）
 

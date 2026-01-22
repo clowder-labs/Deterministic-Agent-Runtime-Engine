@@ -17,7 +17,7 @@
 | C-ARCH-001 | 五层循环是 DARE 的 canonical 编排骨架 | Architecture_v4.0.md#3.2 五层循环定义（结构骨架） | Interfaces_v4.0.md#4 |
 | C-ARCH-002 | 风险/审批等字段必须来自可信 registry（非 LLM 自报） | Architecture_v4.0.md#1.3 不变量（必须长期成立）；Architecture_v4.0.md#4.1 统一能力模型（Capability）与系统调用边界；Architecture_v4.0.md#4.2 安全边界（Trust / Policy / Sandbox） | Interfaces_v4.0.md#3, #6 |
 | C-CTX-001 | Context-centric：messages request-time 组装 | Architecture_v4.0.md#4.4 上下文工程（Context Engineering） | Interfaces_v4.0.md#2, #10 |
-| C-CTX-002 | SessionContext 持有 assembly；tool catalog 以 system message 注入 | Architecture_v4.0.md#4.4 上下文工程（Context Engineering） | Interfaces_v4.0.md#2 |
+| C-CTX-002 | Context 持有 STM/LTM/Knowledge 引用 + Budget；assemble 按需组装 messages/tools（结构化 tool defs） | Architecture_v4.0.md#4.4 上下文工程（Context Engineering） | Interfaces_v4.0.md#2 |
 | C-TOOL-001 | IToolGateway.invoke 是副作用单一边界 | Architecture_v4.0.md#1.3 不变量（必须长期成立）；Architecture_v4.0.md#4.1 统一能力模型（Capability）与系统调用边界 | Interfaces_v4.0.md#3 |
 | C-PROTOCOL-001 | protocol adapter 翻译成 canonical CapabilityDescriptor | Architecture_v4.0.md#2.1 架构总览图（v4.0）；Architecture_v4.0.md#4.1 统一能力模型（Capability）与系统调用边界 | Interfaces_v4.0.md#3 |
 | C-MODEL-001 | Prompt(messages + trusted tools + metadata) 标准化输入面 | Architecture_v4.0.md#4.4 上下文工程（Context Engineering）；Architecture_v4.0.md#5. 关键组件能力设计（按 domain 摘要） | Interfaces_v4.0.md#5 |

@@ -89,8 +89,7 @@ flowchart TB
 
   %% Kernel control planes
   subgraph L0["Layer 0: Kernel 控制面（稳定边界）"]
-    Ctx["IContextManager\n上下文负责人"]
-    Res["IResourceManager\n预算控制"]
+    Ctx["IContext\n上下文实体（context-centric）"]
     ToolGW["IToolGateway\n系统调用边界 + 可信 registry"]
     Sec["ISecurityBoundary\nTrust/Policy/Sandbox"]
     ExecCtl["IExecutionControl\nPause/Resume/HITL"]
@@ -106,7 +105,7 @@ flowchart TB
     Remediator["IRemediator"]
     Model["IModelAdapter"]
     Retrieval["IRetrievalContext\n(STM/LTM/Knowledge)"]
-    Assembly["IAssemblyContext"]
+    ToolProvider["IToolProvider\n(list_tools)"]
     Providers["ICapabilityProvider"]
     Tools["ITool / Skills"]
   end
@@ -133,13 +132,12 @@ flowchart TB
   FiveLayer --> ToolGW
   FiveLayer --> Sec
   FiveLayer --> ExecCtl
-  FiveLayer --> Res
   FiveLayer --> Log
   FiveLayer --> Hook
   FiveLayer --> Cfg
 
-  Ctx --> Assembly
   Ctx --> Retrieval
+  Ctx --> ToolProvider
 
   ToolGW --> Providers
   Providers --> Tools
@@ -198,7 +196,7 @@ sequenceDiagram
   autonumber
   participant Dev as Developer
   participant Agent as IAgent/FiveLayerAgent
-  participant Ctx as IContextManager
+  participant Ctx as IContext
   participant Plan as IPlanner
   participant Val as IValidator
   participant Sec as ISecurityBoundary
@@ -207,11 +205,11 @@ sequenceDiagram
   participant Log as IEventLog
 
   Dev->>Agent: run(task, deps)
-  Agent->>Ctx: open_session(task)
+  Agent->>Ctx: stm_add(user_message)
   Agent->>Log: append(session.start)
 
   loop Milestone Loop
-    Agent->>Ctx: assemble(PLAN)
+    Agent->>Ctx: assemble(stage="PLAN")
     Agent->>Plan: plan(assembled)
     Agent->>Val: validate_plan(proposed)
     alt plan invalid
@@ -227,7 +225,7 @@ sequenceDiagram
       end
 
       loop Execute/Tool
-        Agent->>Ctx: assemble(EXECUTE)
+        Agent->>Ctx: assemble(stage="EXECUTE")
         Agent->>Sec: verify_trust(params)
         Agent->>Sec: check_policy(invoke_capability, risk)
         Agent->>Log: append(policy.decision)
@@ -308,15 +306,14 @@ sequenceDiagram
 
 ### 4.4 上下文工程（Context Engineering）
 
-- v4 采用 v3.4 的 context-centric 方向：messages request-time 组装。
-- 四层映射：
-  - L2 Retrieval：统一 `IRetrievalContext.get(req)`（STM/LTM/Knowledge...）
-  - L3 Assembly：`IAssemblyContext.assemble(req)` 输出 `list[Message]`
-  - L4 Orchestration：跨窗口 handoff/route/隔离（agent/session 层）
-
-**tools 注入规则**：
-- tools 必须通过 tool catalog system message 注入（审计友好）。
-- 结构化 tool schema 也可提供给 model adapter，但必须可追溯到 `ToolGateway.list_capabilities()`（同源可信）。
+- v4 的 context 设计以 `dare_framework3_4` 为准：**Context 是核心实体（context-centric）**，`messages` 不作为长期字段，而是在每次模型调用前通过 `Context.assemble(**options)` 临时组装为 `AssembledContext(messages, tools, metadata)`。
+- Retrieval 统一抽象为 `IRetrievalContext.get(query, **kwargs) -> list[Message]`：
+  - STM/LTM/Knowledge 都实现该接口，并以引用形式注入到 Context（`short_term_memory / long_term_memory / knowledge`）。
+- tools 由 Context 通过注入的 `IToolProvider.list_tools()` 提供 **结构化 tool defs**（`list[dict]`），供 model adapter 做 function-calling；其来源必须可追溯到 `IToolGateway.list_capabilities()` 的可信 registry（同源可信）。
+- 审计点建议：
+  - `AssembledContext.metadata` 至少包含 `context_id`，并可扩展记录 attribution/budget 等信息。
+  - EventLog 记录当次模型调用“使用的 tools 快照（或 capability 列表 hash）”，以支撑复验。
+- （可选兼容）对不支持结构化 tools 的模型：可在 adapter/策略层把 tools 渲染成 tool-catalog system message；但这不是 Context 侧的必选语义。
 
 ### 4.5 审计与可重放（EventLog / Checkpoint / Replay）
 
@@ -367,7 +364,7 @@ sequenceDiagram
 | Domain | 主要职责（架构视角） | 核心稳定接口（示例） | 详情章节（接口全集） |
 |---|---|---|---|
 | agent | 编排策略承载域；对外最小运行面；支持多编排实现 | `IAgent.run(...)`；（可选）`IAgentOrchestration.execute(...)` | `doc/design/Interfaces_v4.0.md` 的 `## 1. agent` |
-| context | 上下文负责人（组装/检索/压缩/路由）；预算归因与控制 | `IContextManager` / `IResourceManager`；（扩展位）`IRetrievalContext` / `IAssemblyContext` | `doc/design/Interfaces_v4.0.md` 的 `## 2. context（上下文工程 + 预算）` |
+| context | 上下文核心实体（context-centric）；持有 STM/LTM/Knowledge 引用与 Budget；每次调用前组装 AssembledContext | `IContext` / `IRetrievalContext` / `Budget`；（依赖）`IToolProvider.list_tools()` | `doc/design/Interfaces_v4.0.md` 的 `## 2. context（上下文工程）` |
 | tool | 能力目录（registry）与系统调用边界；HITL 控制面；providers/adapters 统一接入 | `IToolGateway` / `IExecutionControl`；（扩展位）`ICapabilityProvider` / `ITool` / `IProtocolAdapter` | `doc/design/Interfaces_v4.0.md` 的 `## 3. tool（能力模型 + 系统调用边界）` |
 | plan | 任务/计划/结果模型；plan 生成/校验/补救；Proposed vs Validated | `IPlanner` / `IValidator` / `IRemediator`；`Task/RunResult/Envelope` | `doc/design/Interfaces_v4.0.md` 的 `## 4. plan（任务、计划、结果）` |
 | model | 模型调用适配；统一 Prompt 输入面 | `IModelAdapter`；`Prompt(messages + tools + metadata)` | `doc/design/Interfaces_v4.0.md` 的 `## 5. model（LLM 调用适配）` |
@@ -381,7 +378,7 @@ sequenceDiagram
 > 上表提供“定位信息”；下方仅保留每个 domain 的一句话架构职责（避免重复接口细节）。
 
 - **agent**：编排策略（多实现），对外暴露最小运行面 `IAgent.run`。
-- **context**：上下文负责人（组装/检索/压缩/路由）与预算控制。
+- **context**：Context 核心实体（context-centric），持有检索引用与 Budget，`assemble()` 产出单次调用所需上下文。
 - **tool**：系统调用边界（invoke）与能力目录（registry），统一 providers/adapters 接入与 Tool Loop 执行语义。
 - **plan**：任务/计划/结果模型与规划闭环（planner/validator/remediator）。
 - **model**：模型调用适配与统一 Prompt 输入面。
@@ -406,8 +403,9 @@ class IAgent(Protocol):
     async def run(self, task: "str | Task", deps: Any | None = None) -> "RunResult": ...
 
 
-class IContextManager(Protocol):
-    async def assemble(self, stage: "ContextStage", state: "RuntimeStateView") -> "AssembledContext": ...
+class IContext(Protocol):
+    def stm_add(self, message: "Message") -> None: ...
+    def assemble(self, **options) -> "AssembledContext": ...
 
 
 class IToolGateway(Protocol):
