@@ -1,7 +1,4 @@
-"""Kernel event domain (v2)."""
+"""Kernel event domain (v2).
 
-from .protocols import IEventLog
-from .local_event_log import LocalEventLog
-from .models import Event
-
-__all__ = ["IEventLog", "LocalEventLog", "Event"]
+Use dedicated modules for protocols and implementations to avoid import cycles.
+"""

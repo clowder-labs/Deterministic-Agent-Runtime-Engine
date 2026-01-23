@@ -1,6 +1,4 @@
-"""Kernel orchestrator domain (v2)."""
+"""Kernel orchestrator domain (v2).
 
-from .protocols import ILoopOrchestrator
-from .default_orchestrator import DefaultLoopOrchestrator
-
-__all__ = ["ILoopOrchestrator", "DefaultLoopOrchestrator"]
+Use dedicated modules for protocols and implementations to avoid import cycles.
+"""

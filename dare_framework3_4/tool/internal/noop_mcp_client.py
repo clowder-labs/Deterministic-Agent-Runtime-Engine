@@ -1,0 +1,42 @@
+"""No-op MCP client implementation."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dare_framework3_4.tool.component import IMCPClient
+from dare_framework3_4.tool.types import RunContext, ToolDefinition, ToolResult
+
+
+class NoOpMCPClient(IMCPClient):
+    """A no-op MCP client used as a safe placeholder."""
+
+    @property
+    def name(self) -> str:
+        return "noop"
+
+    @property
+    def transport(self) -> str:
+        return "noop"
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def list_tools(self) -> list[ToolDefinition]:
+        return []
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        context: RunContext[Any],
+    ) -> ToolResult:
+        return ToolResult(
+            success=False,
+            output={},
+            error="noop mcp client",
+            evidence=[],
+        )
