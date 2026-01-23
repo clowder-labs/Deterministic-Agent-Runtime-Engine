@@ -6,11 +6,12 @@ contracts (e.g., orchestration strategies).
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from dare_framework.plan.types import RunResult, Task
 
 
+@runtime_checkable
 class IAgentOrchestration(Protocol):
     """A pluggable orchestration strategy (five-layer loop is only one option)."""
 

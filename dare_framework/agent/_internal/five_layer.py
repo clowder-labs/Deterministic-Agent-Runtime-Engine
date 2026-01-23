@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from dare_framework.agent._internal.base import BaseAgent
 from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
+from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, Prompt
 from dare_framework.plan.types import (
@@ -39,6 +40,7 @@ class MilestoneResult:
     errors: list[str] = field(default_factory=list)
     verify_result: VerifyResult | None = None
 
+
 if TYPE_CHECKING:
     from dare_framework.context import Budget
     from dare_framework.context.kernel import IContext
@@ -53,8 +55,14 @@ if TYPE_CHECKING:
 class FiveLayerAgent(BaseAgent):
     """Five-layer loop agent implementation.
 
-    This agent supports the full five-layer orchestration loop while
-    allowing graceful degradation when optional components are not provided.
+    This agent implements the IAgentOrchestration interface and supports
+    the full five-layer orchestration loop while allowing graceful
+    degradation when optional components are not provided.
+
+    Architecture:
+        - Implements IAgentOrchestration.execute() as the core entry point
+        - Overrides BaseAgent.run() to delegate to execute()
+        - Preserves _execute() for BaseAgent compatibility
 
     Example:
         # Full five-layer mode
@@ -169,22 +177,62 @@ class FiveLayerAgent(BaseAgent):
         """Check if agent has full five-layer capabilities."""
         return self._planner is not None
 
-    async def _execute(self, task: str) -> str:
+    # =========================================================================
+    # IAgentOrchestration Implementation
+    # =========================================================================
+
+    async def execute(self, task: Task, deps: Any | None = None) -> RunResult:
         """Execute task using the five-layer loop.
 
+        This is the primary entry point implementing IAgentOrchestration.
         If planner is provided, runs full five-layer loop.
         Otherwise, falls back to simple execute loop (ReAct-style).
+
+        Args:
+            task: Task to execute.
+            deps: Optional dependencies (unused, for interface compatibility).
+
+        Returns:
+            RunResult with execution outcome.
         """
-        # Create Task from description
-        task_obj = Task(
-            description=task,
-            task_id=uuid4().hex[:8],
-        )
+        return await self._run_session_loop(task)
 
-        # Run session loop
-        result = await self._run_session_loop(task_obj)
+    # =========================================================================
+    # IAgent.run() Override
+    # =========================================================================
 
-        # Return output as string
+    async def run(self, task: str | Task, deps: Any | None = None) -> RunResult:
+        """Run a task and return a structured RunResult.
+
+        Overrides BaseAgent.run() to delegate to execute().
+
+        Args:
+            task: Task description string or Task object.
+            deps: Optional dependencies.
+
+        Returns:
+            RunResult with execution outcome.
+        """
+        if isinstance(task, Task):
+            task_obj = task
+        else:
+            task_obj = Task(
+                description=task,
+                task_id=uuid4().hex[:8],
+            )
+        return await self.execute(task_obj, deps)
+
+    # =========================================================================
+    # BaseAgent Compatibility
+    # =========================================================================
+
+    async def _execute(self, task: str) -> str:
+        """Execute task - BaseAgent compatibility layer.
+
+        This method is preserved for compatibility with BaseAgent.
+        Internally delegates to execute() and converts result to string.
+        """
+        result = await self.run(task)
         if result.output is not None:
             return str(result.output)
         if result.errors:

@@ -158,6 +158,21 @@ class TestFiveLayerAgentInit:
         assert agent._max_milestone_attempts == 5
         assert agent._max_plan_attempts == 3
 
+    def test_implements_orchestration_interface(self) -> None:
+        """Agent implements IAgentOrchestration interface."""
+        from dare_framework3_4.agent.interfaces import IAgentOrchestration
+
+        model = MockModelAdapter()
+        agent = FiveLayerAgent(name="test-agent", model=model)
+
+        # Verify execute method exists with correct signature
+        assert hasattr(agent, "execute")
+        assert callable(agent.execute)
+
+        # Verify it's structurally compatible with IAgentOrchestration
+        # (Python's Protocol uses structural subtyping)
+        assert isinstance(agent, IAgentOrchestration)
+
 
 # =============================================================================
 # Tests: Execution
