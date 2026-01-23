@@ -1,132 +1,16 @@
-"""Context domain - v3.4.1 architecture.
-
-This module defines:
-- IRetrievalContext: Unified retrieval interface (inherited by memory/knowledge)
-- IContext: Context interface
-- Context: Context implementation
-- Types: Message, Budget, AssembledContext
-"""
+"""Default context implementation (v3.4; context-centric)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 import uuid
 
 if TYPE_CHECKING:
-    from dare_framework3_4.tool.component import IToolProvider
+    from dare_framework3_4.tool.interfaces import IToolProvider
 
-
-# ============================================================
-# Types
-# ============================================================
-
-@dataclass
-class Message:
-    """Unified message format.
-
-    Attributes:
-        role: Message role (system / user / assistant / tool).
-        content: Message content.
-        name: Tool name (used when role=tool).
-        metadata: Extension fields for tracing, attribution, etc.
-    """
-
-    role: str
-    content: str
-    name: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class Budget:
-    """Resource budget = limits + usage tracking.
-
-    Attributes:
-        max_*: Resource limits (None means unlimited).
-        used_*: Current usage counters.
-    """
-
-    # Limits
-    max_tokens: int | None = None
-    max_cost: float | None = None
-    max_time_seconds: int | None = None
-    max_tool_calls: int | None = None
-
-    # Usage tracking
-    used_tokens: float = 0.0
-    used_cost: float = 0.0
-    used_time_seconds: float = 0.0
-    used_tool_calls: int = 0
-
-
-@dataclass
-class AssembledContext:
-    """Request-time context for a single LLM call.
-
-    Constructed by Context.assemble() before each LLM invocation.
-
-    Attributes:
-        messages: Message sequence to send to the model.
-        tools: Tool definitions (provided by IToolProvider).
-        metadata: Debug info, attribution, budget consumption notes.
-    """
-
-    messages: list[Message]
-    tools: list[dict[str, Any]] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-# ============================================================
-# Interfaces
-# ============================================================
-
-class IRetrievalContext(Protocol):
-    """Unified retrieval interface.
-
-    Inherited by IShortTermMemory, ILongTermMemory, IKnowledge.
-    All memory/knowledge implementations must implement this interface.
-    """
-
-    def get(self, query: str = "", **kwargs) -> list[Message]:
-        """Retrieve relevant messages based on query."""
-        ...
-
-
-class IContext(Protocol):
-    """Context interface - core context entity.
-
-    As defined in v3.4.1 architecture.
-    Messages are not stored as a field, but assembled on-demand.
-    """
-
-    # Fields
-    id: str
-    short_term_memory: IRetrievalContext
-    budget: Budget
-    long_term_memory: IRetrievalContext | None
-    knowledge: IRetrievalContext | None
-    toollist: list[dict[str, Any]] | None
-    config: dict[str, Any] | None
-
-    # Short-term memory methods
-    def stm_add(self, message: Message) -> None: ...
-    def stm_get(self) -> list[Message]: ...
-    def stm_clear(self) -> list[Message]: ...
-
-    # Budget methods
-    def budget_use(self, resource: str, amount: float) -> None: ...
-    def budget_check(self) -> None: ...
-    def budget_remaining(self, resource: str) -> float: ...
-
-    # Tool methods
-    def listing_tools(self) -> list[dict[str, Any]]: ...
-
-    # Assembly methods
-    def assemble(self, **options) -> AssembledContext: ...
-
-    # Config methods
-    def config_update(self, patch: dict[str, Any]) -> None: ...
+from dare_framework3_4.context.kernel import IContext, IRetrievalContext
+from dare_framework3_4.context.types import AssembledContext, Budget, Message
 
 
 # ============================================================
@@ -167,13 +51,14 @@ class Context(IContext):
     def __post_init__(self) -> None:
         """Initialize default short-term memory if not provided."""
         if self.short_term_memory is None:
-            from dare_framework3_4.memory.internal.in_memory_stm import InMemorySTM
+            from dare_framework3_4.memory._internal.in_memory_stm import InMemorySTM
             self.short_term_memory = InMemorySTM()
 
     # ========== Short-term Memory Methods ==========
 
     def stm_add(self, message: Message) -> None:
         """Add a message to short-term memory."""
+        # STM is a retrieval context with mutation methods (`add`, `clear`).
         self.short_term_memory.add(message)  # type: ignore
 
     def stm_get(self) -> list[Message]:

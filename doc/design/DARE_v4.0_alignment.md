@@ -27,7 +27,7 @@
 | C-EVENT-001 | EventLog：WORM + query/replay（可选 hash-chain） | Architecture_v4.0.md#4.5 审计与可重放（EventLog / Checkpoint / Replay） | Interfaces_v4.0.md#7 |
 | C-HOOK-001 | ExtensionPoint：hooks 默认 best-effort | Architecture_v4.0.md#4.8 Hooks 扩展点（ExtensionPoint） | Interfaces_v4.0.md#8 |
 | C-PLUG-001 | entrypoints 属于 Layer 3 managers（确定性） | Architecture_v4.0.md#2.2 分层说明（v4 关键决策）；Architecture_v4.0.md#4.6 确定性装配与插件系统（Managers） | Interfaces_v4.0.md#9 |
-| C-DOMAIN-001 | domain 文件约定：types/interfaces/components/internal | Architecture_v4.0.md#2.3 分域（DDD）与文件约定（硬规则） | Interfaces_v4.0.md#0 |
+| C-DOMAIN-001 | domain 文件约定：types/kernel/interfaces/_internal | Architecture_v4.0.md#2.3 分域（DDD）与文件约定（硬规则） | Interfaces_v4.0.md#0 |
 | C-PKG-001 | 目标包名 dare_framework；后续收敛并清理多版本目录 | Architecture_v4.0.md#1.1 定位；Architecture_v4.0.md#6. 文档驱动收敛与清理计划（摘要） | Interfaces_v4.0.md#0 |
 
 ---

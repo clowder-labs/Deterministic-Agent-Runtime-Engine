@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from dare_framework3_4.agent.base import BaseAgent
+from dare_framework3_4.agent._internal.base import BaseAgent
 from dare_framework3_4.context import Context, Message
 from dare_framework3_4.model import IModelAdapter, Prompt
 from dare_framework3_4.tool import IToolProvider

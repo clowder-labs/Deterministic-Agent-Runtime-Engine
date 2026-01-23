@@ -44,16 +44,16 @@ sources:
     why: "security fields derived from registry metadata; plan tool special-case"
 
   - id: code-v3_4-context
-    path: dare_framework3_4/context/context.py
+    path: dare_framework3_4/context/_internal/context.py
     why: "context-centric direction: request-time assembly; retrieval references on context"
   - id: code-v3_4-model-types
     path: dare_framework3_4/model/types.py
     why: "Prompt(messages+tools+metadata) shape (v3.4)"
   - id: code-v3_4-tool-provider
-    path: dare_framework3_4/tool/component.py
+    path: dare_framework3_4/tool/interfaces.py
     why: "IToolProvider.list_tools provides structured tool defs for Context.assemble"
   - id: code-v3_4-agent-simple-chat
-    path: dare_framework3_4/agent/simple_chat.py
+    path: dare_framework3_4/agent/_internal/simple_chat.py
     why: "Context usage: stm_add -> assemble -> Prompt(messages+tools+metadata)"
 
   - id: code-v2-entrypoints
@@ -160,7 +160,7 @@ claims:
 
   - id: C-DOMAIN-001
     type: design_decision
-    statement: "v4.0 uses domain layout: types.py + interfaces.py + __init__.py per domain; pluggable/composed interfaces in components.py; default implementations in _internal/."
+    statement: "v4.0 uses domain layout: types.py + kernel.py + __init__.py per domain; pluggable/composed interfaces in interfaces.py; default implementations in _internal/."
     rationale: "Aligns with DDD boundaries, uses Python underscore convention to mark non-public implementation, and enables convergence to a single dare_framework package layout."
     refs: [doc-arch-compare]
     anchors:

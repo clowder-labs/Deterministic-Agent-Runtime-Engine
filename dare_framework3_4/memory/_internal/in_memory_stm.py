@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from dare_framework3_4.memory.component import IShortTermMemory
+from dare_framework3_4.memory.kernel import IShortTermMemory
 
 if TYPE_CHECKING:
     from dare_framework3_4.context import Message

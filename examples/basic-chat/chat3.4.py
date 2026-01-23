@@ -87,12 +87,13 @@ async def main() -> None:
 
         logger.info("running prompt", extra={"prompt": _preview(prompt)})
         try:
-            content = await agent.run(prompt)
+            result = await agent.run(prompt)
         except Exception as exc:  # noqa: BLE001
             logger.exception("agent run failed")
             print(f"[error] model call failed: {exc}", file=sys.stderr, flush=True)
             continue
 
+        content = str(result.output or "")
         if not content:
             logger.warning("no content returned from agent")
             print("No output returned.", flush=True)

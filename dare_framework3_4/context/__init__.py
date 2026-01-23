@@ -1,25 +1,14 @@
-"""Context domain - v3.4.1 architecture."""
+"""context domain facade."""
 
-from dare_framework3_4.context.context import (
-    # Types
-    Message,
-    Budget,
-    AssembledContext,
-    # Interfaces
-    IRetrievalContext,
-    IContext,
-    # Implementation
-    Context,
-)
+from dare_framework3_4.context.kernel import IContext, IRetrievalContext
+from dare_framework3_4.context.types import AssembledContext, Budget, Message
+from dare_framework3_4.context._internal.context import Context
 
 __all__ = [
-    # Types
-    "Message",
-    "Budget",
-    "AssembledContext",
-    # Interfaces
-    "IRetrievalContext",
-    "IContext",
-    # Implementation
     "Context",
+    "AssembledContext",
+    "Budget",
+    "IContext",
+    "IRetrievalContext",
+    "Message",
 ]

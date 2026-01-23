@@ -1,4 +1,4 @@
-"""Knowledge domain component interfaces.
+"""knowledge domain interfaces.
 
 Defines IKnowledge for knowledge retrieval (RAG, GraphRAG, etc.).
 IKnowledge inherits from IRetrievalContext (defined in context domain).

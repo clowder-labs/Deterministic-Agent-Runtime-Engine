@@ -15,22 +15,22 @@
 ```
 dare_framework/<domain>/
   types.py
-  interfaces.py
-  components.py      # 可选（可插拔/组合接口位）
+  kernel.py          # Kernel contracts（稳定）
+  interfaces.py      # 可选（可插拔/组合接口位）
   __init__.py
   _internal/         # 可选（默认实现；不稳定；不作为公共 API）
 ```
 
 推荐依赖规则：
-- `types.py` MUST NOT 依赖 `components.py` 或 `_internal/`
-- `interfaces.py` SHOULD 只依赖 `types.py`
-- `components.py` MAY 依赖其他域的 `interfaces.py`（表达组合）
+- `types.py` MUST NOT 依赖 `interfaces.py` 或 `_internal/`
+- `kernel.py` SHOULD 只依赖 `types.py`
+- `interfaces.py` MAY 依赖其他域的 `kernel.py`（表达组合）
 
 ---
 
 ## 1. agent
 
-### 1.1 `agent/interfaces.py`
+### 1.1 `agent/kernel.py`
 
 ```python
 from __future__ import annotations
@@ -85,7 +85,7 @@ class IAgentOrchestration(Protocol):
 - `Budget`：资源预算（max_* + used_*）
 - `AssembledContext`：单次模型调用的 request-time 上下文（messages + tools + metadata）
 
-### 2.2 `context/interfaces.py`（核心稳定契约）
+### 2.2 `context/kernel.py`（核心稳定契约）
 
 ```python
 from __future__ import annotations
@@ -152,7 +152,7 @@ class IContext(Protocol):
 `CapabilityDescriptor` 描述任意可调用能力：
 - TOOL / AGENT / UI
 
-### 3.2 `tool/interfaces.py`（稳定边界）
+### 3.2 `tool/kernel.py`（稳定边界）
 
 ```python
 from __future__ import annotations
@@ -187,7 +187,7 @@ class IExecutionControl(Protocol):
     async def wait_for_human(self, checkpoint_id: str, reason: str) -> None: ...
 ```
 
-### 3.3 `tool/components.py`（providers / adapters / tools）
+### 3.3 `tool/interfaces.py`（providers / adapters / tools）
 
 ```python
 from __future__ import annotations
@@ -255,7 +255,7 @@ class IProtocolAdapter(Protocol):
 
 并且必须满足：Plan Attempt Isolation（失败计划不得污染外层状态）。
 
-### 4.2 策略接口（`plan/components.py`）
+### 4.2 策略接口（`plan/interfaces.py`）
 
 - `IPlanner.plan(ctx) -> ProposedPlan`
 - `IValidator.validate_plan(plan, ctx) -> ValidatedPlan`
@@ -275,7 +275,7 @@ v4.0 标准化模型输入为：
 - tool defs 必须可追溯到 ToolGateway 的可信 registry。
 - （可选）对不支持结构化 tools 的模型：可由 adapter/策略层渲染 tool catalog system message（审计友好）。
 
-### 5.2 Adapter 接口（`model/components.py`）
+### 5.2 Adapter 接口（`model/interfaces.py`）
 
 - `IModelAdapter.generate(prompt, options=None) -> ModelResponse`
 
@@ -283,7 +283,7 @@ v4.0 标准化模型输入为：
 
 ## 6. security（Trust + Policy + Sandbox）
 
-`security/interfaces.py`：
+`security/kernel.py`：
 - `verify_trust`：派生可信输入（含风险字段）
 - `check_policy`：ALLOW/DENY/APPROVE_REQUIRED
 - `execute_safe`：沙箱执行包装
@@ -292,7 +292,7 @@ v4.0 标准化模型输入为：
 
 ## 7. event（审计与重放）
 
-`event/interfaces.py`：
+`event/kernel.py`：
 - append-only WORM
 - query + replay
 - 可选 hash-chain verify
@@ -301,7 +301,7 @@ v4.0 标准化模型输入为：
 
 ## 8. hook（生命周期扩展点）
 
-`hook/interfaces.py`：
+`hook/kernel.py`：
 - `IExtensionPoint.register_hook(...)`
 - `IExtensionPoint.emit(...)`
 
@@ -311,7 +311,7 @@ v4.0 标准化模型输入为：
 
 ## 9. config（配置与 managers）
 
-- `IConfigProvider`：提供 effective config + reload
+- `IConfigProvider`：提供 effective config + reload（位于 `config/kernel.py`）
 - managers（Layer 3）负责确定性装配：
   - discovery（entrypoints）
   - selection（single-select vs multi-load）
@@ -326,7 +326,7 @@ Kernel 不依赖 entrypoints discovery。
 ## 10. memory / knowledge（统一检索面 + 组合接口位）
 
 - `memory` 与 `knowledge` 应实现 `IRetrievalContext`。
-- 当某 domain 既要 retrieval 又要 callable capability 时，使用 `components.py` 做组合接口。
+- 当某 domain 既要 retrieval 又要 callable capability 时，使用 `interfaces.py` 做组合接口。
 
 例：
 - `IKnowledgeTool = IKnowledge + ITool`

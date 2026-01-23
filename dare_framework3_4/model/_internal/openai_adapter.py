@@ -6,7 +6,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from dare_framework3_4.model.component import IModelAdapter
+from dare_framework3_4.model.interfaces import IModelAdapter
 from dare_framework3_4.model.types import ModelResponse, Prompt, GenerateOptions
 
 if TYPE_CHECKING:

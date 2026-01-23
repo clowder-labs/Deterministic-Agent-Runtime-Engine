@@ -171,17 +171,17 @@ flowchart TB
 
 每个 domain 至少包含：
 - `types.py`：对外模型/枚举（相对稳定）
-- `interfaces.py`：该域最核心稳定接口（Kernel contract）
+- `kernel.py`：该域最核心稳定接口（Kernel contract）
 - `__init__.py`：export facade
 
 可选：
-- `components.py`：可插拔接口位、跨域组合接口位（例如 `IKnowledgeTool = IKnowledge + ITool`）
+- `interfaces.py`：可插拔接口位、跨域组合接口位（例如 `IKnowledgeTool = IKnowledge + ITool`）
 - `_internal/`：默认实现（不稳定；不作为公共 API）
 
 推荐依赖规则：
-- `types.py` 不依赖 `components.py/_internal/`
-- `interfaces.py` 尽量只依赖 `types.py`
-- `components.py` 可依赖其他域 `interfaces.py` 表达组合
+- `types.py` 不依赖 `interfaces.py/_internal/`
+- `kernel.py` 尽量只依赖 `types.py`
+- `interfaces.py` 可依赖其他域 `kernel.py` 表达组合
 
 ---
 

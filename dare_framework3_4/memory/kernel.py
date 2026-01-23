@@ -1,4 +1,4 @@
-"""Memory domain component interfaces.
+"""memory domain interfaces.
 
 Defines IShortTermMemory and ILongTermMemory.
 Both inherit from IRetrievalContext (defined in context domain).
