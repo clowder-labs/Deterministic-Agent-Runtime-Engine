@@ -3,3 +3,7 @@
 __pycache__/
 .DS_Store
 .idea/
+
+# Allow fixture configs under tests
+!tests/unit/fixtures/**/.dare/
+!tests/unit/fixtures/**/.dare/config.json

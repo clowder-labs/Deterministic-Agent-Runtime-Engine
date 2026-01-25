@@ -1,0 +1,20 @@
+{
+  "llm": {
+    "model": "workspace-fixture-model"
+  },
+  "allowmcps": [
+    "fixture_mcp_workspace"
+  ],
+  "tools": {
+    "fixture_tool": {
+      "timeout": 9
+    }
+  },
+  "components": {
+    "hook": {
+      "stdout": {
+        "level": "debug"
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "llm": {
+    "model": "user-fixture-model"
+  },
+  "allowtools": [
+    "fixture_tool"
+  ],
+  "allowmcps": [
+    "fixture_mcp_user"
+  ],
+  "mcp": {
+    "fixture_user": {
+      "endpoint": "http://fixture-user-mcp"
+    }
+  }
+}
