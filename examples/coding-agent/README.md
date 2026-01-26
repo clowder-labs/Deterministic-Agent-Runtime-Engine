@@ -37,13 +37,13 @@ coding-agent/
 
 ```bash
 cd examples/coding-agent
-PYTHONPATH=../.. python agent.py
+python agent.py
 ```
 
 或在项目根目录运行：
 
 ```bash
-PYTHONPATH=. python examples/coding-agent/agent.py
+python examples/coding-agent/agent.py
 ```
 
 ## 核心对齐点
@@ -141,6 +141,8 @@ result = await agent.run("搜索 TODO 并总结")
 print(result.success)
 print(result.output)
 ```
+
+> 提示：`agent.py` / `real_model_agent.py` 会自动把 `archive/frameworks/` 加入 `sys.path`，以确保导入到归档框架版本的 `dare_framework`。
 
 ## 可选参数说明
 

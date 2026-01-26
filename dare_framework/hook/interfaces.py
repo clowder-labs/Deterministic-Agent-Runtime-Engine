@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
+
+from dare_framework.config.types import Config
+from dare_framework.hook.kernel import IHook
 
 
 class IHookManager(Protocol):
     """Loads hook plugins (multi-load)."""
 
-    def load_hooks(self, *, config: Any | None = None) -> list[object]: ...
+    def load_hooks(self, *, config: Config | None = None) -> list[IHook]: ...
 
 
 __all__ = ["IHookManager"]

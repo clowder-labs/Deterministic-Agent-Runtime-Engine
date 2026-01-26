@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from dare_framework.context import Budget
     from dare_framework.context.kernel import IContext
     from dare_framework.event.kernel import IEventLog
-    from dare_framework.hook.kernel import IExtensionPoint
+    from dare_framework.hook.kernel import IHook
     from dare_framework.memory import ILongTermMemory, IShortTermMemory
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
     from dare_framework.tool import IToolProvider
@@ -100,7 +100,7 @@ class FiveLayerAgent(BaseAgent):
         remediator: "IRemediator | None" = None,
         # Observability components (optional)
         event_log: "IEventLog | None" = None,
-        hooks: "IExtensionPoint | None" = None,
+        hooks: "list[IHook] | None" = None,
         # Configuration
         budget: "Budget | None" = None,
         max_milestone_attempts: int = 3,
@@ -122,7 +122,7 @@ class FiveLayerAgent(BaseAgent):
             validator: Plan/milestone validator (optional).
             remediator: Failure remediator (optional).
             event_log: Event log for audit (optional).
-            hooks: Extension point for lifecycle hooks (optional).
+            hooks: Hook implementations invoked at lifecycle phases (optional).
             budget: Resource budget (optional).
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
@@ -157,7 +157,7 @@ class FiveLayerAgent(BaseAgent):
 
         # Observability
         self._event_log = event_log
-        self._hooks = hooks
+        self._hooks = list(hooks) if hooks is not None else []
 
         # Configuration
         self._max_milestone_attempts = max_milestone_attempts
@@ -677,10 +677,10 @@ class FiveLayerAgent(BaseAgent):
         })
 
         try:
-            # TODO(@bouillipx): Confirm invoke() signature and return type
             result = await self._tool_gateway.invoke(
                 request.capability_id,
                 request.params,
+                envelope=request.envelope,
             )
 
             await self._log_event("tool.result", {

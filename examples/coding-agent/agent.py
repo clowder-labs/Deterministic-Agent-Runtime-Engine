@@ -7,7 +7,17 @@ Simple Coding Agent Example (legacy kernel dependencies)
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
+
+# This example intentionally targets the archived framework implementation under
+# `archive/frameworks/dare_framework/` and is not expected to run against the
+# canonical `dare_framework` package at repo root.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ARCHIVE_FRAMEWORKS = PROJECT_ROOT / "archive" / "frameworks"
+if str(ARCHIVE_FRAMEWORKS) not in sys.path:
+    sys.path.insert(0, str(ARCHIVE_FRAMEWORKS))
 
 from dare_framework.builder import AgentBuilder
 from dare_framework.plan.impl.planners.deterministic import DeterministicPlanner

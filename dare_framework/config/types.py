@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Any
+
+from dare_framework.infra.component import ComponentType
+from dare_framework.infra.component import IComponent
 
 
 def _default_workspace_dir() -> str:
@@ -20,21 +22,6 @@ def _default_workspace_dir() -> str:
 def _default_user_dir() -> str:
     """Return the default user directory (home directory)."""
     return str(Path.home().resolve())
-
-
-class ComponentType(Enum):
-    """Component category taxonomy used for configuration scoping."""
-
-    PLANNER = "planner"
-    VALIDATOR = "validator"
-    REMEDIATOR = "remediator"
-    MEMORY = "memory"
-    MODEL_ADAPTER = "model_adapter"
-    TOOL = "tool"
-    SKILL = "skill"
-    MCP = "mcp"
-    HOOK = "hook"
-    PROMPT = "prompt"
 
 
 @dataclass(frozen=True)
@@ -225,15 +212,30 @@ class Config:
         """Get settings for a component type."""
         return self.components.get(_component_key(component_type), ComponentConfig())
 
-    def is_component_enabled(self, component_type: ComponentType | str, name: str) -> bool:
-        """Check if a component is enabled."""
+    def is_component_enabled_name(self, component_type: ComponentType | str, name: str) -> bool:
+        """Check if a named component instance is enabled."""
         settings = self.component_settings(component_type)
         return name not in settings.disabled
 
-    def component_config(self, component_type: ComponentType | str, name: str) -> Any | None:
-        """Get configuration for a specific component."""
+    def is_component_enabled(self, component: IComponent) -> bool:
+        """Check if a concrete component instance is enabled."""
+
+        return self.is_component_enabled_name(component.component_type, component.name)
+
+    def filter_enabled(self, components: list[IComponent]) -> list[IComponent]:
+        """Filter a list of components, keeping only enabled ones."""
+
+        return [component for component in components if self.is_component_enabled(component)]
+
+    def component_config_name(self, component_type: ComponentType | str, name: str) -> Any | None:
+        """Get configuration for a specific named component instance."""
         settings = self.component_settings(component_type)
         return settings.entries.get(name)
+
+    def component_config(self, component: IComponent) -> Any | None:
+        """Get per-component configuration for a concrete component instance."""
+
+        return self.component_config_name(component.component_type, component.name)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a dictionary."""
@@ -247,20 +249,4 @@ class Config:
             "workspace_dir": self.workspace_dir,
             "user_dir": self.user_dir,
         }
-
-
-@dataclass(frozen=True)
-class ConfigSnapshot:
-    """Effective configuration snapshot."""
-
-    config: Config = field(default_factory=Config)
-
-
-__all__ = [
-    "ComponentType",
-    "ProxyConfig",
-    "LLMConfig",
-    "ComponentConfig",
-    "Config",
-    "ConfigSnapshot",
-]
+__all__ = ["ComponentType", "ProxyConfig", "LLMConfig", "ComponentConfig", "Config"]

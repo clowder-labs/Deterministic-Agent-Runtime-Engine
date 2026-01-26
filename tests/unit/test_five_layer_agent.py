@@ -87,8 +87,8 @@ class MockToolGateway:
     def __init__(self) -> None:
         self.invoke_calls = []
 
-    async def invoke(self, capability_id: str, params: dict[str, Any]) -> Any:
-        self.invoke_calls.append((capability_id, params))
+    async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Any) -> Any:
+        self.invoke_calls.append((capability_id, params, envelope))
         return MagicMock(success=True, output={"result": "mock"}, evidence=[])
 
 

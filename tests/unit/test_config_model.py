@@ -2,7 +2,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from dare_framework.config.types import ComponentType, Config, ConfigSnapshot
+from dare_framework.config.types import Config
+from dare_framework.infra.component import ComponentType
 
 
 def test_proxy_disabled_overrides_other_fields() -> None:
@@ -56,9 +57,17 @@ def test_component_enablement_and_config_lookup() -> None:
         }
     )
 
-    assert config.is_component_enabled(ComponentType.VALIDATOR, "default") is True
-    assert config.is_component_enabled("validator", "legacy_validator") is False
-    assert config.component_config(ComponentType.VALIDATOR, "default") == {"mode": "strict"}
+    class DummyValidator:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        @property
+        def component_type(self) -> ComponentType:
+            return ComponentType.VALIDATOR
+
+    assert config.is_component_enabled(DummyValidator("default")) is True
+    assert config.is_component_enabled(DummyValidator("legacy_validator")) is False
+    assert config.component_config(DummyValidator("default")) == {"mode": "strict"}
 
 
 def test_config_from_dict_supports_workspace_roots_and_user_dir() -> None:
@@ -91,8 +100,8 @@ def test_config_to_dict_round_trip() -> None:
     assert payload["components"]["hook"]["stdout"] == {"level": "info"}
 
 
-def test_config_snapshot_is_immutable() -> None:
-    snapshot = ConfigSnapshot()
+def test_config_is_immutable() -> None:
+    config = Config()
 
     with pytest.raises(FrozenInstanceError):
-        snapshot.config = Config()
+        config.workspace_dir = "/tmp"

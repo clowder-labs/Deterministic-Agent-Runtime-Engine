@@ -6,16 +6,17 @@ Both inherit from IRetrievalContext (defined in context domain).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from dare_framework.context import IRetrievalContext
+from dare_framework.infra.component import ComponentType, IComponent
 
 if TYPE_CHECKING:
     from dare_framework.context import Message
 
 
 @runtime_checkable
-class IShortTermMemory(IRetrievalContext, Protocol):
+class IShortTermMemory(IComponent, IRetrievalContext, Protocol):
     """[Component] Short-term memory interface (current session).
 
     Usage: Injected into Context.short_term_memory.
@@ -23,6 +24,10 @@ class IShortTermMemory(IRetrievalContext, Protocol):
 
     Inherits IRetrievalContext.get() and adds add/clear methods.
     """
+
+    @property
+    def component_type(self) -> Literal[ComponentType.MEMORY]:
+        ...
 
     def add(self, message: "Message") -> None:
         """Add a message to short-term memory."""
@@ -54,7 +59,7 @@ class IShortTermMemory(IRetrievalContext, Protocol):
 
 
 @runtime_checkable
-class ILongTermMemory(IRetrievalContext, Protocol):
+class ILongTermMemory(IComponent, IRetrievalContext, Protocol):
     """[Component] Long-term memory interface (cross-session persistent).
 
     Usage: Injected into Context.long_term_memory.
@@ -62,6 +67,10 @@ class ILongTermMemory(IRetrievalContext, Protocol):
 
     Inherits IRetrievalContext.get().
     """
+
+    @property
+    def component_type(self) -> Literal[ComponentType.MEMORY]:
+        ...
 
     def get(self, query: str, **kwargs) -> list["Message"]:
         """Retrieve relevant memories based on query.

@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from dare_framework.builder import AgentBuilder
+from dare_framework.builder import Builder
 from dare_framework.model import OpenAIModelAdapter
 
 # Configuration
@@ -56,7 +56,7 @@ async def main() -> None:
         endpoint=ENDPOINT,
         http_client_options=HTTP_CLIENT_OPTIONS,
     )
-    agent = AgentBuilder("basic-chat-builder").with_model(model_adapter).build()
+    agent = Builder.simple_chat_agent_builder("basic-chat-builder").with_model(model_adapter).build()
 
     # Interactive chat loop
     while True:

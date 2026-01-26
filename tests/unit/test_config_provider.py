@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from dare_framework.config import FileConfigProvider, build_config_provider
+from dare_framework.infra.component import ComponentType
 
 
 def _write_config(path: Path, payload: dict) -> None:
@@ -41,7 +42,23 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
     )
 
     provider = FileConfigProvider(workspace_dir=workspace_dir, user_dir=user_dir)
-    config = provider.current().config
+    config = provider.current()
+
+    class DummyValidator:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        @property
+        def component_type(self) -> ComponentType:
+            return ComponentType.VALIDATOR
+
+    class DummyHook:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        @property
+        def component_type(self) -> ComponentType:
+            return ComponentType.HOOK
 
     assert config.llm.model == "workspace-model"
     assert config.llm.proxy.disabled is True
@@ -51,8 +68,8 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
     assert config.allowmcps == ["workspace_mcp"]
     assert config.mcp["user"]["endpoint"] == "http://user-mcp"
     assert config.tools["local_command"]["timeout"] == 12
-    assert config.is_component_enabled("validator", "legacy_validator") is False
-    assert config.component_config("hook", "stdout") == {"level": "info"}
+    assert config.is_component_enabled(DummyValidator("legacy_validator")) is False
+    assert config.component_config(DummyHook("stdout")) == {"level": "info"}
     assert config.workspace_dir == str(workspace_dir)
     assert config.user_dir == str(user_dir)
 
@@ -64,7 +81,7 @@ def test_file_config_provider_defaults_when_missing_files(tmp_path: Path) -> Non
     workspace_dir.mkdir()
 
     provider = FileConfigProvider(workspace_dir=workspace_dir, user_dir=user_dir)
-    config = provider.current().config
+    config = provider.current()
 
     assert config.workspace_dir == str(workspace_dir)
     assert config.user_dir == str(user_dir)
@@ -88,14 +105,22 @@ def test_file_config_provider_loads_fixture_files() -> None:
     workspace_dir = base_dir / "workspace"
 
     provider = FileConfigProvider(workspace_dir=workspace_dir, user_dir=user_dir)
-    config = provider.current().config
+    config = provider.current()
 
     assert config.llm.model == "workspace-fixture-model"
     assert config.allowtools == ["fixture_tool"]
     assert config.allowmcps == ["fixture_mcp_workspace"]
     assert config.mcp["fixture_user"]["endpoint"] == "http://fixture-user-mcp"
     assert config.tools["fixture_tool"]["timeout"] == 9
-    assert config.component_config("hook", "stdout") == {"level": "debug"}
+    class DummyHook:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        @property
+        def component_type(self) -> ComponentType:
+            return ComponentType.HOOK
+
+    assert config.component_config(DummyHook("stdout")) == {"level": "debug"}
 
 
 def test_file_config_provider_prefers_project_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -109,7 +134,7 @@ def test_file_config_provider_prefers_project_root(monkeypatch: pytest.MonkeyPat
     monkeypatch.chdir(repo_root / "subdir")
 
     provider = FileConfigProvider(user_dir=user_dir)
-    config = provider.current().config
+    config = provider.current()
 
     assert config.workspace_dir == str(repo_root)
     assert config.user_dir == str(user_dir)

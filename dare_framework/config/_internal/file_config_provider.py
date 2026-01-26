@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from dare_framework.config.kernel import IConfigProvider
-from dare_framework.config.types import Config, ConfigSnapshot
+from dare_framework.config.types import Config
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -59,23 +59,22 @@ class FileConfigProvider(IConfigProvider):
             # Prefer repository root when called from a subdirectory.
             self._workspace_dir = _find_project_root(Path.cwd())
         self._user_dir = Path(self.user_dir) if self.user_dir else Path.home()
-        self._snapshot = self._load_snapshot()
+        self._config = self._load_config()
 
-    def current(self) -> ConfigSnapshot:
-        return self._snapshot
+    def current(self) -> Config:
+        return self._config
 
-    def reload(self) -> ConfigSnapshot:
-        self._snapshot = self._load_snapshot()
-        return self._snapshot
+    def reload(self) -> Config:
+        self._config = self._load_config()
+        return self._config
 
-    def _load_snapshot(self) -> ConfigSnapshot:
+    def _load_config(self) -> Config:
         user_layer = self._load_layer(self._user_dir)
         workspace_layer = self._load_layer(self._workspace_dir)
         merged = _merge_layers([user_layer, workspace_layer])
         merged.setdefault("workspace_dir", str(self._workspace_dir))
         merged.setdefault("user_dir", str(self._user_dir))
-        config = Config.from_dict(merged)
-        return ConfigSnapshot(config=config)
+        return Config.from_dict(merged)
 
     def _load_layer(self, base_dir: Path) -> dict[str, Any]:
         path = base_dir / self.filename
