@@ -1,5 +1,13 @@
 import pytest
 
+import pytest
+
+pytest.skip(
+    "Legacy event log implementation is archived; port to canonical dare_framework once "
+    "EventLog implementations exist.",
+    allow_module_level=True,
+)
+
 from dare_framework.execution.impl.event.local_event_log import LocalEventLog
 
 

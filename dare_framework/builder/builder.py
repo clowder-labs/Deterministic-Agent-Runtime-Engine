@@ -1,257 +1,150 @@
+"""Minimal AgentBuilder implementation."""
+
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import Any, Iterable
 
-from dare_framework.execution.components import IHook
-from dare_framework.context.components import IMemory
-from dare_framework.plan.impl.planners.deterministic import DeterministicPlanner
-from dare_framework.tool.impl.providers.native_tool_provider import NativeToolProvider
-from dare_framework.tool.impl.providers.protocol_adapter_provider import ProtocolAdapterProvider
-from dare_framework.plan.impl.remediators.noop import NoOpRemediator
-from dare_framework.tool.impl.tools.noop import NoOpTool
-from dare_framework.plan.impl.validators.composite import CompositeValidator
-from dare_framework.plan.impl.validators.kernel_validator import GatewayValidator
-from dare_framework.model.components import IModelAdapter
-from dare_framework.tool.components import ITool
-from dare_framework.execution.types import Budget
-from dare_framework.execution.impl.budget.in_memory import InMemoryResourceManager
-from dare_framework.context.impl.default_context_manager import DefaultContextManager
-from dare_framework.execution.impl.execution_control.file_execution_control import FileExecutionControl
-from dare_framework.execution.impl.event.local_event_log import LocalEventLog
-from dare_framework.execution.impl.hook.default_extension_point import DefaultExtensionPoint
-from dare_framework.execution.impl.orchestrator.default_orchestrator import DefaultLoopOrchestrator
-from dare_framework.execution.impl.run_loop.default_run_loop import DefaultRunLoop
-from dare_framework.security.impl.default_security_boundary import DefaultSecurityBoundary
-from dare_framework.tool.impl.default_tool_gateway import DefaultToolGateway
-from dare_framework.tool.impl.run_context_state import RunContextState
-from dare_framework.execution.kernel import IEventLog
-from dare_framework.plan.components import IPlanner, IRemediator, IValidator
-from dare_framework.plan.results import RunResult
-from dare_framework.execution.kernel import IRunLoop
-from dare_framework.plan.task import Task
-from dare_framework.protocols.base import IProtocolAdapter
-from dare_framework.contracts import ComponentType
-from dare_framework.config import Config
-from dare_framework.builder.plugin_system.managers import PluginManagers
-
-
-class Agent:
-    """Developer-facing agent wrapper around the v2 Kernel run loop."""
-
-    def __init__(self, *, run_loop: IRunLoop, run_context: RunContextState) -> None:
-        self._run_loop = run_loop
-        self._run_context = run_context
-
-    async def run(self, task: str | Task, deps: Any | None = None) -> RunResult:
-        # deps is intentionally stored outside Task to keep Task serializable and audit-friendly.
-        self._run_context.deps = deps
-        task_obj = task if isinstance(task, Task) else Task(description=task)
-        return await self._run_loop.run(task_obj)
+from dare_framework.agent import SimpleChatAgent
+from dare_framework.context import Context, Budget
+from dare_framework.knowledge import IKnowledge
+from dare_framework.memory import ILongTermMemory, IShortTermMemory
+from dare_framework.model.interfaces import IModelAdapter
+from dare_framework.tool._internal.default_tool_gateway import DefaultToolGateway
+from dare_framework.tool._internal.gateway_tool_provider import GatewayToolProvider
+from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
+from dare_framework.tool.interfaces import ITool, IToolProvider, RunContext
+from dare_framework.tool.kernel import IToolGateway
 
 
 class AgentBuilder:
-    """Layer 3 builder for composing the v2 Kernel and its pluggable components."""
+    """Compose a minimal SimpleChatAgent with tools and context wiring."""
 
     def __init__(self, name: str) -> None:
         self._name = name
+        self._model: IModelAdapter | None = None
+        self._context: Context | None = None
+        self._budget: Budget | None = None
+        self._short_term_memory: IShortTermMemory | None = None
+        self._long_term_memory: ILongTermMemory | None = None
+        self._knowledge: IKnowledge | None = None
         self._tools: list[ITool] = []
-        self._protocol_adapters: list[IProtocolAdapter] = []
-        self._plugin_managers: PluginManagers | None = None
-        self._plugin_config: Any | None = None
+        self._tool_gateway: IToolGateway | None = None
+        self._tool_provider: IToolProvider | None = None
 
-        self._model_adapter: IModelAdapter | None = None
-        self._planner: IPlanner | None = None
-        self._validator: IValidator | None = None
-        self._remediator: IRemediator | None = None
-        self._memory: IMemory | None = None
-        self._hooks: list[IHook] = []
+    def with_model(self, model: IModelAdapter) -> "AgentBuilder":
+        """Set the model adapter used by the agent."""
+        self._model = model
+        return self
 
-        self._budget = Budget(max_tool_calls=100, max_time_seconds=60)
-        self._event_log: IEventLog = LocalEventLog(path=f".dare/{name}/event_log.jsonl")
-        self._checkpoint_dir = f".dare/{name}/checkpoints"
+    def with_context(self, context: Context) -> "AgentBuilder":
+        """Provide a pre-built context instance."""
+        self._context = context
+        return self
 
-    @classmethod
-    def quick_start(cls, name: str) -> "AgentBuilder":
-        """Minimal builder with Kernel defaults and a NoOp tool."""
+    def with_budget(self, budget: Budget) -> "AgentBuilder":
+        """Override the budget used by the context."""
+        self._budget = budget
+        return self
 
-        return cls(name).with_kernel_defaults().with_tools(NoOpTool())
+    def with_short_term_memory(self, memory: IShortTermMemory) -> "AgentBuilder":
+        """Inject a short-term memory implementation."""
+        self._short_term_memory = memory
+        return self
 
-    def with_kernel_defaults(self) -> "AgentBuilder":
-        """Enable Kernel defaults (v2.0).
+    def with_long_term_memory(self, memory: ILongTermMemory) -> "AgentBuilder":
+        """Inject a long-term memory implementation."""
+        self._long_term_memory = memory
+        return self
 
-        The v2 builder always targets the Kernelized architecture; this method exists to make
-        the fluent API match the v2.0 design docs.
-        """
-
+    def with_knowledge(self, knowledge: IKnowledge) -> "AgentBuilder":
+        """Inject a knowledge retrieval implementation."""
+        self._knowledge = knowledge
         return self
 
     def with_tools(self, *tools: ITool) -> "AgentBuilder":
+        """Register local tools to expose through the tool gateway."""
         self._tools.extend(tools)
         return self
 
-    def with_protocol(self, adapter: IProtocolAdapter) -> "AgentBuilder":
-        self._protocol_adapters.append(adapter)
+    def with_tool_gateway(self, gateway: IToolGateway) -> "AgentBuilder":
+        """Provide a custom tool gateway implementation."""
+        self._tool_gateway = gateway
         return self
 
-    def with_hooks(self, *hooks: IHook) -> "AgentBuilder":
-        """Register hook components to be installed into the Kernel extension point."""
-
-        self._hooks.extend(hooks)
+    def with_tool_provider(self, provider: IToolProvider) -> "AgentBuilder":
+        """Provide a custom tool provider for context assembly."""
+        self._tool_provider = provider
         return self
 
-    def with_plugin_managers(self, managers: PluginManagers, *, config: Any | None = None) -> "AgentBuilder":
-        """Attach plugin managers for entrypoint-driven composition (v2).
+    def build(self) -> SimpleChatAgent:
+        """Build and return a SimpleChatAgent with configured wiring."""
+        if self._model is None:
+            raise ValueError("AgentBuilder requires a model adapter")
 
-        This builder remains usable without any plugin system: explicit `.with_*()`
-        wiring is the primary MVP path. Managers exist as interface positions so the
-        framework can later support deterministic entrypoint discovery + config-driven
-        selection without coupling the Kernel to `importlib.metadata`.
-        """
+        tool_gateway = self._tool_gateway
+        if tool_gateway is None and self._tools:
+            tool_gateway = DefaultToolGateway()
 
-        self._plugin_managers = managers
-        self._plugin_config = config
-        return self
+        if self._tools and tool_gateway is not None:
+            provider = NativeToolProvider(
+                tools=list(self._tools),
+                context_factory=self._default_run_context,
+            )
+            tool_gateway.register_provider(provider)
 
-    def with_model(self, model: IModelAdapter) -> "AgentBuilder":
-        self._model_adapter = model
-        return self
+        tool_provider = self._tool_provider
+        if tool_provider is None and tool_gateway is not None:
+            if self._tools or self._tool_gateway is not None:
+                capabilities = self._list_capabilities_sync(tool_gateway)
+                tool_provider = GatewayToolProvider(capabilities=capabilities)
 
-    def with_planner(self, planner: IPlanner) -> "AgentBuilder":
-        self._planner = planner
-        return self
+        if self._context is None:
+            return SimpleChatAgent(
+                name=self._name,
+                model=self._model,
+                short_term_memory=self._short_term_memory,
+                long_term_memory=self._long_term_memory,
+                knowledge=self._knowledge,
+                tools=tool_provider,
+                budget=self._budget,
+            )
 
-    def with_validator(self, validator: IValidator) -> "AgentBuilder":
-        self._validator = validator
-        return self
+        self._apply_context_overrides(self._context)
+        if tool_provider is not None:
+            setattr(self._context, "_tool_provider", tool_provider)
 
-    def with_remediator(self, remediator: IRemediator) -> "AgentBuilder":
-        self._remediator = remediator
-        return self
-
-    def with_memory(self, memory: IMemory) -> "AgentBuilder":
-        """Attach an optional memory component used by the default context manager."""
-
-        self._memory = memory
-        return self
-
-    def with_budget(
-        self,
-        *,
-        max_tokens: int | None = None,
-        max_cost: float | None = None,
-        max_time_seconds: int | None = None,
-        max_tool_calls: int | None = None,
-    ) -> "AgentBuilder":
-        self._budget = Budget(
-            max_tokens=max_tokens,
-            max_cost=max_cost,
-            max_time_seconds=max_time_seconds,
-            max_tool_calls=max_tool_calls,
+        return SimpleChatAgent(
+            name=self._name,
+            model=self._model,
+            context=self._context,
         )
-        return self
 
-    def with_event_log(self, event_log: IEventLog) -> "AgentBuilder":
-        self._event_log = event_log
-        return self
+    def _apply_context_overrides(self, context: Context) -> None:
+        """Apply optional overrides to a provided context instance."""
+        if self._budget is not None:
+            context.budget = self._budget
+        if self._short_term_memory is not None:
+            context.short_term_memory = self._short_term_memory
+        if self._long_term_memory is not None:
+            context.long_term_memory = self._long_term_memory
+        if self._knowledge is not None:
+            context.knowledge = self._knowledge
 
-    def with_checkpoint_dir(self, path: str) -> "AgentBuilder":
-        self._checkpoint_dir = path
-        return self
+    def _default_run_context(self) -> RunContext[Any]:
+        """Create a default run context for tool invocation."""
+        return RunContext(deps=None, metadata={"agent": self._name})
 
-    def build(self) -> Agent:
-        plugin_validators: list[IValidator] = []
-        plugin_hooks: list[IHook] = []
-
-        if self._plugin_managers is not None:
-            if not self._tools and self._plugin_managers.tools is not None:
-                discovered = self._plugin_managers.tools.load_tools(config=self._plugin_config)
-                self._tools.extend([tool for tool in discovered if isinstance(tool, ITool)])
-            if self._model_adapter is None and self._plugin_managers.model_adapters is not None:
-                candidate = self._plugin_managers.model_adapters.load_model_adapter(config=self._plugin_config)
-                if isinstance(candidate, IModelAdapter):
-                    self._model_adapter = candidate
-            if self._planner is None and self._plugin_managers.planners is not None:
-                candidate = self._plugin_managers.planners.load_planner(config=self._plugin_config)
-                if isinstance(candidate, IPlanner):
-                    self._planner = candidate
-            if self._validator is None and self._plugin_managers.validators is not None:
-                discovered = self._plugin_managers.validators.load_validators(config=self._plugin_config)
-                plugin_validators = [item for item in discovered if isinstance(item, IValidator)]
-            if self._remediator is None and self._plugin_managers.remediators is not None:
-                candidate = self._plugin_managers.remediators.load_remediator(config=self._plugin_config)
-                if isinstance(candidate, IRemediator):
-                    self._remediator = candidate
-            if not self._protocol_adapters and self._plugin_managers.protocol_adapters is not None:
-                discovered = self._plugin_managers.protocol_adapters.load_protocol_adapters(config=self._plugin_config)
-                self._protocol_adapters.extend([item for item in discovered if isinstance(item, IProtocolAdapter)])
-            if self._memory is None and self._plugin_managers.memory is not None:
-                candidate = self._plugin_managers.memory.load_memory(config=self._plugin_config)
-                if isinstance(candidate, IMemory):
-                    self._memory = candidate
-            if self._plugin_managers.hooks is not None:
-                discovered = self._plugin_managers.hooks.load_hooks(config=self._plugin_config)
-                plugin_hooks = [item for item in discovered if isinstance(item, IHook)]
-
-        # Filter explicit and discovered components by config enablement if available.
-        if self._plugin_config is not None:
-            config = self._plugin_config
-            if hasattr(config, "is_component_enabled"):
-                self._tools = [
-                    t for t in self._tools 
-                    if config.is_component_enabled(ComponentType.TOOL, t.name)
-                ]
-                plugin_validators = [
-                    v for v in plugin_validators
-                    if config.is_component_enabled(ComponentType.VALIDATOR, getattr(v, "name", "unknown"))
-                ]
-                plugin_hooks = [
-                    h for h in plugin_hooks
-                    if config.is_component_enabled(ComponentType.HOOK, getattr(h, "name", "unknown"))
-                ]
-
-        # Always include a NoOp tool as a safe default so the Kernel can run even when the
-        # planner is configured with an empty plan (or when model-driven execution is used).
-        if not any(tool.name == "noop" for tool in self._tools):
-            self._tools.append(NoOpTool())
-
-        run_context = RunContextState()
-        run_context.config = self._plugin_config
-
-        tool_gateway = DefaultToolGateway()
-        tool_gateway.register_provider(NativeToolProvider(tools=self._tools, context_factory=run_context.build))
-        for adapter in self._protocol_adapters:
-            tool_gateway.register_provider(ProtocolAdapterProvider(adapter))
-
-        planner = self._planner or DeterministicPlanner([])
-        if self._validator is not None:
-            validator = self._validator
-        else:
-            base_validator: IValidator = GatewayValidator(tool_gateway)
-            validator = CompositeValidator([base_validator, *plugin_validators]) if plugin_validators else base_validator
-        remediator = self._remediator or NoOpRemediator()
-
-        resource_manager = InMemoryResourceManager(default_budget=self._budget)
-        execution_control = FileExecutionControl(event_log=self._event_log, checkpoint_dir=self._checkpoint_dir)
-        security_boundary = DefaultSecurityBoundary()
-        extension_point = DefaultExtensionPoint()
-        for hook in [*self._hooks, *plugin_hooks]:
-            extension_point.register_hook(hook.phase, hook)
-
-        context_manager = DefaultContextManager(memory=self._memory)
-
-        orchestrator = DefaultLoopOrchestrator(
-            planner=planner,
-            validator=validator,
-            remediator=remediator,
-            model_adapter=self._model_adapter,
-            context_manager=context_manager,
-            tool_gateway=tool_gateway,
-            security_boundary=security_boundary,
-            execution_control=execution_control,
-            resource_manager=resource_manager,
-            event_log=self._event_log,
-            extension_point=extension_point,
-            run_context_state=run_context,
+    def _list_capabilities_sync(self, gateway: IToolGateway) -> list[Any]:
+        """Synchronously resolve capabilities from an async gateway."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(gateway.list_capabilities())
+        raise RuntimeError(
+            "AgentBuilder.build() cannot resolve tool capabilities while an event loop is running. "
+            "Build the agent before entering the async runtime or supply a custom tool provider."
         )
-        run_loop: IRunLoop = DefaultRunLoop(orchestrator)
-        return Agent(run_loop=run_loop, run_context=run_context)
+
+
+__all__ = ["AgentBuilder"]

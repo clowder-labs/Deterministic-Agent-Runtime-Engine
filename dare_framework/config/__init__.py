@@ -1,13 +1,27 @@
-"""Core configuration management (v2)."""
+"""config domain facade."""
 
-from .models import Config, LLMConfig, ComponentConfig
-from .manager import ConfigManager, merge_config_layers, build_config_from_layers
+from __future__ import annotations
+
+from dare_framework.config.kernel import IConfigProvider
+from dare_framework.config._internal.file_config_provider import FileConfigProvider
+from dare_framework.config.factory import build_config_provider
+from dare_framework.config.types import (
+    ComponentConfig,
+    ComponentType,
+    Config,
+    ConfigSnapshot,
+    LLMConfig,
+    ProxyConfig,
+)
 
 __all__ = [
-    "Config",
-    "LLMConfig",
     "ComponentConfig",
-    "ConfigManager", 
-    "merge_config_layers",
-    "build_config_from_layers",
+    "ComponentType",
+    "Config",
+    "ConfigSnapshot",
+    "IConfigProvider",
+    "LLMConfig",
+    "ProxyConfig",
+    "FileConfigProvider",
+    "build_config_provider",
 ]

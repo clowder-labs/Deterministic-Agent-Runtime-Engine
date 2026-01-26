@@ -1,7 +1,7 @@
 """
-Simple Coding Agent Example (v2 Kernel)
+Simple Coding Agent Example (legacy kernel dependencies)
 
-这个文件展示如何使用 v2 Kernel 化的 DARE Framework 构建一个 Coding Agent。
+这个文件展示如何使用已归档的 Kernel 架构构建一个 Coding Agent。
 示例重点：用最少依赖跑通 Plan → Execute → Tool → Verify 的闭环接口。
 """
 
@@ -24,7 +24,7 @@ from tools.write_file import WriteFileTool
 
 
 class CodingAgent:
-    """A minimal coding-agent composition on top of the v2 Kernel."""
+    """A minimal coding-agent composition using archived kernel dependencies."""
 
     def __init__(
         self,

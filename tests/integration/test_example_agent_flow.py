@@ -4,6 +4,12 @@ from pathlib import Path
 
 import pytest
 
+pytest.skip(
+    "Legacy example-agent flow depends on archived builder/runtime components; "
+    "port to canonical dare_framework once equivalent APIs exist.",
+    allow_module_level=True,
+)
+
 from dare_framework.contracts.ids import generator_id
 from dare_framework.plan.planning import ProposedStep
 

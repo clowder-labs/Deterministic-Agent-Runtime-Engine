@@ -1,0 +1,21 @@
+"""knowledge domain pluggable interfaces (composed capabilities).
+
+Alignment note:
+When a domain needs both retrieval and callable capability semantics, provide a
+composed interface in `interfaces.py`.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+from dare_framework.knowledge.kernel import IKnowledge
+from dare_framework.tool.interfaces import ITool
+
+
+@runtime_checkable
+class IKnowledgeTool(IKnowledge, ITool, Protocol):
+    """A knowledge retriever that is also exposed as a tool capability."""
+
+
+__all__ = ["IKnowledgeTool"]

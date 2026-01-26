@@ -1,6 +1,6 @@
 # Example: Basic Chat (stdin/stdout)
 
-This example demonstrates an interactive stdin/stdout chat flow: read lines from stdin, invoke the v2 Kernel-based agent, and print the model response to stdout.
+This example demonstrates interactive stdin/stdout chat flows using the canonical `dare_framework` package.
 
 ## Dependencies and Environment
 
@@ -8,7 +8,7 @@ This example demonstrates an interactive stdin/stdout chat flow: read lines from
 pip install -r requirements.txt
 ```
 
-Edit `examples/basic-chat/chat.py` to set `MODEL` and `ENDPOINT` (for OpenRouter use `https://openrouter.ai/api/v1`), then export `api_sk` for the API key before running.
+Edit `examples/basic-chat/chat_simple.py` (or `chat_env.py` / `chat_builder.py`) to set `MODEL` and `ENDPOINT` (for OpenRouter use `https://openrouter.ai/api/v1`), then export `api_sk` for the API key before running.
 
 ```bash
 export api_sk=your-key
@@ -17,7 +17,13 @@ export api_sk=your-key
 ## Run
 
 ```bash
-python examples/basic-chat/chat.py
+python examples/basic-chat/chat_simple.py
 ```
 
 Type messages and press Enter. Use `/quit` to exit.
+
+## Available variants
+
+- `chat_simple.py`: minimal direct `SimpleChatAgent` usage with inline configuration.
+- `chat_env.py`: configuration via environment variables (and optional debug context logging).
+- `chat_builder.py`: composition via `AgentBuilder` for teams that prefer builder-style wiring.

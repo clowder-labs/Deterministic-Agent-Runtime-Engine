@@ -1,33 +1,53 @@
-"""Kernel context protocols (v2)."""
+"""context domain stable interfaces.
+
+This domain defines the context-centric contract used as architecture evidence:
+- Retrieval references live on Context (STM/LTM/Knowledge).
+- `assemble()` constructs request-time (messages + tools + metadata).
+"""
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
-from dare_framework.execution.types import Budget
-from dare_framework.context.types import (
-    AssembledContext,
-    ContextPacket,
-    ContextStage,
-    IndexStatus,
-    RetrievedContext,
-    RuntimeStateView,
-    SessionContext,
-)
+from dare_framework.context.types import AssembledContext, Budget, Message
 
 
-class IContextManager(Protocol):
-    """Context engineering responsibility owner (v2.0)."""
+class IRetrievalContext(Protocol):
+    """Unified retrieval interface implemented by memory/knowledge."""
 
-    def open_session(self, task: "Task") -> SessionContext: ...
+    def get(self, query: str = "", **kwargs: Any) -> list[Message]: ...
 
-    async def assemble(self, stage: ContextStage, state: RuntimeStateView) -> AssembledContext: ...
 
-    async def retrieve(self, query: str, *, budget: Budget) -> RetrievedContext: ...
+class IContext(Protocol):
+    """Context interface - core context entity (context-centric)."""
 
-    async def ensure_index(self, scope: str) -> IndexStatus: ...
+    # Fields
+    id: str
+    short_term_memory: IRetrievalContext
+    budget: Budget
+    long_term_memory: IRetrievalContext | None
+    knowledge: IRetrievalContext | None
+    toollist: list[dict[str, Any]] | None
+    config: dict[str, Any] | None
 
-    async def compress(self, context: AssembledContext, *, budget: Budget) -> AssembledContext: ...
+    # Short-term memory methods
+    def stm_add(self, message: Message) -> None: ...
+    def stm_get(self) -> list[Message]: ...
+    def stm_clear(self) -> list[Message]: ...
 
-    async def route(self, packet: ContextPacket, target: str) -> None: ...
+    # Budget methods
+    def budget_use(self, resource: str, amount: float) -> None: ...
+    def budget_check(self) -> None: ...
+    def budget_remaining(self, resource: str) -> float: ...
 
+    # Tool listing (for Prompt.tools)
+    def listing_tools(self) -> list[dict[str, Any]]: ...
+
+    # Assembly (core)
+    def assemble(self, **options: Any) -> AssembledContext: ...
+
+    # Config
+    def config_update(self, patch: dict[str, Any]) -> None: ...
+
+
+__all__ = ["IContext", "IRetrievalContext"]

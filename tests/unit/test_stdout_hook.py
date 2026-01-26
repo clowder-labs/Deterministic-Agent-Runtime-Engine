@@ -2,6 +2,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytest.skip(
+    "Legacy stdout hook implementation is archived; port to canonical dare_framework once "
+    "hook implementations exist.",
+    allow_module_level=True,
+)
+
 from dare_framework.execution.impl.hooks.stdout import StdoutHook
 
 

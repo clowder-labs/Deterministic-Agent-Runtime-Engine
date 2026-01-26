@@ -1,6 +1,9 @@
 # Example: Coding Agent
 
-这是一个与 v2 Kernel 化架构对齐的 Coding Agent 示例，用于验证核心循环与组件装配。
+这是一个与当前 Kernel 架构对齐的 Coding Agent 示例，用于验证核心循环与组件装配。
+
+> 注意：该示例依赖已归档的 AgentBuilder / runtime / plugin system（位于 `archive/frameworks/dare_framework/`）。  
+> 目前 canonical `dare_framework` 尚未提供等价 API，需补齐这些能力后才能直接运行。
 
 ## 目的
 
@@ -46,10 +49,10 @@ PYTHONPATH=. python examples/coding-agent/agent.py
 ## 核心对齐点
 
 1. **闭环骨架（五层循环）**  
-   v2 Kernel 固化骨架：Session/Milestone/Plan/Execute/Tool，示例以确定性 Planner 跑通接口闭环。
+   Kernel 固化骨架：Session/Milestone/Plan/Execute/Tool，示例以确定性 Planner 跑通接口闭环。
 
 2. **Plan Tool 语义（占位）**  
-   v2 里 Plan Tool 可作为“重规划信号”。示例当前以 `capability_id` 前缀 `plan:` 作为约定占位（接口在位）。
+   Plan Tool 可作为“重规划信号”。示例当前以 `capability_id` 前缀 `plan:` 作为约定占位（接口在位）。
 
 3. **可审计性**  
    示例可配置 EventLog 与 Checkpoint 路径，用于验证事件链与断点保存。
@@ -80,9 +83,9 @@ print(result.success)
 print(result.output)
 ```
 
-## 使用 OpenAI 真实模型（v2 Planner）
+## 使用 OpenAI 真实模型（Planner）
 
-`real_model_agent.py` 使用 `OpenAIPlanner` 生成 v2 `ProposedPlan`，再由 Kernel 执行工具闭环。
+`real_model_agent.py` 使用 `OpenAIPlanner` 生成 `ProposedPlan`，再由 Kernel 执行工具闭环。
 
 1) 设置环境变量：
 

@@ -1,45 +1,98 @@
-from dare_framework.config import build_config_from_layers, merge_config_layers
-from dare_framework.contracts import ComponentType
+from dataclasses import FrozenInstanceError
+
+import pytest
+
+from dare_framework.config.types import ComponentType, Config, ConfigSnapshot
 
 
-def test_merge_config_layers_applies_overrides():
-    system = {
-        "llm": {"endpoint": "https://system", "model": "system-model"},
-        "allowtools": ["tool_a"],
-        "components": {"tool": {"disabled": ["legacy_tool"]}},
-    }
-    user = {
-        "llm": {"model": "user-model"},
-        "components": {"tool": {"disabled": ["user_disabled"]}},
-    }
-    project = {
-        "allowtools": ["tool_b"],
-        "components": {"tool": {"new_tool": {"timeout": 5}}},
-    }
-
-    merged = merge_config_layers([system, user, project])
-
-    assert merged["llm"]["endpoint"] == "https://system"
-    assert merged["llm"]["model"] == "user-model"
-    assert merged["allowtools"] == ["tool_b"]
-    assert merged["components"]["tool"]["disabled"] == ["user_disabled"]
-    assert merged["components"]["tool"]["new_tool"]["timeout"] == 5
-
-
-def test_build_config_from_layers_parses_component_config():
-    layers = [
+def test_proxy_disabled_overrides_other_fields() -> None:
+    config = Config.from_dict(
         {
-            "components": {
-                "mcp": {
-                    "disabled": ["legacy"],
-                    "default_mcp": {"url": "http://localhost"},
+            "llm": {
+                "proxy": {
+                    "disabled": True,
+                    "http": "http://proxy:8080",
+                    "use_system_proxy": True,
                 }
             }
         }
-    ]
+    )
 
-    config = build_config_from_layers(layers)
+    proxy = config.llm.proxy
+    assert proxy.disabled is True
+    assert proxy.use_system_proxy is False
+    assert proxy.http is None
+    assert proxy.https is None
+    assert proxy.no_proxy is None
 
-    assert config.is_component_enabled(ComponentType.MCP, "default_mcp") is True
-    assert config.is_component_enabled(ComponentType.MCP, "legacy") is False
-    assert config.component_config(ComponentType.MCP, "default_mcp") == {"url": "http://localhost"}
+
+def test_system_proxy_excludes_explicit_proxy() -> None:
+    config = Config.from_dict(
+        {"llm": {"proxy": {"use_system_proxy": True, "https": "https://proxy:8443"}}}
+    )
+
+    proxy = config.llm.proxy
+    assert proxy.use_system_proxy is True
+    assert proxy.https is None
+    assert proxy.http is None
+
+
+def test_proxy_is_enabled_for_explicit_values() -> None:
+    config = Config.from_dict({"llm": {"proxy": {"http": "http://proxy:8080"}}})
+
+    proxy = config.llm.proxy
+    assert proxy.is_enabled() is True
+
+
+def test_component_enablement_and_config_lookup() -> None:
+    config = Config.from_dict(
+        {
+            "components": {
+                "validator": {
+                    "disabled": ["legacy_validator"],
+                    "default": {"mode": "strict"},
+                }
+            }
+        }
+    )
+
+    assert config.is_component_enabled(ComponentType.VALIDATOR, "default") is True
+    assert config.is_component_enabled("validator", "legacy_validator") is False
+    assert config.component_config(ComponentType.VALIDATOR, "default") == {"mode": "strict"}
+
+
+def test_config_from_dict_supports_workspace_roots_and_user_dir() -> None:
+    config = Config.from_dict(
+        {
+            "workspace_roots": ["/tmp/workspace"],
+            "user_dir": "/tmp/user",
+        }
+    )
+
+    assert config.workspace_dir == "/tmp/workspace"
+    assert config.user_dir == "/tmp/user"
+
+
+def test_config_to_dict_round_trip() -> None:
+    config = Config.from_dict(
+        {
+            "llm": {"adapter": "openai", "model": "gpt-4o", "extra_field": 1},
+            "allowtools": ["tool_a"],
+            "components": {"hook": {"stdout": {"level": "info"}}},
+        }
+    )
+
+    payload = config.to_dict()
+
+    assert payload["llm"]["adapter"] == "openai"
+    assert payload["llm"]["model"] == "gpt-4o"
+    assert payload["llm"]["extra_field"] == 1
+    assert payload["allowtools"] == ["tool_a"]
+    assert payload["components"]["hook"]["stdout"] == {"level": "info"}
+
+
+def test_config_snapshot_is_immutable() -> None:
+    snapshot = ConfigSnapshot()
+
+    with pytest.raises(FrozenInstanceError):
+        snapshot.config = Config()

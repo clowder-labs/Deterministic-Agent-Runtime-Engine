@@ -1,5 +1,13 @@
 import pytest
 
+import pytest
+
+pytest.skip(
+    "Legacy runtime state tests are archived; port to canonical dare_framework once "
+    "full runtime/orchestrator implementations exist.",
+    allow_module_level=True,
+)
+
 from dare_framework.plan.impl.planners.deterministic import DeterministicPlanner
 from dare_framework.tool.impl.providers.native_tool_provider import NativeToolProvider
 from dare_framework.plan.impl.remediators.noop import NoOpRemediator

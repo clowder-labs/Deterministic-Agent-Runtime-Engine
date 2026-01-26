@@ -1,3 +1,11 @@
+import pytest
+
+pytest.skip(
+    "Legacy builder/config tooling is archived; port to canonical dare_framework once "
+    "equivalent builder/tool implementations exist.",
+    allow_module_level=True,
+)
+
 from typing import Any
 
 from dare_framework.builder import AgentBuilder

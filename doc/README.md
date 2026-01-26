@@ -6,24 +6,24 @@
 
 ## 📖 推荐阅读顺序
 
-### 快速上手（最终架构设计以 v4.0 为准）
+### 快速上手（最终架构设计以权威文档为准）
 
 ```text
 1. 项目概览
    └── /openspec/project.md (项目上下文、技术栈、架构概览)
 
 2. 核心架构（权威设计）
-   └── design/Architecture_v4.0.md
+   └── design/Architecture.md
 
 3. 接口设计（权威设计）
-   └── design/Interfaces_v4.0.md
+   └── design/Interfaces.md
 
 4. 设计对齐与证据（可选但推荐）
-   ├── design/DARE_v4.0_alignment.md
-   └── design/DARE_v4.0_evidence.yaml
+   ├── design/DARE_alignment.md
+   └── design/DARE_evidence.yaml
 
 5. 代码实现（以代码为准）
-   └── dare_framework/（当前实现；可能与 v4.0 目标存在差异）
+   └── dare_framework/（当前实现；可能与权威设计存在差异）
 
 6. 示例实现
    └── /examples/coding-agent/ (示例 Agent)
@@ -47,21 +47,21 @@
 
 ## 📂 文档分类
 
-### 1️⃣ 核心设计文档（v4.0：最终架构设计）
+### 1️⃣ 核心设计文档（最终架构设计）
 
 | 文档 | 作用 | 状态 |
 |---|---|---|
-| `design/Architecture_v4.0.md` | **架构设计 v4.0**<br/>不变量、分层/分域、核心流程与关键约束、清理计划 | ⭐ 最终架构设计 |
-| `design/Interfaces_v4.0.md` | **接口设计 v4.0**<br/>按 domain 的接口位与数据结构（权威签名/类型） | ⭐ 权威接口 |
-| `design/DARE_v4.0_alignment.md` | **对齐清单**<br/>v4.0 架构/接口的 claim → 证据/实现映射 | ✅ 对齐与追溯 |
-| `design/DARE_v4.0_evidence.yaml` | **证据索引**<br/>claims + sources + anchors（用于文档一致性与回归） | ✅ 对齐与追溯 |
+| `design/Architecture.md` | **架构设计**<br/>不变量、分层/分域、核心流程与关键约束、清理计划 | ⭐ 最终架构设计 |
+| `design/Interfaces.md` | **接口设计**<br/>按 domain 的接口位与数据结构（权威签名/类型） | ⭐ 权威接口 |
+| `design/DARE_alignment.md` | **对齐清单**<br/>当前架构/接口的 claim → 证据/实现映射 | ✅ 对齐与追溯 |
+| `design/DARE_evidence.yaml` | **证据索引**<br/>claims + sources + anchors（用于文档一致性与回归） | ✅ 对齐与追溯 |
 
 ### 2️⃣ 代码与工程入口（实现以代码为准）
 
 | 文档/目录 | 作用 | 状态 |
 |---|---|---|
-| `dare_framework/` | 框架实现主目录（目标收敛到单一架构；详见 v4.0） | ✅ 实现入口 |
-| `Project_Architecture_and_Priorities.md` | 以“实现视角”梳理现状与优先级（阅读入口指向 v4.0） | ✅ 实现视角 |
+| `dare_framework/` | 框架实现主目录（目标收敛到单一架构；详见权威设计） | ✅ 实现入口 |
+| `Project_Architecture_and_Priorities.md` | 以“实现视角”梳理现状与优先级（阅读入口指向权威设计） | ✅ 实现视角 |
 
 ### 3️⃣ 附录与工程实践
 
@@ -80,7 +80,7 @@
 <details>
 <summary>点击展开归档列表</summary>
 
-### v1.x / v2.x 设计终稿与草案（已被 v4.0 取代）
+### 历史设计终稿与草案（已被当前权威设计取代）
 
 | 文档（位于 `design/archive/`） | 版本/类型 | 备注 |
 |---|---|---|
@@ -94,11 +94,11 @@
 
 | 文档（位于 `design/archive/`） | 类型 | 备注 |
 |---|---|---|
-| `ARCHITECTURE_COMPARISON.md` | v1 vs v2 vs v3 愿景 | 包含 v3.3/v3.4 的演进记录（历史资料） |
+| `ARCHITECTURE_COMPARISON.md` | v1 vs v2 vs v3 愿景 | 包含历史演进记录（历史资料） |
 
 ### 设计版本归档（已被 v1.3 取代）
 
-> 说明：这里的 `Industrial_Agent_Framework_* v2.x` 属于更早期的工业框架草案（历史资料），与“下一代架构草案 v2.0（Kernel 化）”不是同一条版本线；请以文件名与目录为准。
+> 说明：这里的 `Industrial_Agent_Framework_*` 属于更早期的工业框架草案（历史资料），与后续架构草案不是同一条版本线；请以文件名与目录为准。
 
 | 文档（位于 `design/archive/`） | 版本/类型 | 备注 |
 |---|---|---|
@@ -132,7 +132,7 @@
 | `Framework_Comparison_PydanticAI.md` | 对比分析 | PydanticAI 对比（历史资料） |
 | `Framework_Comparison_AgentScope.md` | 对比分析 | AgentScope 对比（历史资料） |
 | `anthropic-engineering.md` | 参考资料 | Anthropic 工程最佳实践参考（历史资料） |
-| `Gemini_Generated_Image_im2qiuim2qiuim2q.png` | 图片 | 生成的架构示意图（未必与 v4.0 对齐） |
+| `Gemini_Generated_Image_im2qiuim2qiuim2q.png` | 图片 | 生成的架构示意图（未必与当前权威设计对齐） |
 
 </details>
 
@@ -143,9 +143,9 @@
 ### 架构师 / Tech Lead
 
 ```text
-1. design/Architecture_v4.0.md（最终架构设计）
-2. design/Interfaces_v4.0.md（权威接口）
-3. design/DARE_v4.0_alignment.md（对齐与证据入口）
+1. design/Architecture.md（最终架构设计）
+2. design/Interfaces.md（权威接口）
+3. design/DARE_alignment.md（对齐与证据入口）
 4. /openspec/project.md（项目约束与变更流程）
 5. guides/Development_Constraints.md
 6. dare_framework/（当前实现入口）
@@ -154,8 +154,8 @@
 ### 后端工程师（实现框架）
 
 ```text
-1. design/Architecture_v4.0.md
-2. design/Interfaces_v4.0.md
+1. design/Architecture.md
+2. design/Interfaces.md
 3. dare_framework/
 4. /openspec/project.md
 5. guides/Development_Constraints.md
@@ -165,7 +165,7 @@
 
 ```text
 1. /examples/coding-agent/README.md
-2. design/Architecture_v4.0.md（理解框架目标形态与边界）
+2. design/Architecture.md（理解框架目标形态与边界）
 3. dare_framework/builder.py（组装 API）
 ```
 
@@ -175,13 +175,13 @@
 
 ### 创建新文档时
 
-1. **主设计文档**：使用版本号（如 `_v2.0.md`），并在本 README 中更新
+1. **主设计文档**：保持无版本命名，更新时同步更新本 README
 2. **补充/对比文档**：使用清晰主题命名（如 `Framework_Comparison_*.md`）
 3. **过程材料/过时文档**：移动到 `design/archive/` 目录
 
 ### 更新文档时
 
-1. 如果是**重大修改**：创建新版本（如 v1.2 → v1.3）
+1. 如果是**重大修改**：更新主文档，并将被替代版本归档到 `design/archive/`
 2. 如果是**小修改**：直接更新现有文档
 3. 更新本 README 的“最后更新日期”
 
@@ -197,11 +197,11 @@
 ## 🔄 文档演进历史
 
 ```text
-Phase 1: 初始设计（Industrial Agent Framework v2.0 → v2.4，已归档）
+Phase 1: 初始设计（Industrial Agent Framework 早期草案，已归档）
 ├── archive/Industrial_Agent_Framework_Design_v2.md
 └── archive/v2.1 ~ v2.4 Supplements
 
-Phase 2: 接口设计（v1.0 → v1.1）
+Phase 2: 接口设计（早期版本，已归档）
 ├── archive/Interface_Layer_Design_v1.md
 └── archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md
 
@@ -210,17 +210,17 @@ Phase 3: 框架对比与融合
 ├── archive/Framework_Comparison_AgentScope.md
 └── archive/anthropic-engineering.md
 
-Phase 4: 架构终稿 v1.3（历史参考）
+Phase 4: 架构终稿（历史参考）
 └── archive/Architecture_Final_Review_v1.3.md
 
-Phase 5: 架构内核化 v2.x（历史参考）
+Phase 5: 架构内核化（历史参考）
 ├── archive/Architecture_v2.0_Proposal.md
 ├── archive/Architecture_Final_Review_v2.0.md
 └── archive/Architecture_Final_Review_v2.1.md
 
-Phase 6: 架构设计 v4.0（最终架构设计）
-├── Architecture_v4.0.md
-└── Interfaces_v4.0.md
+Phase 6: 架构设计（当前权威）
+├── Architecture.md
+└── Interfaces.md
 ```
 
 ---
@@ -229,12 +229,12 @@ Phase 6: 架构设计 v4.0（最终架构设计）
 
 ### Q: 现在应该以哪个文档为准？
 
-**A:** 最终架构设计以 v4.0 为准：
-- **架构**：`design/Architecture_v4.0.md`
-- **接口**：`design/Interfaces_v4.0.md`
-- **对齐/证据**：`design/DARE_v4.0_alignment.md` + `design/DARE_v4.0_evidence.yaml`
+**A:** 最终架构设计以权威文档为准：
+- **架构**：`design/Architecture.md`
+- **接口**：`design/Interfaces.md`
+- **对齐/证据**：`design/DARE_alignment.md` + `design/DARE_evidence.yaml`
 
-> 说明：实现侧仍以代码为准；若发现实现与 v4.0 设计不一致，请优先在对齐清单中记录差异并补齐证据/迁移计划。
+> 说明：实现侧仍以代码为准；若发现实现与权威设计不一致，请优先在对齐清单中记录差异并补齐证据/迁移计划。
 
 ### Q: 为什么会看到两个 “v2.0”？
 
@@ -245,8 +245,8 @@ Phase 6: 架构设计 v4.0（最终架构设计）
 
 ### Q: 接口设计文档有两个版本，用哪个？
 
-**A:** 以 v4.0 为准：
-- **权威接口**：`design/Interfaces_v4.0.md`
+**A:** 以权威接口为准：
+- **权威接口**：`design/Interfaces.md`
 - **历史参考**：`design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`（v1.x 时代接口层设计，已归档）
 
 ---
@@ -257,10 +257,10 @@ Phase 6: 架构设计 v4.0（最终架构设计）
 doc/
 ├── README.md
 ├── design/
-│   ├── Architecture_v4.0.md
-│   ├── Interfaces_v4.0.md
-│   ├── DARE_v4.0_alignment.md
-│   ├── DARE_v4.0_evidence.yaml
+│   ├── Architecture.md
+│   ├── Interfaces.md
+│   ├── DARE_alignment.md
+│   ├── DARE_evidence.yaml
 │   └── archive/（历史参考）
 │       ├── Architecture_Final_Review_v2.1.md
 │       ├── Interface_Layer_Design_v1.1_MCP_and_Builtin.md

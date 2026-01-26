@@ -4,36 +4,32 @@
 TBD - created by archiving change refactor-layered-structure. Update Purpose after archive.
 ## Requirements
 ### Requirement: Layered Package Organization
-The framework SHALL organize source modules into Layer 1 (core infrastructure), Layer 2 (pluggable components), and Layer 3 (agent composition) namespaces aligned with the design docs.
+The framework SHALL organize the v3 package by top-level functional domains (`agent`, `context`, `model`, `memory`, `tool`, `plan`, `event`, `hook`, `security`, `config`, `utils`). Each domain SHALL include `kernel.py`, `component.py`, `types.py`, and an `internal/` directory for implementations.
 
 #### Scenario: Browsing the package
-- **WHEN** a contributor inspects `dare_framework/`
-- **THEN** core infrastructure modules are grouped under a core namespace, pluggable components under a components namespace, and composition modules under a composition namespace.
+- **WHEN** a contributor inspects `dare_framework3_3/`
+- **THEN** the domain packages and their `kernel.py`, `component.py`, `types.py`, and `internal/` directories are visible.
 
 ### Requirement: Functional Domain Grouping
-The framework SHALL group modules within each layer by functional domain (runtime, planning, policy, tooling, validation, context, MCP, config).
+The framework SHALL locate domain-specific interfaces, types, and implementations within the owning domain package.
 
 #### Scenario: Locating a domain module
-- **WHEN** a contributor searches for a domain such as tooling or validation
-- **THEN** the interfaces and models for that domain appear under the corresponding layer subpackage.
-
-#### Scenario: Organizing components and composition
-- **WHEN** a contributor inspects pluggable components or composition modules
-- **THEN** their modules are grouped by the same functional domains as core, rather than collected in a single grab-bag module.
+- **WHEN** a contributor searches for the security domain
+- **THEN** interfaces and implementations are located under `dare_framework3_3/security/`.
 
 ### Requirement: No Pass-through Modules
-The framework SHALL avoid modules whose sole purpose is re-exporting symbols from other modules unless they provide necessary package initialization or documentation.
+The framework SHALL avoid modules whose sole purpose is re-exporting symbols, except for domain package `__init__.py` files and `internal/__init__.py` implementation exports.
 
-#### Scenario: Removing re-export-only files
-- **WHEN** a module contains only `import *` re-exports with no additional logic
-- **THEN** it is removed and callers use explicit module paths instead.
+#### Scenario: Facade-only re-exports are allowed
+- **WHEN** a module exists only to re-export stable API symbols
+- **THEN** it MUST be a domain `__init__.py` or `internal/__init__.py`; otherwise it is removed and callers import from the module-of-definition.
 
 ### Requirement: Minimal Package Initializers
-The framework SHALL keep package `__init__.py` files minimal, exposing module namespaces without re-exporting implementation classes.
+Package `__init__.py` files under implementation subpackages (e.g., `dare_framework3_3/**/internal/__init__.py`) SHALL remain minimal and SHALL NOT define new symbols.
 
-#### Scenario: Importing a package
-- **WHEN** a contributor opens a package `__init__.py`
-- **THEN** it contains only lightweight module exposure or documentation, not concrete implementations.
+#### Scenario: Importing an implementation package
+- **WHEN** a contributor opens an `internal/__init__.py`
+- **THEN** it contains only a docstring, metadata, or re-exports of implementation classes.
 
 ### Requirement: Intentional Placeholder Packages
 The framework SHALL only keep empty or placeholder packages when they include a clear module-level docstring describing their intent and expected contents.
@@ -48,4 +44,22 @@ The framework SHALL remove default implementations that are not referenced by th
 #### Scenario: Identifying unused defaults
 - **WHEN** a default component is not reachable from `AgentBuilder` wiring, not exposed via entry point discovery, and not used in examples
 - **THEN** it is removed or marked as an intentional placeholder with documented intent.
+
+### Requirement: Canonical Framework Package and Legacy Archive
+The repository SHALL expose a single active framework package at `dare_framework/`. Historical framework versions SHALL be archived under `archive/frameworks/` and MUST NOT remain as top-level importable packages.
+
+#### Scenario: Locating the active framework
+- **WHEN** a contributor searches for the active framework package
+- **THEN** they find `dare_framework/` at the repository root and legacy versions only under `archive/frameworks/`.
+
+#### Scenario: Example and test imports
+- **WHEN** examples or tests import framework modules
+- **THEN** they import from `dare_framework` and not from archived legacy package names.
+
+### Requirement: Canonical naming without version markers
+The canonical (non-archived) codebase and documentation SHALL avoid version markers in package names, file names, and descriptive labels. Archived references MAY retain historical version labels under `archive/`.
+
+#### Scenario: Naming the active codebase
+- **WHEN** a contributor inspects active code, examples, tests, or docs
+- **THEN** they see canonical names without version suffixes, except within `archive/`.
 

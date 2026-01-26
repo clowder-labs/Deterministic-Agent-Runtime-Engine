@@ -1,4 +1,9 @@
-"""Kernel security boundary models (v2)."""
+"""security domain types (trust/policy/sandbox).
+
+These types mirror the taxonomy used across the repo so placeholder interfaces
+can align with the design docs without committing to concrete policy or
+sandbox implementations.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +11,18 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from dare_framework.contracts.risk import RiskLevel
+
+class RiskLevel(Enum):
+    """Risk level classification for capabilities that may have side effects."""
+
+    READ_ONLY = "read_only"
+    IDEMPOTENT_WRITE = "idempotent_write"
+    COMPENSATABLE = "compensatable"
+    NON_IDEMPOTENT_EFFECT = "non_idempotent_effect"
 
 
 class PolicyDecision(Enum):
-    """Policy decision returned by ISecurityBoundary.check_policy (v2.0)."""
+    """Policy evaluation result."""
 
     ALLOW = "allow"
     DENY = "deny"
@@ -19,7 +31,7 @@ class PolicyDecision(Enum):
 
 @dataclass(frozen=True)
 class TrustedInput:
-    """Trusted input derived from untrusted params + registries."""
+    """Trusted input derived from untrusted params + trusted registries."""
 
     params: dict[str, Any]
     risk_level: RiskLevel
@@ -28,11 +40,10 @@ class TrustedInput:
 
 @dataclass(frozen=True)
 class SandboxSpec:
-    """Minimal sandbox specification placeholder (v2.0).
-
-    The MVP may stub sandbox behavior, but MUST keep the contract surface.
-    """
+    """Minimal sandbox specification placeholder."""
 
     mode: str = "stub"
     details: dict[str, Any] = field(default_factory=dict)
 
+
+__all__ = ["PolicyDecision", "RiskLevel", "SandboxSpec", "TrustedInput"]

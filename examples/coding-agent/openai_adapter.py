@@ -140,7 +140,7 @@ class OpenAIModelAdapter(BaseComponent, IModelAdapter):
 
 
 class OpenAIPlanner(IPlanner):
-    """Planner that asks OpenAI for a JSON plan and maps it to v2 ProposedStep objects."""
+    """Planner that asks OpenAI for a JSON plan and maps it to ProposedStep objects."""
 
     def __init__(
         self,

@@ -1,5 +1,5 @@
-"""Builder domain: Agent composition and plugin wiring."""
+"""Builder facade for composing agents."""
 
-from dare_framework.builder.builder import Agent, AgentBuilder
+from dare_framework.builder.builder import AgentBuilder
 
-__all__ = ["Agent", "AgentBuilder"]
+__all__ = ["AgentBuilder"]
