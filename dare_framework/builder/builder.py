@@ -10,9 +10,9 @@ from dare_framework.context import Context, Budget
 from dare_framework.knowledge import IKnowledge
 from dare_framework.memory import ILongTermMemory, IShortTermMemory
 from dare_framework.model.interfaces import IModelAdapter
-from dare_framework.tool._internal.default_tool_gateway import DefaultToolGateway
-from dare_framework.tool._internal.gateway_tool_provider import GatewayToolProvider
-from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
+from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
+from dare_framework.tool._internal.providers.gateway_tool_provider import GatewayToolProvider
+from dare_framework.tool._internal.providers.native_tool_provider import NativeToolProvider
 from dare_framework.tool.interfaces import ITool, IToolProvider, RunContext
 from dare_framework.tool.kernel import IToolGateway
 
@@ -96,8 +96,8 @@ class AgentBuilder:
         tool_provider = self._tool_provider
         if tool_provider is None and tool_gateway is not None:
             if self._tools or self._tool_gateway is not None:
-                capabilities = self._list_capabilities_sync(tool_gateway)
-                tool_provider = GatewayToolProvider(capabilities=capabilities)
+                tool_provider = GatewayToolProvider(tool_gateway)
+                self._refresh_tool_provider_sync(tool_provider)
 
         if self._context is None:
             return SimpleChatAgent(
@@ -135,14 +135,15 @@ class AgentBuilder:
         """Create a default run context for tool invocation."""
         return RunContext(deps=None, metadata={"agent": self._name})
 
-    def _list_capabilities_sync(self, gateway: IToolGateway) -> list[Any]:
-        """Synchronously resolve capabilities from an async gateway."""
+    def _refresh_tool_provider_sync(self, provider: GatewayToolProvider) -> None:
+        """Synchronously refresh tool capabilities on a provider."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(gateway.list_capabilities())
+            asyncio.run(provider.refresh())
+            return
         raise RuntimeError(
-            "AgentBuilder.build() cannot resolve tool capabilities while an event loop is running. "
+            "AgentBuilder.build() cannot refresh tool capabilities while an event loop is running. "
             "Build the agent before entering the async runtime or supply a custom tool provider."
         )
 

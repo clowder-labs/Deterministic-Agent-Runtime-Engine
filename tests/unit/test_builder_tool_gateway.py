@@ -8,8 +8,13 @@ from dare_framework.builder import AgentBuilder
 from dare_framework.model.interfaces import IModelAdapter
 from dare_framework.model.types import ModelResponse, Prompt
 from dare_framework.plan.types import Envelope
-from dare_framework.tool._internal.default_tool_gateway import DefaultToolGateway
-from dare_framework.tool.types import CapabilityDescriptor, CapabilityType, ToolResult
+from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
+from dare_framework.tool.types import (
+    CapabilityDescriptor,
+    CapabilityType,
+    ProviderStatus,
+    ToolResult,
+)
 
 
 class DummyModelAdapter(IModelAdapter):
@@ -38,6 +43,9 @@ class FakeProvider:
     async def invoke(self, capability_id: str, params: dict[str, Any]) -> object:
         return {"capability_id": capability_id, **self._payload, **params}
 
+    async def health_check(self) -> ProviderStatus:
+        return ProviderStatus.HEALTHY
+
 
 @pytest.mark.asyncio
 async def test_agent_builder_minimal_build() -> None:
@@ -61,9 +69,10 @@ def test_agent_builder_derives_tool_defs_from_gateway() -> None:
 
     assert tools
     tool_def = tools[0]
-    assert tool_def["name"] == "echo"
+    assert tool_def["type"] == "function"
+    assert tool_def["function"]["name"] == "echo"
     assert tool_def["capability_id"] == "tool:echo"
-    assert tool_def["parameters"] == EchoTool.input_schema
+    assert tool_def["function"]["parameters"] == EchoTool.input_schema
 
 
 @pytest.mark.asyncio
