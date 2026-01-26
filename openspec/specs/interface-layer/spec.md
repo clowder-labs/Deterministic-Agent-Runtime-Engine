@@ -1,44 +1,40 @@
 # interface-layer Specification
 
 ## Purpose
-TBD - created by archiving change refactor-plugin-system-v2. Update Purpose after archive.
+TBD - created by archiving the prior plugin-system change. Update Purpose after archive.
 ## Requirements
-### Requirement: Shared types are v2-aligned
-The system SHALL locate shared canonical types (evidence, risk levels, tool results/definitions, model message types) in v2-aligned modules and SHALL use them across Kernel/components/examples.
+### Requirement: Shared types are canonical
+The system SHALL locate canonical types within their owning domains (context, tool, plan, event, hook, security, model, memory, config) and SHALL use them across Kernel/components/examples.
 
 #### Scenario: Tool loop returns canonical ToolResult
-- **GIVEN** a tool invocation through the v2 Tool Loop
+- **GIVEN** a tool invocation through the Tool Loop
 - **WHEN** it completes
-- **THEN** the result is represented using the canonical v2 `ToolResult` type (not a legacy v1-only type)
+- **THEN** the result is represented using the canonical `ToolResult` type.
 
 ### Requirement: Core Interface Coverage
-The interface layer SHALL define the v4.0 stable interface surface from `doc/design/Interfaces_v4.0.md` (consistent with `doc/design/Architecture_v4.0.md`), including:
+The interface layer SHALL define Kernel and Component contracts, including:
 
-- Agent: `IAgent`（可选：`IAgentOrchestration`）
-- Context: `IContext`, `IRetrievalContext`
-- Tool/control planes: `IToolGateway`, `IExecutionControl`, `ISecurityBoundary`
-- Plan: `IPlanner`, `IValidator`, `IRemediator`
-- Cross-cutting: `IEventLog`, `IExtensionPoint`, `IConfigProvider`, `IModelAdapter`
+- Kernel: `IContextManager`, `IResourceManager`, `IToolGateway`, `IExecutionControl`, `IEventLog`, `IExtensionPoint`, `IConfigProvider`, `ISecurityBoundary`
+- Component: `IContextStrategy`, `IModelAdapter`, `IMemory`, `IPromptStore`, `ITool`, `ISkill`, `ICapabilityProvider`, `IProtocolAdapter`, `IMCPClient`, `IPlanner`, `IValidator`, `IRemediator`, `IEventListener`, `IHook`
 
-#### Scenario: Developer implements a custom Kernel component
-- **WHEN** a developer imports and implements any Kernel interface
-- **THEN** the contract surface is available, typed, and usable for composition
+#### Scenario: Developer implements a custom component
+- **WHEN** a developer imports and implements any domain interface
+- **THEN** the contract surface is available, typed, and usable for composition.
 
 ### Requirement: Core Data Models
-The interface layer SHALL provide canonical data models for v4.0, including:
-`CapabilityDescriptor`, `CapabilityType`, `Envelope`, `Budget`, `DonePredicate`, `Checkpoint`, and `ContextPacket`, plus task/milestone/run result models used by the Kernel flow.
+The interface layer SHALL provide canonical data models, including:
+`CapabilityDescriptor`, `CapabilityType`, `Envelope`, `Budget`, `ToolDefinition`, `ToolResult`, `ExecutionSignal`, `Checkpoint`, `Task`, `Milestone`, `RunResult`, `Event`, `RuntimeSnapshot`, `HookPhase`, `RiskLevel`, `PolicyDecision`, `TrustedInput`, and `SandboxSpec`.
 
 #### Scenario: Kernel and providers exchange canonical models
 - **WHEN** a capability is discovered and invoked through the gateway
-- **THEN** capability descriptors and envelopes use the canonical models (no protocol-specific leakage)
+- **THEN** capability descriptors and envelopes use the canonical models (no protocol-specific leakage).
 
 ### Requirement: AgentBuilder Composition API
-The developer API (AgentBuilder or equivalent) SHALL support composing:
-Kernel defaults, strategies (planner/validator/remediator/context strategy), tools and providers, optional protocol adapters, memory, and explicit budgets.
+The developer-facing agent API SHALL support direct composition of core components by passing optional overrides into agent constructors, with defaults created when omitted.
 
-#### Scenario: Minimal v2 build and run
-- **WHEN** a developer builds an agent with v4.0 defaults and a minimal tool set
-- **THEN** the agent can execute a deterministic end-to-end flow without external network dependencies
+#### Scenario: Minimal build and run
+- **WHEN** a developer constructs an agent with a model adapter and tools
+- **THEN** the agent can execute a deterministic end-to-end flow without external builder scaffolding.
 
 ### Requirement: Optional MCP Integration Surface
 The interface layer SHALL define IMCPClient and MCPToolkit, and MCP integration SHALL keep the default runtime functional when no MCP clients are configured.
@@ -46,3 +42,38 @@ The interface layer SHALL define IMCPClient and MCPToolkit, and MCP integration 
 #### Scenario: MCP is not configured
 - **WHEN** no MCP clients are provided
 - **THEN** the runtime operates with local tools only and does not attempt MCP discovery
+
+### Requirement: Default ToolGateway Aggregates Capability Providers
+The canonical `dare_framework` package SHALL provide a default `IToolGateway` implementation that aggregates registered `ICapabilityProvider`s and enforces envelope allowlists during invocation.
+
+#### Scenario: List capabilities from multiple providers
+- **GIVEN** two registered capability providers
+- **WHEN** `list_capabilities()` is called
+- **THEN** it returns the combined capability descriptors without duplicate ids
+
+#### Scenario: Reject disallowed capability invoke
+- **GIVEN** an envelope with `allowed_capability_ids` that does not include a requested capability
+- **WHEN** `invoke()` is called
+- **THEN** the gateway rejects the request
+
+### Requirement: Manager interfaces are domain-owned
+The system SHALL define component manager interfaces alongside their owning domain interfaces, not in the config domain. Specifically:
+- Tool manager: `dare_framework3_4/tool/interfaces.py`
+- Model adapter manager: `dare_framework3_4/model/interfaces.py`
+- Planner/validator/remediator managers: `dare_framework3_4/plan/interfaces.py`
+- Hook manager: `dare_framework3_4/hook/interfaces.py`
+
+The protocol adapter manager SHALL be defined at the package root in `dare_framework3_4/protocol_adapter_manager.py` until a dedicated protocol domain exists.
+
+#### Scenario: Tool manager import path
+- **WHEN** a contributor imports `IToolManager`
+- **THEN** it is available from `dare_framework3_4.tool.interfaces` and not from `dare_framework3_4.config.interfaces`.
+
+#### Scenario: Plan manager grouping
+- **WHEN** a contributor looks for planner/validator/remediator managers
+- **THEN** the manager interfaces are defined alongside `IPlanner`, `IValidator`, and `IRemediator` in the plan domain.
+
+#### Scenario: Protocol adapter manager root
+- **WHEN** a contributor imports `IProtocolAdapterManager`
+- **THEN** it is available from `dare_framework3_4.protocol_adapter_manager`.
+

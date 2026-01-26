@@ -26,7 +26,7 @@
 - **Type Checking**: mypy (strict mode)
 - **Testing**: pytest + pytest-asyncio
 - **Async Runtime**: asyncio
-- **Data Validation**: Pydantic v2
+- **Data Validation**: Pydantic
 - **Configuration**: YAML + pydantic-settings
 - **Logging**: structlog (structured logging)
 - **Container Runtime**: Docker (for sandbox execution)
@@ -95,12 +95,12 @@ async def invoke(
 **Execute Loop**: LLM 驱动执行，遇到 Plan Tool 回到 Milestone Loop  
 **Tool Loop**: WorkUnit 内部迭代，受 Envelope + DonePredicate 约束
 
-#### 核心组件（v2 Kernel 化）
+#### 核心组件（Kernel 化）
 
 ```
 dare_framework/
 ├── builder.py                 # AgentBuilder + Agent
-├── core/                      # Layer 0: Kernel (v2)
+├── core/                      # Layer 0: Kernel
 │   ├── run_loop/              # IRunLoop / RunLoopState / TickResult (+ default)
 │   ├── orchestrator/          # ILoopOrchestrator (+ default)
 │   ├── execution_control/     # IExecutionControl / ExecutionSignal (+ default)
@@ -110,19 +110,19 @@ dare_framework/
 │   ├── security/              # ISecurityBoundary / SandboxSpec (+ default)
 │   ├── event/                 # IEventLog / Event / RuntimeSnapshot (+ default)
 │   └── hook/                  # IExtensionPoint (+ default)
-├── contracts/                 # Shared contracts/types (v2)
-├── protocols/                 # Layer 1: Protocol Adapters (v2)
+├── contracts/                 # Shared contracts/types
+├── protocols/                 # Layer 1: Protocol Adapters
 │   ├── base.py                # IProtocolAdapter
 │   └── mcp_adapter.py         # MCPAdapter (optional)
-├── components/                # Layer 2: Pluggable Components (v2)
+├── components/                # Layer 2: Pluggable Components
 │   ├── planners/              # DeterministicPlanner (MVP)
 │   ├── validators/            # GatewayValidator (MVP)
 │   ├── providers/             # NativeToolProvider / ProtocolAdapterProvider
 │   ├── tools/                 # Example tools (ITool)
-│   └── plugin_system/         # Entrypoint groups + component managers (v2)
+│   └── plugin_system/         # Entrypoint groups + component managers
 ```
 
-#### 核心接口（v2）
+#### 核心接口
 
 - Kernel: `IRunLoop`, `ILoopOrchestrator`, `IExecutionControl`, `IContextManager`, `IResourceManager`, `IEventLog`, `IToolGateway`, `ISecurityBoundary`, `IExtensionPoint`
 - Layer 1: `IProtocolAdapter`
@@ -281,10 +281,10 @@ test(coverage): add deterministic coverage validator tests
 
 ## References
 
-- [架构设计 v4.0（权威）](/doc/design/Architecture_v4.0.md)
-- [接口设计 v4.0（权威）](/doc/design/Interfaces_v4.0.md)
-- [v4.0 对齐清单](/doc/design/DARE_v4.0_alignment.md)
-- [v4.0 证据索引](/doc/design/DARE_v4.0_evidence.yaml)
+- [架构设计（权威）](/doc/design/Architecture.md)
+- [接口设计（权威）](/doc/design/Interfaces.md)
+- [对齐清单](/doc/design/DARE_alignment.md)
+- [证据索引](/doc/design/DARE_evidence.yaml)
 - [架构终稿评审 v2.1（已归档）](/doc/design/archive/Architecture_Final_Review_v2.1.md)
 - [架构终稿评审 v1.3（已归档）](/doc/design/archive/Architecture_Final_Review_v1.3.md)
 - [接口层设计 v1.1（已归档）](/doc/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md)

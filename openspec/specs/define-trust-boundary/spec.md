@@ -3,34 +3,27 @@
 ## Purpose
 TBD - created by archiving change refactor-layered-structure. Update Purpose after archive.
 ## Requirements
-### Requirement: Trust Boundary Interface
-The framework SHALL define an `ITrustBoundary` interface in the core infrastructure layer to derive safety-critical fields from trusted registries before policy checks, with explicit methods for deriving validated steps or plans.
+### Requirement: Security Boundary Interface
+The framework SHALL define an `ISecurityBoundary` interface that derives trusted inputs, enforces policy decisions, and executes actions within a sandbox boundary.
 
-#### Scenario: Deriving safety fields
-- **WHEN** a proposed plan step is supplied by the model
-- **THEN** `ITrustBoundary` derives tool type, risk level, and approval requirements from trusted registries and outputs a validated step.
+#### Scenario: Deriving trusted input
+- **WHEN** a proposed tool input is supplied by the model
+- **THEN** `ISecurityBoundary.verify_trust` returns a `TrustedInput` with derived risk and metadata.
 
-#### Scenario: Deriving a validated plan
-- **WHEN** a proposed plan is supplied by the model
-- **THEN** `ITrustBoundary` exposes a method that returns a `ValidatedPlan` built from trusted tool metadata.
+### Requirement: Security Boundary Minimal Contract
+The `ISecurityBoundary` interface SHALL expose a minimal contract that includes:
+- verifying trusted input (`verify_trust`)
+- checking policy decisions (`check_policy`)
+- executing actions safely (`execute_safe`)
 
-### Requirement: Trust Boundary Minimal Contract
-The `ITrustBoundary` interface SHALL expose a minimal contract that includes:
-- deriving a validated step from a proposed step and registry data
-- deriving a validated plan from a proposed plan and registry data
+#### Scenario: Checking policy
+- **WHEN** a tool action is evaluated
+- **THEN** `check_policy` returns a decision such as ALLOW or APPROVE_REQUIRED.
 
-#### Scenario: Validating a step in isolation
-- **WHEN** a component needs to validate a single proposed step
-- **THEN** TrustBoundary provides a method that returns a `ValidatedStep` or a structured error.
-
-#### Scenario: Minimal method shape
-- **WHEN** a contributor reads the `ITrustBoundary` interface
-- **THEN** it includes methods equivalent to `derive_step(proposed_step: ProposedStep, registry: IToolRegistry) -> ValidatedStep` and `derive_plan(proposed_plan: ProposedPlan, registry: IToolRegistry) -> ValidatedPlan`.
-
-### Requirement: Trust Boundary Positioning
-The runtime validation flow SHALL apply `ITrustBoundary` before policy enforcement and execution.
+### Requirement: Security Boundary Positioning
+The agent flow SHALL apply `ISecurityBoundary` checks before invoking tool execution or protocol adapters.
 
 #### Scenario: Enforcing ordering
-- **WHEN** the runtime validates a plan
-- **THEN** TrustBoundary runs before `IPolicyEngine` checks and before any tool execution path.
+- **WHEN** an agent prepares to invoke a tool
+- **THEN** it verifies trust and policy before calling the tool gateway.
 

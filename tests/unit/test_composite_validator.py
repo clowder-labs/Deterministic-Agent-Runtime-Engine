@@ -1,5 +1,11 @@
 import pytest
 
+pytest.skip(
+    "Legacy validator implementations are archived; port to canonical dare_framework "
+    "once composite validator support exists.",
+    allow_module_level=True,
+)
+
 from dare_framework.plan.impl.validators.composite import CompositeValidator
 from dare_framework.builder.base_component import ConfigurableComponent
 from dare_framework.contracts.ids import generator_id

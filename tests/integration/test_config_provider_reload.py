@@ -1,3 +1,11 @@
+import pytest
+
+pytest.skip(
+    "Legacy ConfigManager reload flow is archived; port to canonical dare_framework once "
+    "equivalent config manager support exists.",
+    allow_module_level=True,
+)
+
 from dare_framework.config.manager import ConfigManager
 
 

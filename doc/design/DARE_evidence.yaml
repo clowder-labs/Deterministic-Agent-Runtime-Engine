@@ -1,0 +1,266 @@
+# DARE_evidence.yaml
+# Purpose:
+# - Claims support the architecture/interfaces docs.
+# - When docs drift, fix claims first, then update doc sections via anchors.
+
+meta:
+  generated_for: "DARE Framework architecture + interfaces"
+  generated_at: "2026-01-22"
+  package_name: "dare_framework"
+  workflow:
+    - "Edit claims first (statement/rationale/refs/anchors), then patch docs."
+    - "Use anchors to locate exact sections to update."
+  claim_rules:
+    - "type=observed: must be supported by refs sources"
+    - "type=design_decision: must include rationale"
+    - "type=gap: describe missing pieces and placeholder interfaces"
+
+sources:
+  - id: doc-arch-proposal
+    path: doc/design/archive/Architecture_v2.0_Proposal.md
+    why: "Core ideas: kernelization, context engineering, protocol adapters, long-task control planes"
+  - id: doc-arch-final-review
+    path: doc/design/archive/Architecture_Final_Review_v2.1.md
+    why: "Five-layer loop, tool loop boundaries, derived security fields, control planes"
+  - id: doc-arch-compare
+    path: doc/design/archive/ARCHITECTURE_COMPARISON.md
+    why: "Historical domain evolution: DDD domains, base context refactor, moving orchestration into agent"
+  - id: doc-project
+    path: openspec/project.md
+    why: "project invariants: LLM untrusted, state externalization, audit closure, side-effect boundary"
+
+  - id: spec-core-runtime
+    path: openspec/specs/core-runtime/spec.md
+    why: "requirements for HITL waiting interface and approval gating semantics"
+
+  - id: code-arch-agent-base
+    path: archive/frameworks/dare_framework3_3/agent/base.py
+    why: "Agent.run as developer-facing surface; control-plane wiring"
+  - id: code-arch-agent-five-layer
+    path: archive/frameworks/dare_framework3_3/agent/five_layer.py
+    why: "five-layer loop implemented as an agent orchestration"
+  - id: code-arch-plan-validator
+    path: archive/frameworks/dare_framework3_3/plan/internal/gateway_validator.py
+    why: "security fields derived from registry metadata; plan tool special-case"
+
+  - id: code-context
+    path: dare_framework/context/_internal/context.py
+    why: "context-centric direction: request-time assembly; retrieval references on context"
+  - id: code-model-types
+    path: dare_framework/model/types.py
+    why: "Prompt(messages+tools+metadata) shape"
+  - id: code-tool-provider
+    path: dare_framework/tool/interfaces.py
+    why: "IToolProvider.list_tools provides structured tool defs for Context.assemble"
+  - id: code-agent-simple-chat
+    path: dare_framework/agent/_internal/simple_chat.py
+    why: "Context usage: stm_add -> assemble -> Prompt(messages+tools+metadata)"
+
+  - id: code-arch-entrypoints
+    path: archive/frameworks/dare_framework/builder/plugin_system/entrypoint_managers.py
+    why: "Layer 3 managers: entrypoints discovery + deterministic selection/filter/sort"
+  - id: code-arch-orchestrator
+    path: archive/frameworks/dare_framework/execution/impl/orchestrator/default_orchestrator.py
+    why: "Five-layer orchestrator: tool loop boundary, model-driven tools, HITL gating"
+  - id: code-arch-execctl
+    path: archive/frameworks/dare_framework/execution/impl/execution_control/file_execution_control.py
+    why: "pause/resume/wait_for_human audit events: exec.pause/exec.waiting_human/exec.resume"
+  - id: code-arch-execctl-protocols
+    path: archive/frameworks/dare_framework/execution/impl/execution_control/protocols.py
+    why: "IExecutionControl.wait_for_human stable interface position"
+  - id: code-arch-event-log
+    path: archive/frameworks/dare_framework/execution/impl/event/local_event_log.py
+    why: "LocalEventLog: append-only + hash chain + query/replay (WORM-friendly)"
+  - id: code-arch-tool-kernel
+    path: archive/frameworks/dare_framework/tool/kernel.py
+    why: "IToolGateway.invoke as the system-call boundary"
+  - id: code-arch-protocol-base
+    path: archive/frameworks/dare_framework/protocols/base.py
+    why: "IProtocolAdapter.discover returns canonical CapabilityDescriptor (Layer 1)"
+  - id: code-arch-tool-types
+    path: archive/frameworks/dare_framework/tool/types.py
+    why: "canonical capability types (TOOL/AGENT/UI)"
+  - id: code-arch-plan-types
+    path: archive/frameworks/dare_framework/plan/planning.py
+    why: "Proposed vs Validated plan separation (untrusted vs trusted)"
+  - id: code-arch-hook-protocols
+    path: archive/frameworks/dare_framework/execution/impl/hook/protocols.py
+    why: "IExtensionPoint stable interface position"
+  - id: code-arch-hook-default
+    path: archive/frameworks/dare_framework/execution/impl/hook/default_extension_point.py
+    why: "DefaultExtensionPoint best-effort semantics"
+
+claims:
+  - id: C-EXEC-001
+    type: design_decision
+    statement: "Minimal runtime surface is IAgent.run(...); five-layer loop is one agent orchestration; do not treat IRunLoop/ILoopOrchestrator as stable Kernel interfaces."
+    rationale: "Orchestration is strategy (multi-implementation). Kernel long-term value is control planes and boundaries (audit/budget/security/tool boundary)."
+    refs: [doc-arch-compare, code-arch-agent-base, code-arch-agent-five-layer]
+    anchors:
+      architecture:
+        - "Architecture.md#2.2 分层说明（关键决策）"
+        - "Architecture.md#4.7 多编排支持（agent 域）"
+      interfaces:
+        - "Interfaces.md#1"
+
+  - id: C-ARCH-001
+    type: observed
+    statement: "Five-layer loop (Session/Milestone/Plan/Execute/Tool) is DARE's canonical orchestration skeleton."
+    refs: [doc-arch-final-review, doc-project, code-arch-agent-five-layer]
+    anchors:
+      architecture:
+        - "Architecture.md#3.2 五层循环定义（结构骨架）"
+      interfaces:
+        - "Interfaces.md#4"
+
+  - id: C-ARCH-002
+    type: observed
+    statement: "Security-critical fields (risk_level/requires_approval/timeout/is_work_unit) must be derived from trusted registries (capability metadata / tool definitions), not from LLM/planner outputs."
+    refs: [doc-arch-final-review, doc-project, code-arch-plan-validator, code-arch-orchestrator]
+    anchors:
+      architecture:
+        - "Architecture.md#1.3 不变量（必须长期成立）"
+        - "Architecture.md#4.1 统一能力模型（Capability）与系统调用边界"
+        - "Architecture.md#4.2 安全边界（Trust / Policy / Sandbox）"
+      interfaces:
+        - "Interfaces.md#3"
+        - "Interfaces.md#6"
+
+  - id: C-CTX-001
+    type: observed
+    statement: "Context-centric direction: messages are assembled request-time before each model call; session/context holds retrieval references and budgets."
+    refs: [doc-arch-compare, code-context]
+    anchors:
+      architecture:
+        - "Architecture.md#4.4 上下文工程（Context Engineering）"
+      interfaces:
+        - "Interfaces.md#2"
+        - "Interfaces.md#10"
+
+  - id: C-CTX-002
+    type: observed
+    statement: "Context holds retrieval refs (STM/LTM/Knowledge) + Budget and assembles messages/tools on-demand (AssembledContext); tools are provided as structured tool defs (list[dict]) via a tool provider."
+    refs: [doc-arch-compare, code-context, code-tool-provider, code-agent-simple-chat]
+    anchors:
+      architecture:
+        - "Architecture.md#4.4 上下文工程（Context Engineering）"
+      interfaces:
+        - "Interfaces.md#2"
+
+  - id: C-PLUG-001
+    type: observed
+    statement: "Entrypoints discovery/selection/filtering/ordering belongs to Layer 3 managers; Kernel should not depend on importlib.metadata."
+    refs: [code-arch-entrypoints]
+    anchors:
+      architecture:
+        - "Architecture.md#2.2 分层说明（关键决策）"
+        - "Architecture.md#4.6 确定性装配与插件系统（Managers）"
+      interfaces:
+        - "Interfaces.md#9"
+
+  - id: C-DOMAIN-001
+    type: design_decision
+    statement: "Domain layout uses: types.py + kernel.py + __init__.py per domain; pluggable/composed interfaces in interfaces.py; default implementations in _internal/."
+    rationale: "Aligns with DDD boundaries, uses Python underscore convention to mark non-public implementation, and enables convergence to a single dare_framework package layout."
+    refs: [doc-arch-compare]
+    anchors:
+      architecture:
+        - "Architecture.md#2.3 分域（DDD）与文件约定（硬规则）"
+      interfaces:
+        - "Interfaces.md#0"
+
+  - id: C-PKG-001
+    type: design_decision
+    statement: "Target package name is dare_framework; after doc approval, converge code and remove historical variants and redundant docs."
+    rationale: "Avoid long-term dual-stack; docs define the end state for consolidation."
+    refs: []
+    anchors:
+      architecture:
+        - "Architecture.md#1.1 定位"
+        - "Architecture.md#6. 文档驱动收敛与清理计划（摘要）"
+      interfaces:
+        - "Interfaces.md#0"
+
+  - id: C-TOOL-001
+    type: observed
+    statement: "All side effects and capability invocations must go through IToolGateway.invoke(...) as the single system-call boundary."
+    refs: [doc-project, doc-arch-final-review, code-arch-tool-kernel, code-arch-orchestrator]
+    anchors:
+      architecture:
+        - "Architecture.md#1.3 不变量（必须长期成立）"
+        - "Architecture.md#4.1 统一能力模型（Capability）与系统调用边界"
+      interfaces:
+        - "Interfaces.md#3"
+
+  - id: C-EVENT-001
+    type: observed
+    statement: "EventLog is WORM (append-only) and supports query/replay; implementations may include a hash-chain for tamper detection."
+    refs: [doc-project, doc-arch-final-review, code-arch-event-log]
+    anchors:
+      architecture:
+        - "Architecture.md#4.5 审计与可重放（EventLog / Checkpoint / Replay）"
+      interfaces:
+        - "Interfaces.md#7"
+
+  - id: C-HITL-001
+    type: observed
+    statement: "HITL control plane uses IExecutionControl.pause/resume/wait_for_human; approval paths should yield an auditable exec.pause/exec.waiting_human/exec.resume chain (MVP may be non-blocking)."
+    refs: [spec-core-runtime, doc-arch-final-review, code-arch-execctl-protocols, code-arch-execctl, code-arch-orchestrator]
+    anchors:
+      architecture:
+        - "Architecture.md#4.3 HITL（人在回路）"
+      interfaces:
+        - "Interfaces.md#3"
+
+  - id: C-PLAN-001
+    type: observed
+    statement: "Plan Attempt Isolation + Proposed (untrusted) vs Validated (trusted) separation: failed plan attempts must not mutate outer milestone/session state."
+    refs: [doc-arch-final-review, doc-project, code-arch-plan-types, code-arch-orchestrator]
+    anchors:
+      architecture:
+        - "Architecture.md#3.3 核心约束：Plan Attempt Isolation（失败计划隔离）"
+      interfaces:
+        - "Interfaces.md#4"
+
+  - id: C-PROTOCOL-001
+    type: observed
+    statement: "Protocol adapters translate protocol worlds (MCP/A2A/A2UI) into canonical CapabilityDescriptor (TOOL/AGENT/UI) and provide invoke forwarding."
+    refs: [doc-arch-proposal, doc-arch-final-review, code-arch-protocol-base, code-arch-tool-types]
+    anchors:
+      architecture:
+        - "Architecture.md#2.1 架构总览图"
+        - "Architecture.md#4.1 统一能力模型（Capability）与系统调用边界"
+      interfaces:
+        - "Interfaces.md#3"
+
+  - id: C-MODEL-001
+    type: design_decision
+    statement: "Model input is standardized as Prompt(messages + trusted tool defs + metadata); structured tool defs must be traceable to ToolGateway registry (same source of truth as tool-catalog message)."
+    rationale: "Unifies model invocation surface and fixes tool schema trust source to the gateway registry."
+    refs: [code-model-types, code-arch-orchestrator, doc-arch-compare]
+    anchors:
+      architecture:
+        - "Architecture.md#4.4 上下文工程（Context Engineering）"
+        - "Architecture.md#5. 关键组件能力设计（按 domain 摘要）"
+      interfaces:
+        - "Interfaces.md#5"
+
+  - id: C-HOOK-001
+    type: observed
+    statement: "Framework provides IExtensionPoint for lifecycle hooks; default semantics are best-effort (hook failures should not crash runtime by default)."
+    refs: [doc-arch-final-review, code-arch-hook-protocols, code-arch-hook-default]
+    anchors:
+      architecture:
+        - "Architecture.md#4.8 Hooks 扩展点（ExtensionPoint）"
+      interfaces:
+        - "Interfaces.md#8"
+
+  - id: C-PLAN-TOOL-001
+    type: observed
+    statement: "If Execute encounters a Plan Tool (control tool), it should stop and return to the outer loop to re-plan."
+    refs: [spec-core-runtime, doc-arch-final-review, code-arch-orchestrator, code-arch-agent-five-layer]
+    anchors:
+      architecture:
+        - "Architecture.md#3.4 核心约束：Plan Tool（控制类工具）"
+      interfaces:
+        - "Interfaces.md#11"

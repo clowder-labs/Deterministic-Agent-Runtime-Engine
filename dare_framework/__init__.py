@@ -1,5 +1,5 @@
-"""DARE Framework package: Deterministic Agent Runtime Engine."""
+"""DARE Framework - Context-centric architecture."""
 
-from .builder import Agent, AgentBuilder
+from dare_framework.protocol_adapter_manager import IProtocolAdapterManager
 
-__all__ = ["Agent", "AgentBuilder"]
+__all__ = ["IProtocolAdapterManager"]
