@@ -4,11 +4,11 @@
 TBD - created by archiving change refactor-layered-structure. Update Purpose after archive.
 ## Requirements
 ### Requirement: Layered Package Organization
-The framework SHALL organize the v3 package by top-level functional domains (`agent`, `context`, `model`, `memory`, `tool`, `plan`, `event`, `hook`, `security`, `config`, `utils`). Each domain SHALL include `kernel.py`, `component.py`, `types.py`, and an `internal/` directory for implementations.
+The framework SHALL include an `infra` package for cross-domain shared contracts (e.g., `ComponentType`, `IComponent`) that are used by multiple domains.
 
-#### Scenario: Browsing the package
-- **WHEN** a contributor inspects `dare_framework3_3/`
-- **THEN** the domain packages and their `kernel.py`, `component.py`, `types.py`, and `internal/` directories are visible.
+#### Scenario: Contributor locates shared identity types
+- **WHEN** a contributor needs `ComponentType` or `IComponent`
+- **THEN** they find them under `dare_framework/infra/`
 
 ### Requirement: Functional Domain Grouping
 The framework SHALL locate domain-specific interfaces, types, and implementations within the owning domain package.

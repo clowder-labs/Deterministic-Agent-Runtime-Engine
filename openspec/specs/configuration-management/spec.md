@@ -20,11 +20,11 @@ The system SHALL resolve configuration by applying layers in the order system < 
 - **THEN** the project value is used
 
 ### Requirement: Effective Config Object
-The ConfigProvider SHALL return a single effective Config object that represents the resolved configuration. The effective Config MUST be immutable and safe to share across runtime components; providers MAY wrap it in a ConfigSnapshot that carries metadata such as hash or source layers.
+The ConfigProvider SHALL return a single effective `Config` object that represents the resolved configuration. The effective `Config` MUST be immutable and safe to share across runtime components.
 
-#### Scenario: Components read from effective Config
-- **WHEN** a component requests configuration
-- **THEN** it receives values from the immutable Config snapshot produced by the ConfigProvider
+#### Scenario: Provider returns Config directly
+- **WHEN** the configuration provider returns the effective configuration
+- **THEN** it returns an immutable `Config` object directly (not wrapped in a `ConfigSnapshot`)
 
 ### Requirement: allowtools and allowmcps Override Semantics
 The allowtools and allowmcps settings SHALL be treated as normal configuration keys and follow the same layer override order (system < user < project). They MUST NOT be merged across layers unless explicitly specified by the effective layer.
@@ -65,11 +65,13 @@ The components.<type> map SHALL store per-component configuration objects keyed 
 - **THEN** the per-component configuration is available at components.<type>.<name>
 
 ### Requirement: Component Identity for Configuration
-Each entry point component interface SHALL expose a component type (enum) and a component name so configuration can resolve components.<type>.disabled and components.<type>.<name>.
+Each entry point component implementation SHALL expose a component type and name for configuration lookup.
 
-#### Scenario: Component exposes type and name for config lookup
-- **WHEN** a component is discovered via entry points
-- **THEN** the configuration system can read its type and name for enablement and config lookup
+The canonical identity surface SHALL be `infra.IComponent.component_type` and `infra.IComponent.name`, and SHALL use the shared `ComponentType` enum for types.
+
+#### Scenario: Component exposes type for config lookup
+- **WHEN** a component is discovered via entry points or provided by a manager
+- **THEN** config filtering can read its `component_type` and `name` for enable/disable evaluation
 
 ### Requirement: Component Type Enumeration
 The component type enum MUST include validator, memory, model_adapter, tool, skill, mcp, hook, and prompt to cover all entry point component categories managed by BaseComponentManager.
@@ -98,4 +100,12 @@ The SessionContext SHALL store the effective Config for the session lifecycle, a
 #### Scenario: SessionContext includes effective Config
 - **WHEN** a session starts
 - **THEN** SessionContext holds the effective Config produced by the ConfigProvider
+
+### Requirement: Config enablement helpers accept components
+The `Config` model SHALL expose helper APIs that accept concrete component instances for enablement evaluation and filtering.
+
+#### Scenario: Filter manager-loaded components by config
+- **GIVEN** a list of components loaded by a manager
+- **WHEN** config filters the list
+- **THEN** only enabled components remain, using each component's type and name for lookup
 

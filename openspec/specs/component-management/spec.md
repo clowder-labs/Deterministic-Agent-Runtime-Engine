@@ -4,15 +4,16 @@
 TBD - created by archiving change add-component-manager-entrypoints. Update Purpose after archive.
 ## Requirements
 ### Requirement: Component lifecycle interface
-The system SHALL define `IComponent` with an `order` attribute, an async `init()` hook, a `register()` hook, and an async `close()` hook. Layer 2 pluggable interfaces MUST implement or extend `IComponent` (IModelAdapter, IMemory, IValidator, ITool, ISkill, IMCPClient, IHook, IConfigProvider, IPromptStore).
+The system SHALL define `IComponent` as the canonical identity contract for pluggable components.
 
-#### Scenario: Managed component lifecycle
-- **WHEN** ComponentManager instantiates a component discovered via entry points
-- **THEN** it MUST call `init()` before `register()` and MUST call `close()` on shutdown
+`IComponent` MUST expose:
+- `component_type: ComponentType`
+- `name: str`
 
-#### Scenario: Pluggable interface conformance
-- **WHEN** a Layer 2 implementation provides IModelAdapter or IMemory functionality
-- **THEN** it MUST implement `IComponent` to participate in ordering and registration
+#### Scenario: Config filters components by identity
+- **GIVEN** a manager returns a list of components
+- **WHEN** config filtering is applied
+- **THEN** the system can read `component_type` and `name` from each component to evaluate enablement
 
 ### Requirement: Component discovery via entry points
 The system SHALL support entry point discovery for pluggable components via per-interface managers (Validator/Memory/ModelAdapter/Tool/Skill/MCPClient/Hook/ConfigProvider/PromptStore). Each manager SHALL inherit BaseComponentManager and return an ordered list of its managed components when provided an IConfigProvider.
@@ -35,9 +36,17 @@ The system SHALL order discovered components by ascending `order` value before i
 ### Requirement: Lifecycle ownership boundary
 The system SHALL only manage lifecycle (init/close) for components it creates and MUST NOT close externally injected component instances.
 
-#### Scenario: Caller-injected component
-- **WHEN** a caller injects a component instance directly into AgentBuilder
-- **THEN** ComponentManager MUST register it but MUST NOT call `close()` automatically
+Additionally, configuration-driven enable/disable filtering MUST apply only to components produced by managers and MUST NOT remove or silently drop externally injected components.
+
+#### Scenario: Caller-injected component lifecycle
+- **WHEN** a caller injects a component instance directly into an agent builder
+- **THEN** the framework MUST NOT call `close()` automatically for that instance
+
+#### Scenario: Config disabled does not remove injected component
+- **GIVEN** a caller injects a tool instance into the builder
+- **AND** config marks that tool name as disabled for the tool component type
+- **WHEN** the builder assembles components using managers + config
+- **THEN** the injected tool MUST remain present and only manager-loaded tools are subject to config filtering
 
 ### Requirement: Composite tool assembly
 ToolManager SHALL support registering composite tools defined by configuration recipes (name, optional description, ordered steps referencing existing tools).

@@ -4,11 +4,11 @@
 TBD - created by archiving change consolidate-config-to-core. Update Purpose after archive.
 ## Requirements
 ### Requirement: ComponentType in contracts
-The `ComponentType` enum SHALL be located in `dare_framework/contracts/component_type.py` as a cross-layer shared type.
+The `ComponentType` enum SHALL be located in `dare_framework/infra/component.py` as a cross-domain shared type.
 
-#### Scenario: All layers import ComponentType from contracts
-- **WHEN** any layer (core, components, builder) needs `ComponentType`
-- **THEN** it MUST import from `dare_framework.contracts.component_type`
+#### Scenario: All layers import ComponentType from infra
+- **WHEN** any layer (config, builder, kernel defaults, components) needs `ComponentType`
+- **THEN** it MUST import from `dare_framework.infra.component`.
 
 ### Requirement: Core config module location
 The configuration management module SHALL be located under `dare_framework/core/config/` as part of the Kernel (Layer 0).

@@ -12,14 +12,11 @@ The system SHALL locate canonical types within their owning domains (context, to
 - **THEN** the result is represented using the canonical `ToolResult` type.
 
 ### Requirement: Core Interface Coverage
-The interface layer SHALL define Kernel and Component contracts, including:
+The interface layer SHALL define Kernel and Component contracts, including a shared component identity contract (`IComponent`) and the shared `ComponentType` enum.
 
-- Kernel: `IContextManager`, `IResourceManager`, `IToolGateway`, `IExecutionControl`, `IEventLog`, `IExtensionPoint`, `IConfigProvider`, `ISecurityBoundary`
-- Component: `IContextStrategy`, `IModelAdapter`, `IMemory`, `IPromptStore`, `ITool`, `ISkill`, `ICapabilityProvider`, `IProtocolAdapter`, `IMCPClient`, `IPlanner`, `IValidator`, `IRemediator`, `IEventListener`, `IHook`
-
-#### Scenario: Developer implements a custom component
-- **WHEN** a developer imports and implements any domain interface
-- **THEN** the contract surface is available, typed, and usable for composition.
+#### Scenario: Developer imports shared component identity
+- **WHEN** a developer implements a pluggable component
+- **THEN** they can implement `IComponent` and reference `ComponentType` from the canonical infra module
 
 ### Requirement: Core Data Models
 The interface layer SHALL provide canonical data models, including:
@@ -30,11 +27,35 @@ The interface layer SHALL provide canonical data models, including:
 - **THEN** capability descriptors and envelopes use the canonical models (no protocol-specific leakage).
 
 ### Requirement: AgentBuilder Composition API
-The developer-facing agent API SHALL support direct composition of core components by passing optional overrides into agent constructors, with defaults created when omitted.
+The developer-facing agent API SHALL support composing agents via typed builders and deterministic resolution rules:
 
-#### Scenario: Minimal build and run
-- **WHEN** a developer constructs an agent with a model adapter and tools
-- **THEN** the agent can execute a deterministic end-to-end flow without external builder scaffolding.
+- The system SHALL provide builder variants for at least:
+  - `SimpleChatAgent` (simple chat mode)
+  - `FiveLayerAgent` (five-layer orchestration mode)
+- Builders SHALL accept explicit component overrides (developer-injected instances) and SHALL treat them as highest precedence.
+- When a required component is not explicitly provided, builders SHALL attempt to resolve it via the corresponding domain manager using the effective `Config`.
+- For multi-load component categories (e.g., tools/hooks/validators), builders SHALL merge explicit components with manager-loaded components (extend semantics) while preserving injection order.
+- Config enable/disable filtering MUST apply only to the manager-loaded subset and MUST NOT remove explicitly injected components.
+
+#### Scenario: Resolve model adapter via manager
+- **GIVEN** a builder with no explicit model adapter
+- **AND** a provided `IModelAdapterManager`
+- **AND** an effective `Config`
+- **WHEN** `build()` is called
+- **THEN** the builder MUST call `IModelAdapterManager.load_model_adapter(config=Config)` and use the returned adapter as the agent model
+
+#### Scenario: Explicit model overrides manager
+- **GIVEN** a builder with an explicitly injected model adapter via builder API
+- **AND** a provided `IModelAdapterManager` that would otherwise return a different adapter
+- **WHEN** `build()` is called
+- **THEN** the explicitly injected adapter MUST be used
+
+#### Scenario: Multi-load extend with config boundary
+- **GIVEN** a builder with an explicitly injected tool `tool_x`
+- **AND** a provided `IToolManager` that loads `tool_y` and `tool_z`
+- **AND** config disables `tool_z`
+- **WHEN** `build()` is called
+- **THEN** `tool_x` and `tool_y` MUST be included and `tool_z` MUST be omitted, and `tool_x` MUST NOT be filtered out by config
 
 ### Requirement: Optional MCP Integration Surface
 The interface layer SHALL define IMCPClient and MCPToolkit, and MCP integration SHALL keep the default runtime functional when no MCP clients are configured.
@@ -76,4 +97,14 @@ The protocol adapter manager SHALL be defined at the package root in `dare_frame
 #### Scenario: Protocol adapter manager root
 - **WHEN** a contributor imports `IProtocolAdapterManager`
 - **THEN** it is available from `dare_framework3_4.protocol_adapter_manager`.
+
+### Requirement: Builder facade for variant selection
+The system SHALL provide a stable facade for selecting which builder variant to use, such as:
+
+- `Builder.simple_chat_agent_builder(name)` → builder for `SimpleChatAgent`
+- `Builder.five_layer_agent_builder(name)` → builder for `FiveLayerAgent`
+
+#### Scenario: Developer selects a builder variant
+- **WHEN** a developer selects a builder variant via the facade
+- **THEN** they receive a builder whose `build()` produces the corresponding agent type
 

@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: ComponentType in infra
+### Requirement: ComponentType in contracts
 The `ComponentType` enum SHALL be located in `dare_framework/infra/component.py` as a cross-domain shared type.
 
 #### Scenario: All layers import ComponentType from infra
