@@ -21,6 +21,14 @@ cd /path/to/Deterministic-Agent-Runtime-Engine
 python examples/tool-management/main.py
 ```
 
+## Real Model Tool-Chat Example
+
+This example mirrors the `examples/base_tool` tool chat flow and uses a real model adapter.
+
+```bash
+python examples/tool-management/tool_chat.py
+```
+
 ## Expected Output
 
 ```
