@@ -1,4 +1,4 @@
-"""plan domain facade."""
+"""plan domain facade (v4.0)."""
 
 from dare_framework3_4.plan.interfaces import IPlanner, IRemediator, IValidator
 from dare_framework3_4.plan.types import (

@@ -26,7 +26,7 @@
    └── dare_framework/（当前实现；可能与 v4.0 目标存在差异）
 
 6. 示例实现
-   └── /examples/coding-agent/ (示例 Agent)
+   └── /examples/base_tool/ (示例 Tool Runtime)
 
 7. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
@@ -164,7 +164,7 @@
 ### Agent 开发者（使用框架）
 
 ```text
-1. /examples/coding-agent/README.md
+1. /examples/base_tool/README.md
 2. design/Architecture_v4.0.md（理解框架目标形态与边界）
 3. dare_framework/builder.py（组装 API）
 ```

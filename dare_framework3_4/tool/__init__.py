@@ -3,10 +3,10 @@
 from dare_framework3_4.tool.interfaces import (
     ICapabilityProvider,
     IProtocolAdapter,
+    IMCPClient,
     ISkill,
     ITool,
     IToolProvider,
-    RunContext,
 )
 from dare_framework3_4.tool.kernel import IExecutionControl, IToolGateway
 from dare_framework3_4.tool.types import (
@@ -16,15 +16,21 @@ from dare_framework3_4.tool.types import (
     CapabilityType,
     Evidence,
     ExecutionSignal,
+    PauseRequested,
+    CancelRequested,
+    HumanApprovalRequired,
     InvocationContext,
     ProviderStatus,
     RiskLevelName,
+    RunContext,
     ToolDefinition,
+    ToolErrorRecord,
     ToolResult,
+    ToolSchema,
     ToolType,
 )
 
-# Internal implementations (convenience re-exports)
+# Default/internal implementations
 from dare_framework3_4.tool._internal import (
     Checkpoint,
     DefaultExecutionControl,
@@ -35,20 +41,43 @@ from dare_framework3_4.tool._internal import (
     ProtocolAdapterProvider,
 )
 
+# Built-in v4 tool runtime helpers and file tools
+from dare_framework3_4.tool.internal import (
+    EditLineTool,
+    FileExecutionControl,
+    GatewayToolProvider,
+    MCPAdapter,
+    NoOpMCPClient,
+    NoOpSkill,
+    ReadFileTool,
+    RunCommandTool,
+    RunContextState,
+    SearchCodeTool,
+    WriteFileTool,
+)
+
+# Compatibility alias for examples
+NoOpTool = NoopTool
+
 __all__ = [
     # Types
     "CapabilityDescriptor",
     "CapabilityKind",
     "CapabilityMetadata",
     "CapabilityType",
-    "Checkpoint",
     "Evidence",
     "ExecutionSignal",
+    "PauseRequested",
+    "CancelRequested",
+    "HumanApprovalRequired",
     "InvocationContext",
     "ProviderStatus",
     "RiskLevelName",
+    "RunContext",
     "ToolDefinition",
+    "ToolErrorRecord",
     "ToolResult",
+    "ToolSchema",
     "ToolType",
     # Kernel interfaces
     "IExecutionControl",
@@ -56,16 +85,29 @@ __all__ = [
     # Pluggable interfaces
     "ICapabilityProvider",
     "IProtocolAdapter",
+    "IMCPClient",
     "ISkill",
     "ITool",
     "IToolProvider",
-    "RunContext",
-    # Internal implementations
+    # Default implementations
+    "Checkpoint",
     "DefaultExecutionControl",
     "DefaultToolGateway",
     "EchoTool",
     "NativeToolProvider",
     "NoopTool",
+    "NoOpTool",
     "ProtocolAdapterProvider",
+    # v4 tool runtime helpers and file tools
+    "GatewayToolProvider",
+    "MCPAdapter",
+    "NoOpMCPClient",
+    "NoOpSkill",
+    "RunCommandTool",
+    "RunContextState",
+    "FileExecutionControl",
+    "ReadFileTool",
+    "SearchCodeTool",
+    "WriteFileTool",
+    "EditLineTool",
 ]
-

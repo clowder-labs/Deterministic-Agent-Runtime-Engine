@@ -28,6 +28,7 @@ class PolicyDecision(Enum):
     DENY = "deny"
     APPROVE_REQUIRED = "approve_required"
 
+
 @dataclass(frozen=True)
 class TrustedInput:
     """Trusted input derived from untrusted params + trusted registries."""

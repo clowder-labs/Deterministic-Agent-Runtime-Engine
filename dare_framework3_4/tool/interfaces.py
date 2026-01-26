@@ -2,18 +2,19 @@
 
 This module intentionally focuses on interface declarations only.
 Concrete implementations (native tools, protocol adapters, gateways) live under
-`_internal/` when introduced.
+`_internal/` or other internal modules.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Generic, Protocol, Sequence, TypeVar, runtime_checkable
+from typing import Any, Protocol, Sequence, runtime_checkable
 
 from dare_framework3_4.tool.types import (
     CapabilityDescriptor,
     ProviderStatus,
     RiskLevelName,
+    RunContext,
+    ToolDefinition,
     ToolResult,
     ToolType,
 )
@@ -40,21 +41,10 @@ class IToolProvider(Protocol):
         ...
 
 
-TDeps = TypeVar("TDeps")
-
-
-@dataclass(frozen=True)
-class RunContext(Generic[TDeps]):
-    """Invocation context passed into tools."""
-
-    deps: TDeps | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
 @runtime_checkable
 class ITool(Protocol):
     """A callable tool implementation (V4 compliant).
-    
+
     All metadata properties are trusted registry sources, not model output.
     """
 
@@ -176,13 +166,50 @@ class IProtocolAdapter(Protocol):
         ...
 
 
+@runtime_checkable
+class IMCPClient(Protocol):
+    """Minimal MCP client interface for remote tools."""
+
+    @property
+    def name(self) -> str:
+        """Client name identifier."""
+        ...
+
+    @property
+    def transport(self) -> str:
+        """Transport type (stdio, sse, etc.)."""
+        ...
+
+    async def connect(self) -> None:
+        """Connect to the MCP server."""
+        ...
+
+    async def disconnect(self) -> None:
+        """Disconnect from the MCP server."""
+        ...
+
+    async def list_tools(self) -> list[ToolDefinition]:
+        """List available tools from the MCP server."""
+        ...
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        context: RunContext[Any],
+    ) -> ToolResult:
+        """Invoke a remote tool through MCP."""
+        ...
+
+
 __all__ = [
     "ICapabilityProvider",
     "IProtocolAdapter",
     "ISkill",
     "ITool",
     "IToolProvider",
+    "IMCPClient",
     "RunContext",
+    "ToolDefinition",
     "ToolResult",
 ]
-

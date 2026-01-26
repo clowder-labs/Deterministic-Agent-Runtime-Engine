@@ -1,7 +1,4 @@
-"""Kernel hook domain (v2)."""
+"""Kernel hook domain (v2).
 
-from .models import HookPhase
-from .protocols import IExtensionPoint
-from .default_extension_point import DefaultExtensionPoint
-
-__all__ = ["HookPhase", "IExtensionPoint", "DefaultExtensionPoint"]
+Use dedicated modules for protocols and implementations to avoid import cycles.
+"""

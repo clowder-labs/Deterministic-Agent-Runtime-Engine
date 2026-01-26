@@ -68,6 +68,8 @@ class DonePredicate:
     """Defines what 'done' means for a Tool Loop attempt."""
 
     required_keys: list[str] = field(default_factory=list)
+    evidence_conditions: list[dict[str, Any]] = field(default_factory=list)
+    require_all: bool = True
     description: str | None = None
 
 

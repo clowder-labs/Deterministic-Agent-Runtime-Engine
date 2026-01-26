@@ -5,15 +5,16 @@ Manages local ITool instances and exposes them as capabilities.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
-from dare_framework3_4.tool.interfaces import ICapabilityProvider, ITool, RunContext
+from dare_framework3_4.tool.interfaces import ICapabilityProvider, ITool
 from dare_framework3_4.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
     CapabilityMetadata,
     CapabilityType,
     ProviderStatus,
+    RunContext,
     ToolResult,
 )
 
@@ -27,9 +28,25 @@ class NativeToolProvider(ICapabilityProvider):
     - Provides health check
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        tools: list[ITool] | None = None,
+        context_factory: Callable[[], RunContext[Any]] | None = None,
+        capability_prefix: str | None = None,
+    ) -> None:
         self._tools: dict[str, ITool] = {}
         self._run_context: RunContext[Any] = RunContext()
+        self._context_factory = context_factory
+        if tools:
+            for tool in tools:
+                self.register_tool(tool)
+        if context_factory is not None:
+            self._run_context = context_factory()
+        if capability_prefix is None:
+            self._capability_prefix = "tool:" if tools else ""
+        else:
+            self._capability_prefix = capability_prefix
 
     def register_tool(self, tool: ITool) -> None:
         """Register a tool.
@@ -82,8 +99,9 @@ class NativeToolProvider(ICapabilityProvider):
         capabilities: list[CapabilityDescriptor] = []
         
         for tool in self._tools.values():
+            risk_level = getattr(tool.risk_level, "value", tool.risk_level)
             metadata = CapabilityMetadata(
-                risk_level=tool.risk_level,
+                risk_level=str(risk_level),
                 requires_approval=tool.requires_approval,
                 timeout_seconds=tool.timeout_seconds,
                 is_work_unit=tool.is_work_unit,
@@ -91,7 +109,7 @@ class NativeToolProvider(ICapabilityProvider):
             )
             
             capability = CapabilityDescriptor(
-                id=tool.name,
+                id=f\"{self._capability_prefix}{tool.name}\",
                 type=CapabilityType.TOOL,
                 name=tool.name,
                 description=tool.description,
@@ -116,11 +134,14 @@ class NativeToolProvider(ICapabilityProvider):
         Raises:
             KeyError: If tool not found.
         """
-        tool = self._tools.get(capability_id)
+        tool_name = capability_id
+        if self._capability_prefix and capability_id.startswith(self._capability_prefix):
+            tool_name = capability_id[len(self._capability_prefix):]
+        tool = self._tools.get(tool_name)
         if tool is None:
             raise KeyError(f"Tool not found: {capability_id}")
-        
-        return await tool.execute(params, self._run_context)
+        context = self._context_factory() if self._context_factory else self._run_context
+        return await tool.execute(params, context)
 
     async def health_check(self) -> ProviderStatus:
         """Check provider health.

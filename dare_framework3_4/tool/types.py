@@ -5,35 +5,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal, TypedDict
+from typing import Any, Generic, Literal, TypedDict, TypeVar
 
 try:
     from typing import TypeAlias
-except ImportError:
+except ImportError:  # pragma: no cover - fallback for older Python
     from typing_extensions import TypeAlias
-
-
-@dataclass
-class Evidence:
-    """A single evidence record suitable for auditing and verification."""
-
-    evidence_id: str
-    kind: str
-    payload: Any
-    created_at: float = field(default_factory=time.time)
-
-
-@dataclass(frozen=True)
-class ToolResult:
-    """Canonical tool invocation result, including evidence.
-
-    Used for compatibility with 3.2 output format.
-    """
-
-    success: bool
-    output: dict[str, Any] = field(default_factory=dict)
-    error: str | None = None
-    evidence: list[Evidence] = field(default_factory=list)
 
 
 class ExecutionSignal(Enum):
@@ -43,6 +20,18 @@ class ExecutionSignal(Enum):
     PAUSE_REQUESTED = "pause_requested"
     CANCEL_REQUESTED = "cancel_requested"
     HUMAN_APPROVAL_REQUIRED = "human_approval_required"
+
+
+class PauseRequested(RuntimeError):
+    """Raised when a pause is requested."""
+
+
+class CancelRequested(RuntimeError):
+    """Raised when cancellation is requested."""
+
+
+class HumanApprovalRequired(RuntimeError):
+    """Raised when HITL approval is required."""
 
 
 class ToolType(Enum):
@@ -108,6 +97,40 @@ class CapabilityMetadata(TypedDict, total=False):
     capability_kind: CapabilityKind
 
 
+@dataclass
+class Evidence:
+    """A single evidence record suitable for auditing and verification."""
+
+    evidence_id: str
+    kind: str
+    payload: Any
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    """Canonical tool invocation result, including evidence."""
+
+    success: bool
+    output: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    evidence: list[Evidence] = field(default_factory=list)
+
+
+@dataclass
+class ToolErrorRecord:
+    """A structured tool error record for remediation/tracing."""
+
+    error_type: str
+    tool_name: str
+    message: str
+    user_hint: str | None = None
+
+
+ToolDefinition: TypeAlias = dict[str, Any]
+ToolSchema = ToolDefinition
+
+
 @dataclass(frozen=True)
 class CapabilityDescriptor:
     """Canonical description of an invokable capability."""
@@ -121,7 +144,19 @@ class CapabilityDescriptor:
     metadata: CapabilityMetadata | None = None
 
 
-ToolDefinition: TypeAlias = dict[str, Any]
+DepsT = TypeVar("DepsT")
+
+
+@dataclass
+class RunContext(Generic[DepsT]):
+    """Invocation context passed into tools."""
+
+    deps: DepsT | None = None
+    run_id: str = ""
+    task_id: str | None = None
+    milestone_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    config: Any | None = None
 
 
 __all__ = [
@@ -131,10 +166,16 @@ __all__ = [
     "CapabilityType",
     "Evidence",
     "ExecutionSignal",
+    "PauseRequested",
+    "CancelRequested",
+    "HumanApprovalRequired",
     "InvocationContext",
     "ProviderStatus",
     "RiskLevelName",
     "ToolDefinition",
+    "ToolSchema",
+    "ToolErrorRecord",
     "ToolResult",
     "ToolType",
+    "RunContext",
 ]
