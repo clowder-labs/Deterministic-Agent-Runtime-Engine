@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework3_4.context import Budget, Context, Message
-from dare_framework3_4.memory.internal.in_memory_stm import InMemorySTM
+from dare_framework3_4.memory import InMemorySTM
 from dare_framework3_4.model import OpenAIModelAdapter, Prompt
 from dare_framework3_4.plan import Envelope
 from dare_framework3_4.tool import (
