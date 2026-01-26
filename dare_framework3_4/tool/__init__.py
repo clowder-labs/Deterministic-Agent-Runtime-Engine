@@ -42,7 +42,7 @@ from dare_framework3_4.tool._internal import (
 )
 
 # Built-in v4 tool runtime helpers and file tools
-from dare_framework3_4.tool.internal import (
+from dare_framework3_4.tool._internal import (
     EditLineTool,
     FileExecutionControl,
     GatewayToolProvider,

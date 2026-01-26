@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 from dare_framework3_4.tool.interfaces import ITool
 from dare_framework3_4.tool.errors import ToolError
-from dare_framework3_4.tool.internal.file_utils import (
+from dare_framework3_4.tool._internal.file_utils import (
     DEFAULT_IGNORE_DIRS,
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_RESULTS,
@@ -21,7 +21,7 @@ from dare_framework3_4.tool.internal.file_utils import (
     resolve_path,
     resolve_workspace_roots,
 )
-from dare_framework3_4.tool.internal.ids import generate_id
+from dare_framework3_4.tool._internal.ids import generate_id
 from dare_framework3_4.tool.types import Evidence, RunContext, ToolResult, ToolType
 
 

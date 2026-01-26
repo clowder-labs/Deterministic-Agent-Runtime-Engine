@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from dare_framework3_4.tool.interfaces import ITool
-from dare_framework3_4.tool.internal.file_utils import resolve_workspace_roots
-from dare_framework3_4.tool.internal.ids import generate_id
+from dare_framework3_4.tool._internal.file_utils import resolve_workspace_roots
+from dare_framework3_4.tool._internal.ids import generate_id
 from dare_framework3_4.tool.types import Evidence, RunContext, ToolResult, ToolType
 
 
