@@ -2,6 +2,23 @@
 
 ## ADDED Requirements
 
+### Requirement: Environment Configuration Security
+The five-layer coding agent example SHALL use environment variables for sensitive configuration and SHALL NOT commit API keys to the repository.
+
+#### Scenario: Environment variable template
+- **GIVEN** the five-layer coding agent example
+- **WHEN** examining the directory
+- **THEN** it SHALL include `.env.example` as a configuration template
+- **AND** SHALL NOT include `.env` file in git repository
+- **AND** `.gitignore` SHALL include `.env` and related patterns
+
+#### Scenario: API key security
+- **GIVEN** the example implementation
+- **WHEN** examining source code
+- **THEN** it SHALL load API keys from environment variables using `os.getenv()`
+- **AND** SHALL NOT contain hardcoded API keys or tokens
+- **AND** README SHALL warn users not to commit `.env` files
+
 ### Requirement: Five-Layer Coding Agent Example
 The repository SHALL include a `five-layer-coding-agent` example that demonstrates the complete five-layer loop architecture (Session → Milestone → Plan → Execute → Tool) using `FiveLayerAgent`.
 
@@ -18,8 +35,8 @@ The repository SHALL include a `five-layer-coding-agent` example that demonstrat
 - **GIVEN** the five-layer coding agent example
 - **WHEN** configured in deterministic mode
 - **THEN** it SHALL run without external API calls using a `DeterministicPlanner`
-- **AND WHEN** configured in OpenAI mode
-- **THEN** it SHALL use `OpenAIPlanner` to generate plans via real model calls
+- **AND WHEN** configured in OpenRouter mode
+- **THEN** it SHALL use `OpenRouterPlanner` to generate plans via real model calls
 
 ### Requirement: Five-Layer Example Tool Set
 The five-layer coding agent example SHALL include a representative set of tools covering different risk levels and operation types.
@@ -48,11 +65,12 @@ The five-layer coding agent example SHALL provide both deterministic and AI-driv
 - **THEN** it SHALL return that plan without model calls
 - **AND** SHALL be suitable for unit tests and CI environments
 
-#### Scenario: OpenAI planner for demonstration
-- **GIVEN** `planners/openai_planner.py`
+#### Scenario: OpenRouter planner for demonstration
+- **GIVEN** `planners/openrouter_planner.py`
 - **WHEN** called with a task and context
 - **THEN** it SHALL use `IModelAdapter` to generate a `ProposedPlan`
 - **AND** SHALL parse model output into plan steps
+- **AND** SHALL use OpenRouter API (compatible with OpenAI SDK)
 
 ### Requirement: Five-Layer Example Validator
 The five-layer coding agent example SHALL include a validator that verifies plans and milestone completion.
@@ -103,7 +121,9 @@ The five-layer coding agent example SHALL include comprehensive documentation.
 - **GIVEN** `examples/five-layer-coding-agent/README.md`
 - **WHEN** a developer reads it
 - **THEN** it SHALL explain how to run deterministic mode
-- **AND** SHALL explain how to configure OpenAI mode with environment variables
+- **AND** SHALL explain how to configure OpenRouter mode with environment variables
+- **AND** SHALL provide instructions for setting up `.env` file from `.env.example`
+- **AND** SHALL list recommended free models (e.g., `xiaomi/mimo-v2-flash:free`)
 - **AND** SHALL list example task scenarios
 
 #### Scenario: README documents limitations

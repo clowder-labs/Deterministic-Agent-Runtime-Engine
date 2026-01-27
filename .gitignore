@@ -4,6 +4,13 @@ __pycache__/
 .DS_Store
 .idea/
 
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.secret
+
 # Allow fixture configs under tests
 !tests/unit/fixtures/**/.dare/
 !tests/unit/fixtures/**/.dare/config.json

@@ -39,7 +39,9 @@ examples/five-layer-coding-agent/
 ├── __init__.py
 ├── agent.py                     # Agent 定义和入口
 ├── deterministic_agent.py       # 确定性模式（无模型调用）
-├── openai_agent.py             # OpenAI 真实模型模式
+├── openrouter_agent.py         # OpenRouter 真实模型模式
+├── .env.example                 # 环境变量配置示例（提交）
+├── .env                         # 实际环境变量（不提交，在 .gitignore 中）
 ├── config.yaml                  # 配置文件示例
 ├── tools/                       # 工具实现
 │   ├── __init__.py
@@ -123,13 +125,13 @@ class DeterministicPlanner(IPlanner):
         return self._plan
 ```
 
-#### 3. OpenAI Planner
+#### 3. OpenRouter Planner
 
-使用真实 OpenAI 模型生成计划：
+使用 OpenRouter API（兼容 OpenAI SDK）生成计划：
 
 ```python
-class OpenAIPlanner(IPlanner):
-    """OpenAI 驱动的计划生成器"""
+class OpenRouterPlanner(IPlanner):
+    """OpenRouter 驱动的计划生成器（兼容 OpenAI SDK）"""
 
     def __init__(
         self,
@@ -146,6 +148,26 @@ class OpenAIPlanner(IPlanner):
         prompt = self._build_planning_prompt(context)
         response = await self._model.generate(prompt)
         return self._parse_plan(response)
+```
+
+**OpenRouter ModelAdapter 实现**：
+```python
+from openai import AsyncOpenAI
+import os
+
+class OpenRouterModelAdapter(IModelAdapter):
+    """OpenRouter model adapter using OpenAI SDK"""
+
+    def __init__(self):
+        self.client = AsyncOpenAI(
+            base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
+        self.model = os.getenv("OPENROUTER_MODEL", "xiaomi/mimo-v2-flash:free")
+
+    async def generate(self, prompt: Prompt, **kwargs) -> ModelResponse:
+        # Implementation using OpenRouter API
+        ...
 ```
 
 #### 4. Simple Validator
@@ -192,9 +214,15 @@ class SimpleValidator(IValidator):
 
 | 依赖 | 用途 | 可选性 |
 |------|------|--------|
-| `openai` | OpenAI API 调用 | 可选（仅 openai_agent.py） |
+| `openai` | OpenAI SDK（用于 OpenRouter API 调用） | 可选（仅 openrouter_agent.py） |
 | `pytest` | 运行测试工具 | 必需（仅测试） |
 | `pyyaml` | 配置文件解析 | 必需 |
+
+**OpenRouter 配置**：
+- 使用 OpenRouter 作为 LLM 提供商（兼容 OpenAI SDK）
+- 推荐免费模型：`xiaomi/mimo-v2-flash:free`
+- Base URL: `https://openrouter.ai/api/v1`
+- 配置通过环境变量加载（`.env` 文件，不提交到仓库）
 
 ## Decisions
 
@@ -207,7 +235,13 @@ class SimpleValidator(IValidator):
 
 **Implementation**:
 - `deterministic_agent.py` - 使用 `DeterministicPlanner`
-- `openai_agent.py` - 使用 `OpenAIPlanner`
+- `openrouter_agent.py` - 使用 `OpenRouterPlanner` + `OpenRouterModelAdapter`
+
+**Why OpenRouter instead of OpenAI**:
+- 提供免费模型（如 `xiaomi/mimo-v2-flash:free`）用于测试
+- 兼容 OpenAI SDK，易于集成
+- 支持多种模型，便于后续扩展
+- 无需信用卡即可测试
 
 ### Decision 2: 最小化工具集
 
@@ -233,14 +267,21 @@ class SimpleValidator(IValidator):
 - 如果 `FiveLayerAgent` 需要这些组件，提供 NoOp 实现
 - 在 README 中说明哪些组件是 mock
 
-### Decision 4: 提供配置文件支持
+### Decision 4: 使用环境变量配置
 
 **Rationale**:
-- 配置文件更易于调整和维护
-- 符合生产环境的最佳实践
-- 便于用户理解如何配置 Agent
+- 环境变量是管理敏感信息（API key）的标准做法
+- 避免将 token 提交到代码仓库
+- 便于在不同环境中切换配置
+- 符合 12-factor app 原则
 
-**Format**: YAML（与项目约定一致）
+**Format**: `.env` 文件（不提交）+ `.env.example`（提交模板）
+
+**Security**:
+- `.env` 文件已添加到 `.gitignore`
+- 提供 `.env.example` 作为配置模板
+- 代码中使用 `os.getenv()` 读取配置
+- 敏感信息永不硬编码
 
 ## Risks / Trade-offs
 
