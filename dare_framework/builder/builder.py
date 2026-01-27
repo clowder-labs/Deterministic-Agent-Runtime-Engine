@@ -11,9 +11,10 @@ from dare_framework.knowledge import IKnowledge
 from dare_framework.memory import ILongTermMemory, IShortTermMemory
 from dare_framework.model.interfaces import IModelAdapter
 from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
+from dare_framework.tool._internal.managers.tool_manager import ToolManager
 from dare_framework.tool._internal.providers.gateway_tool_provider import GatewayToolProvider
 from dare_framework.tool._internal.providers.native_tool_provider import NativeToolProvider
-from dare_framework.tool.interfaces import ITool, IToolProvider, RunContext
+from dare_framework.tool.interfaces import ITool, IToolManager, IToolProvider, RunContext
 from dare_framework.tool.kernel import IToolGateway
 
 
@@ -31,6 +32,7 @@ class AgentBuilder:
         self._tools: list[ITool] = []
         self._tool_gateway: IToolGateway | None = None
         self._tool_provider: IToolProvider | None = None
+        self._tool_manager: IToolManager | None = None
 
     def with_model(self, model: IModelAdapter) -> "AgentBuilder":
         """Set the model adapter used by the agent."""
@@ -77,6 +79,11 @@ class AgentBuilder:
         self._tool_provider = provider
         return self
 
+    def with_tool_manager(self, manager: IToolManager) -> "AgentBuilder":
+        """Provide a custom tool manager for registry-backed tool definitions."""
+        self._tool_manager = manager
+        return self
+
     def build(self) -> SimpleChatAgent:
         """Build and return a SimpleChatAgent with configured wiring."""
         if self._model is None:
@@ -93,11 +100,22 @@ class AgentBuilder:
             )
             tool_gateway.register_provider(provider)
 
+        tool_manager = self._tool_manager
+        if tool_manager is None and self._tools:
+            tool_manager = ToolManager()
+
+        if tool_manager is not None and self._tools:
+            for tool in self._tools:
+                tool_manager.register_tool(tool)
+
         tool_provider = self._tool_provider
-        if tool_provider is None and tool_gateway is not None:
-            if self._tools or self._tool_gateway is not None:
-                tool_provider = GatewayToolProvider(tool_gateway)
-                self._refresh_tool_provider_sync(tool_provider)
+        if tool_provider is None:
+            if tool_manager is not None:
+                tool_provider = tool_manager
+            elif tool_gateway is not None:
+                if self._tools or self._tool_gateway is not None:
+                    tool_provider = GatewayToolProvider(tool_gateway)
+                    self._refresh_tool_provider_sync(tool_provider)
 
         if self._context is None:
             return SimpleChatAgent(

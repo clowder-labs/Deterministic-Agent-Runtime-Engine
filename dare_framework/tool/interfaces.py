@@ -42,11 +42,6 @@ class IToolProvider(Protocol):
         ...
 
 
-class IToolManager(Protocol):
-    """Loads tool capability implementations."""
-
-    def load_tools(self, *, config: Any | None = None) -> list[object]: ...
-
 @runtime_checkable
 class ITool(Protocol):
     """A callable tool implementation (V4 compliant).
@@ -106,6 +101,72 @@ class ITool(Protocol):
 
     async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
         """Execute the tool and return a ToolResult."""
+        ...
+
+
+@runtime_checkable
+class IToolManager(Protocol):
+    """Trusted tool registry and provider aggregation interface."""
+
+    def register_tool(
+        self,
+        tool: ITool,
+        *,
+        namespace: str | None = None,
+        version: str | None = None,
+    ) -> CapabilityDescriptor:
+        """Register a tool and return its capability descriptor."""
+        ...
+
+    def unregister_tool(self, capability_id: str) -> bool:
+        """Unregister a tool capability by id."""
+        ...
+
+    def update_tool(
+        self,
+        tool: ITool,
+        *,
+        capability_id: str,
+        enabled: bool | None = None,
+    ) -> CapabilityDescriptor:
+        """Update a registered tool capability."""
+        ...
+
+    def set_capability_enabled(self, capability_id: str, enabled: bool) -> None:
+        """Enable or disable a capability in the registry."""
+        ...
+
+    def register_provider(self, provider: "ICapabilityProvider") -> None:
+        """Register a capability provider."""
+        ...
+
+    def unregister_provider(self, provider: "ICapabilityProvider") -> bool:
+        """Unregister a capability provider."""
+        ...
+
+    async def refresh(self) -> list[CapabilityDescriptor]:
+        """Refresh provider capabilities into the registry."""
+        ...
+
+    def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
+        """List registered capabilities."""
+        ...
+
+    def list_tool_defs(self) -> list[ToolDefinition]:
+        """List tool definitions derived from the registry."""
+        ...
+
+    def get_capability(
+        self,
+        capability_id: str,
+        *,
+        include_disabled: bool = False,
+    ) -> CapabilityDescriptor | None:
+        """Fetch a capability descriptor by id."""
+        ...
+
+    async def health_check(self) -> dict[str, ProviderStatus]:
+        """Check provider health status."""
         ...
 
 
