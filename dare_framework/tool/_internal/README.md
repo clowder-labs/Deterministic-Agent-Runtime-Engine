@@ -8,6 +8,7 @@ Subpackages
 - adapters: protocol adapters (example: MCP adapter + no-op client).
 - control: execution control plane (pause/resume/checkpoints).
 - gateway: tool gateway implementations (capability registry + invoke).
+- managers: trusted capability registry and tool manager implementations.
 - providers: capability providers / manager-style adapters.
 - toolkits: tool aggregation helpers (example: MCP toolkit).
 - tools: built-in tools shipped with the framework.

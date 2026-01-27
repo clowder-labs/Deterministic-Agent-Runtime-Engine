@@ -41,6 +41,7 @@ from dare_framework.tool._internal import (
     NativeToolProvider,
     NoopTool,
     ProtocolAdapterProvider,
+    ToolManager,
 )
 from dare_framework.tool._internal import NoopTool as NoOpTool
 
@@ -100,6 +101,7 @@ __all__ = [
     "NoopTool",
     "NoOpTool",
     "ProtocolAdapterProvider",
+    "ToolManager",
     # v4 tool runtime helpers and file tools
     "GatewayToolProvider",
     "MCPAdapter",

@@ -18,6 +18,7 @@ from dare_framework.tool._internal.providers.protocol_adapter_provider import (
 from dare_framework.tool._internal.adapters.mcp_adapter import MCPAdapter
 from dare_framework.tool._internal.adapters.noop_mcp_client import NoOpMCPClient
 from dare_framework.tool._internal.toolkits.mcp_toolkit import MCPToolkit
+from dare_framework.tool._internal.managers.tool_manager import ToolManager
 from dare_framework.tool._internal.tools.echo_tool import EchoTool
 from dare_framework.tool._internal.tools.noop_tool import NoopTool
 from dare_framework.tool._internal.tools.noop_skill import NoOpSkill
@@ -39,6 +40,7 @@ __all__ = [
     "MCPAdapter",
     "NoOpMCPClient",
     "MCPToolkit",
+    "ToolManager",
     "EchoTool",
     "NoopTool",
     "NoOpSkill",

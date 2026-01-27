@@ -35,6 +35,7 @@ from dare_framework.plan.interfaces import (
 )
 from dare_framework.protocol_adapter_manager import IProtocolAdapterManager
 from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
+from dare_framework.tool._internal.managers.tool_manager import ToolManager
 from dare_framework.tool._internal.providers.gateway_tool_provider import GatewayToolProvider
 from dare_framework.tool._internal.providers.native_tool_provider import NativeToolProvider
 from dare_framework.tool.interfaces import ITool, IToolManager, IToolProvider, RunContext
@@ -154,6 +155,10 @@ class _BaseAgentBuilder:
         self._tool_provider = provider
         return self
 
+    def with_tool_manager(self: TBuilder, manager: IToolManager) -> TBuilder:
+        self._tool_manager = manager
+        return self
+
     def with_run_context_factory(self: TBuilder, factory: Callable[[], RunContext[Any]]) -> TBuilder:
         self._run_context_factory = factory
         return self
@@ -208,11 +213,27 @@ class _BaseAgentBuilder:
         """Return a tool provider for Context.listing_tools()."""
         if self._tool_provider is not None:
             return self._tool_provider
+        if self._tool_manager is not None and isinstance(self._tool_manager, IToolProvider):
+            return self._tool_manager
         if gateway is None:
             return None
         provider = GatewayToolProvider(gateway)
         self._refresh_tool_provider_sync(provider)
         return provider
+
+    def _ensure_tool_manager_registry(self, tools: list[ITool]) -> None:
+        if self._tool_manager is None and tools:
+            self._tool_manager = ToolManager()
+
+    def _register_tools_with_manager(self, tools: list[ITool]) -> None:
+        manager = self._tool_manager
+        if manager is None:
+            return
+        register = getattr(manager, "register_tool", None)
+        if not callable(register):
+            return
+        for tool in tools:
+            register(tool)
 
     def _resolved_model(self) -> IModelAdapter:
         if self._model is not None:
@@ -229,6 +250,7 @@ class _BaseAgentBuilder:
 
     def _resolved_tools(self) -> list[ITool]:
         explicit = list(self._tools)
+        explicit_names = {tool.name for tool in explicit}
 
         manager = self._tool_manager
         if manager is None:
@@ -236,7 +258,10 @@ class _BaseAgentBuilder:
 
         discovered = manager.load_tools(config=self._manager_config())
         manager_tools = [
-            tool for tool in discovered if self._config is None or self._config.is_component_enabled(tool)
+            tool
+            for tool in discovered
+            if tool.name not in explicit_names
+            and (self._config is None or self._config.is_component_enabled(tool))
         ]
         return [*explicit, *manager_tools]
 
@@ -248,6 +273,8 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
         model = self._resolved_model()
 
         tools = self._resolved_tools()
+        self._ensure_tool_manager_registry(tools)
+        self._register_tools_with_manager(tools)
         tool_gateway = self._ensure_tool_gateway(tools)
         if tool_gateway is not None:
             self._wire_native_tools(tool_gateway, tools)
@@ -318,6 +345,8 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
         model = self._resolved_model()
 
         tools = self._resolved_tools()
+        self._ensure_tool_manager_registry(tools)
+        self._register_tools_with_manager(tools)
         tool_gateway = self._ensure_tool_gateway(tools)
         if tool_gateway is not None:
             self._wire_native_tools(tool_gateway, tools)
