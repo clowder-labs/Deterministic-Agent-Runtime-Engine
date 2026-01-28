@@ -1,4 +1,4 @@
-"""Minimal chat example using SimpleChatAgent with inline configuration."""
+"""Minimal chat example using Builder with inline configuration."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from dare_framework.agent import SimpleChatAgent
+from dare_framework.builder import Builder
 from dare_framework.model import OpenAIModelAdapter
 
 MODEL = "qwen-7b"
@@ -52,10 +52,7 @@ async def main() -> None:
         endpoint=ENDPOINT,
         http_client_options=HTTP_CLIENT_OPTIONS,
     )
-    agent = SimpleChatAgent(
-        name="basic-chat",
-        model=model_adapter,
-    )
+    agent = Builder.simple_chat_agent_builder("basic-chat").with_model(model_adapter).build()
 
     while True:
         try:

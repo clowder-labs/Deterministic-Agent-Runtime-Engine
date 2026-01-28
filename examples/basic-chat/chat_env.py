@@ -1,4 +1,4 @@
-"""Chat example configured via environment variables."""
+"""Chat example configured via environment variables (builder-based)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from dare_framework.agent import SimpleChatAgent
+from dare_framework.builder import Builder
 from dare_framework.model import OpenAIModelAdapter
 
 # Configuration
@@ -58,10 +58,7 @@ async def main() -> None:
     )
     logger.info("using OpenAIModelAdapter")
 
-    agent = SimpleChatAgent(
-        name="basic-chat-env",
-        model=model_adapter,
-    )
+    agent = Builder.simple_chat_agent_builder("basic-chat-env").with_model(model_adapter).build()
 
     logger.info("agent created", extra={"agent_name": agent.name})
 

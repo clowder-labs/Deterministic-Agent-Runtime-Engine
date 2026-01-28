@@ -1,18 +1,19 @@
-# Tool Management Example
+# Tool Management Example (Builder-Based)
 
-This example demonstrates the tool management capabilities of `dare_framework`.
+This example demonstrates the tool management capabilities of `dare_framework` with builder-based assembly.
 
 ## Features Demonstrated
 
-1. **Gateway & Provider Setup** - Creating and connecting `DefaultToolGateway` with `NativeToolProvider`
-2. **Tool Registration** - Dynamically registering `NoopTool` and `EchoTool`
-3. **Capability Discovery** - Listing capabilities with trusted metadata
-4. **Health Checking** - Monitoring provider health status
-5. **Tool Invocation** - Invoking tools through the gateway with envelope boundaries
-6. **Envelope Restrictions** - Demonstrating capability allow-lists
-7. **Execution Control** - Using checkpoints, pause, and resume for HITL
-8. **LLM-Compatible Definitions** - Getting tool definitions for function-calling
-9. **Dynamic Management** - Register/unregister tools at runtime
+1. **Builder Assembly** - Building the agent shell while injecting a pre-wired gateway/provider
+2. **Gateway & Provider Setup** - Creating and connecting `DefaultToolGateway` with `NativeToolProvider`
+3. **Tool Registration** - Dynamically registering `NoopTool` and `EchoTool`
+4. **Capability Discovery** - Listing capabilities with trusted metadata
+5. **Health Checking** - Monitoring provider health status
+6. **Tool Invocation** - Invoking tools through the gateway with envelope boundaries
+7. **Envelope Restrictions** - Demonstrating capability allow-lists
+8. **Execution Control** - Using checkpoints, pause, and resume for HITL
+9. **LLM-Compatible Definitions** - Getting tool definitions for function-calling
+10. **Dynamic Management** - Register/unregister tools at runtime
 
 ## Running the Example
 
@@ -23,7 +24,7 @@ python examples/tool-management/main.py
 
 ## Real Model Tool-Chat Example
 
-This example mirrors the `examples/base_tool` tool chat flow and uses a real model adapter.
+This example mirrors the `examples/base_tool` tool chat flow and uses a real model adapter with builder wiring.
 
 ```bash
 python examples/tool-management/tool_chat.py
