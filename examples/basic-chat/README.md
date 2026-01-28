@@ -24,6 +24,6 @@ Type messages and press Enter. Use `/quit` to exit.
 
 ## Available variants
 
-- `chat_simple.py`: minimal direct `SimpleChatAgent` usage with inline configuration.
-- `chat_env.py`: configuration via environment variables (and optional debug context logging).
-- `chat_builder.py`: composition via `AgentBuilder` for teams that prefer builder-style wiring.
+- `chat_simple.py`: minimal builder-based chat with inline configuration.
+- `chat_env.py`: builder-based configuration via environment variables (and optional debug context logging).
+- `chat_builder.py`: explicit builder wiring with the same chat flow.

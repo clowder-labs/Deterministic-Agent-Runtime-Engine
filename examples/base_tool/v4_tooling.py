@@ -1,4 +1,4 @@
-"""V4 tooling example using dare_framework.
+"""V4 tooling example using dare_framework (builder-based).
 
 Demonstrates the v4.0 tool runtime with:
 - Built-in file tools
@@ -19,12 +19,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from dare_framework.builder import Builder
+from dare_framework.infra.component import ComponentType
+from dare_framework.model import IModelAdapter
 from dare_framework.plan import Envelope
 from dare_framework.tool import (
     DefaultToolGateway,
     EditLineTool,
     GatewayToolProvider,
-    NativeToolProvider,
     NoOpTool,
     ReadFileTool,
     RunCommandTool,
@@ -32,6 +34,21 @@ from dare_framework.tool import (
     SearchCodeTool,
     WriteFileTool,
 )
+
+
+# Builder requires a model adapter even when this example only exercises tools.
+class _NoopModelAdapter(IModelAdapter):
+    @property
+    def name(self) -> str:
+        return "noop-model-adapter"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.MODEL_ADAPTER
+
+    async def generate(self, prompt, *, options=None):  # type: ignore[override]
+        raise RuntimeError("NoopModelAdapter is not intended for model generation.")
+
 
 # Configuration
 WORKSPACE_ROOT = os.getenv("TOOL_WORKSPACE_ROOT", ".")
@@ -69,12 +86,20 @@ async def run_read_file(workspace_root: str, read_path: str):
     ]
 
     gateway = DefaultToolGateway()
-    gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
-
+    # Inject a tool provider so we can refresh tool defs asynchronously in this loop.
     tool_provider = GatewayToolProvider(gateway)
-    await tool_provider.refresh()
+    builder = (
+        Builder.simple_chat_agent_builder("v4-tooling")
+        .with_model(_NoopModelAdapter())
+        .with_tool_gateway(gateway)
+        .with_tool_provider(tool_provider)
+        .with_run_context_factory(run_context.build)
+        .add_tools(*tools)
+    )
+    agent = builder.build()
 
-    tool_defs = tool_provider.list_tools()
+    await tool_provider.refresh()
+    tool_defs = agent.context.listing_tools()
     result = await gateway.invoke(
         "tool:read_file",
         {"path": read_path},

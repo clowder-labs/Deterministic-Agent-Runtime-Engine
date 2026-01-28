@@ -1,4 +1,4 @@
-"""Chat example using AgentBuilder for composition."""
+"""Chat example using Builder for composition."""
 
 from __future__ import annotations
 
