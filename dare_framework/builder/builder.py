@@ -12,7 +12,6 @@ All builder variants share the same precedence rules:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -22,6 +21,7 @@ from dare_framework.context import Budget, Context
 from dare_framework.event.kernel import IEventLog
 from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IHook
+from dare_framework.infra.component import ComponentType
 from dare_framework.knowledge import IKnowledge
 from dare_framework.memory import ILongTermMemory, IShortTermMemory
 from dare_framework.model.kernel import IModelAdapter
@@ -39,13 +39,9 @@ from dare_framework.plan.interfaces import (
     IValidator,
     IValidatorManager,
 )
-from dare_framework.protocol_adapter_manager import IProtocolAdapterManager
-from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
 from dare_framework.tool._internal.managers.tool_manager import ToolManager
-from dare_framework.tool._internal.providers.gateway_tool_provider import GatewayToolProvider
-from dare_framework.tool._internal.providers.native_tool_provider import NativeToolProvider
-from dare_framework.tool.interfaces import ITool, IToolManager, IToolProvider, RunContext
-from dare_framework.tool.kernel import IExecutionControl, IToolGateway
+from dare_framework.tool.interfaces import ITool, IToolProvider, RunContext
+from dare_framework.tool.kernel import IExecutionControl, IToolGateway, IToolManager
 
 TBuilder = TypeVar("TBuilder", bound="_BaseAgentBuilder")
 
@@ -58,12 +54,10 @@ class _BaseAgentBuilder:
 
         # Shared configuration surface (used by all builder variants).
         self._config: Config | None = None
-        self._tool_manager: IToolManager | None = None
         self._model_adapter_manager: IModelAdapterManager | None = None
         self._planner_manager: IPlannerManager | None = None
         self._validator_manager: IValidatorManager | None = None
         self._remediator_manager: IRemediatorManager | None = None
-        self._protocol_adapter_manager: IProtocolAdapterManager | None = None
         self._hook_manager: IHookManager | None = None
 
         # Core components (commonly used across agent variants).
@@ -99,12 +93,10 @@ class _BaseAgentBuilder:
     def with_managers(
         self: TBuilder,
         *,
-        tool_manager: IToolManager | None = None,
         model_adapter_manager: IModelAdapterManager | None = None,
         planner_manager: IPlannerManager | None = None,
         validator_manager: IValidatorManager | None = None,
         remediator_manager: IRemediatorManager | None = None,
-        protocol_adapter_manager: IProtocolAdapterManager | None = None,
         hook_manager: IHookManager | None = None,
     ) -> TBuilder:
         """Inject component managers for config-driven resolution.
@@ -112,8 +104,6 @@ class _BaseAgentBuilder:
         Managers are only used when the corresponding component is not explicitly provided
         via builder methods (precedence rule).
         """
-        if tool_manager is not None:
-            self._tool_manager = tool_manager
         if model_adapter_manager is not None:
             self._model_adapter_manager = model_adapter_manager
         if planner_manager is not None:
@@ -122,8 +112,6 @@ class _BaseAgentBuilder:
             self._validator_manager = validator_manager
         if remediator_manager is not None:
             self._remediator_manager = remediator_manager
-        if protocol_adapter_manager is not None:
-            self._protocol_adapter_manager = protocol_adapter_manager
         if hook_manager is not None:
             self._hook_manager = hook_manager
         return self
@@ -176,10 +164,6 @@ class _BaseAgentBuilder:
 
     def with_tool_provider(self: TBuilder, provider: IToolProvider) -> TBuilder:
         self._tool_provider = provider
-        return self
-
-    def with_tool_manager(self: TBuilder, manager: IToolManager) -> TBuilder:
-        self._tool_manager = manager
         return self
 
     def with_run_context_factory(self: TBuilder, factory: Callable[[], RunContext[Any]]) -> TBuilder:
@@ -242,59 +226,49 @@ class _BaseAgentBuilder:
             return store.get(prompt_id, model=model_name)
         except KeyError as exc:
             raise ValueError(f"Prompt not found: {prompt_id}") from exc
-
-    def _refresh_tool_provider_sync(self, provider: GatewayToolProvider) -> None:
-        """Synchronously refresh tool capabilities on a provider."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(provider.refresh())
-            return
-        raise RuntimeError(
-            "Builder cannot refresh tool capabilities while an event loop is running. "
-            "Build the agent before entering the async runtime or supply a custom tool provider."
-        )
-
     def _ensure_tool_gateway(self, tools: list[ITool]) -> IToolGateway | None:
         """Return a ToolGateway if tool wiring requires one."""
         if self._tool_gateway is not None:
             return self._tool_gateway
         if tools:
-            return DefaultToolGateway()
+            self._tool_gateway = ToolManager(context_factory=self._run_context_factory)
+            return self._tool_gateway
         return None
 
-    def _wire_native_tools(self, gateway: IToolGateway, tools: list[ITool]) -> None:
-        """Register tools into the tool gateway."""
-        if not tools:
-            return
-        provider = NativeToolProvider(tools=tools, context_factory=self._run_context_factory)
-        gateway.register_provider(provider)
-
-    def _ensure_tool_provider(self, gateway: IToolGateway | None) -> IToolProvider | None:
+    def _ensure_tool_provider(
+        self,
+        manager: IToolManager | None,
+        explicit_tools: list[ITool],
+    ) -> IToolProvider | None:
         """Return a tool provider for Context.listing_tools()."""
         if self._tool_provider is not None:
             return self._tool_provider
-        if self._tool_manager is not None and isinstance(self._tool_manager, IToolProvider):
-            return self._tool_manager
-        if gateway is None:
-            return None
-        provider = GatewayToolProvider(gateway)
-        self._refresh_tool_provider_sync(provider)
-        return provider
+        if manager is not None:
+            if self._config is None:
+                return manager
+            return _ConfiguredToolProvider(
+                manager=manager,
+                config=self._config,
+                explicit_names={tool.name for tool in explicit_tools},
+            )
+        if isinstance(self._tool_gateway, IToolProvider):
+            return self._tool_gateway
+        return None
 
-    def _ensure_tool_manager_registry(self, tools: list[ITool]) -> None:
-        if self._tool_manager is None and tools:
-            self._tool_manager = ToolManager()
+    def _ensure_tool_manager(self, tools: list[ITool]) -> IToolManager | None:
+        gateway = self._ensure_tool_gateway(tools)
+        if tools and gateway is not None and not isinstance(gateway, IToolManager):
+            raise TypeError(
+                "tool_gateway must implement IToolManager when tools are injected. "
+                "Provide ToolManager or avoid add_tools()."
+            )
+        return gateway if isinstance(gateway, IToolManager) else None
 
-    def _register_tools_with_manager(self, tools: list[ITool]) -> None:
-        manager = self._tool_manager
+    def _register_tools_with_manager(self, manager: IToolManager | None, tools: list[ITool]) -> None:
         if manager is None:
             return
-        register = getattr(manager, "register_tool", None)
-        if not callable(register):
-            return
         for tool in tools:
-            register(tool)
+            manager.register_tool(tool)
 
     def _resolved_model(self) -> IModelAdapter:
         if self._model is not None:
@@ -313,7 +287,7 @@ class _BaseAgentBuilder:
         explicit = list(self._tools)
         explicit_names = {tool.name for tool in explicit}
 
-        manager = self._tool_manager
+        manager = self._tool_gateway if isinstance(self._tool_gateway, IToolManager) else None
         if manager is None:
             return explicit
 
@@ -335,13 +309,11 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
         sys_prompt = self._resolve_sys_prompt(model)
 
         tools = self._resolved_tools()
-        self._ensure_tool_manager_registry(tools)
-        self._register_tools_with_manager(tools)
+        manager = self._ensure_tool_manager(tools)
+        self._register_tools_with_manager(manager, tools)
         tool_gateway = self._ensure_tool_gateway(tools)
-        if tool_gateway is not None:
-            self._wire_native_tools(tool_gateway, tools)
 
-        tool_provider = self._ensure_tool_provider(tool_gateway)
+        tool_provider = self._ensure_tool_provider(manager, tools)
 
         if self._context is None:
             context = Context(
@@ -415,12 +387,10 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
         sys_prompt = self._resolve_sys_prompt(model)
 
         tools = self._resolved_tools()
-        self._ensure_tool_manager_registry(tools)
-        self._register_tools_with_manager(tools)
+        manager = self._ensure_tool_manager(tools)
+        self._register_tools_with_manager(manager, tools)
         tool_gateway = self._ensure_tool_gateway(tools)
-        if tool_gateway is not None:
-            self._wire_native_tools(tool_gateway, tools)
-        tool_provider = self._ensure_tool_provider(tool_gateway)
+        tool_provider = self._ensure_tool_provider(manager, tools)
 
         planner = self._planner
         if planner is None:
@@ -523,3 +493,39 @@ class Builder:
 
 
 __all__ = ["Builder", "FiveLayerAgentBuilder", "SimpleChatAgentBuilder"]
+
+
+class _ConfiguredToolProvider(IToolProvider):
+    """Filter tool listings based on config while honoring explicit injections."""
+
+    def __init__(
+        self,
+        *,
+        manager: IToolManager,
+        config: Config,
+        explicit_names: set[str],
+    ) -> None:
+        self._manager = manager
+        self._config = config
+        self._explicit_names = explicit_names
+
+    def list_tools(self) -> list[ITool]:
+        tools = self._manager.load_tools(config=self._config)
+        return [tool for tool in tools if self._is_enabled_name(tool.name)]
+
+    def list_tool_defs(self) -> list[dict[str, Any]]:  # type: ignore[override]
+        tool_defs = self._manager.list_tool_defs()
+        filtered: list[dict[str, Any]] = []
+        for tool_def in tool_defs:
+            name = None
+            metadata = tool_def.get("metadata")
+            if isinstance(metadata, dict):
+                name = metadata.get("display_name")
+            if name is None or self._is_enabled_name(str(name)):
+                filtered.append(tool_def)
+        return filtered
+
+    def _is_enabled_name(self, name: str) -> bool:
+        if name in self._explicit_names:
+            return True
+        return self._config.is_component_enabled_name(ComponentType.TOOL, name)

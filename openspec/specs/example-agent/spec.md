@@ -12,7 +12,7 @@ The coding-agent verification examples SHALL remain present and SHALL be updated
 - **THEN** it composes the agent using builder + plugin loading (and does not depend on removed v1 runtime interfaces)
 
 ### Requirement: Framework-Backed Coding Agent Example
-The example agent SHALL be built using the developer API and SHALL register tools/providers in a way that exercises the Kernel `IToolGateway` boundary.
+The example agent SHALL be built using the developer API and SHALL register tools (directly or via tool-group providers) in a way that exercises the Kernel `IToolGateway` boundary.
 
 #### Scenario: Example agent instantiation
 - **WHEN** a developer instantiates the example agent
@@ -168,4 +168,3 @@ The five-layer coding agent example SHALL include comprehensive documentation.
 - **WHEN** a developer reads it
 - **THEN** it SHALL document known limitations (e.g., mocked components)
 - **AND** SHALL reference design gap tracking if applicable
-

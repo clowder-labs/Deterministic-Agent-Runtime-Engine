@@ -24,14 +24,13 @@ from dare_framework.infra.component import ComponentType
 from dare_framework.model import IModelAdapter
 from dare_framework.plan import Envelope
 from dare_framework.tool import (
-    DefaultToolGateway,
     EditLineTool,
-    GatewayToolProvider,
     NoOpTool,
     ReadFileTool,
     RunCommandTool,
     RunContextState,
     SearchCodeTool,
+    ToolManager,
     WriteFileTool,
 )
 
@@ -85,23 +84,23 @@ async def run_read_file(workspace_root: str, read_path: str):
         NoOpTool(),
     ]
 
-    gateway = DefaultToolGateway()
-    # Inject a tool provider so we can refresh tool defs asynchronously in this loop.
-    tool_provider = GatewayToolProvider(gateway)
+    gateway = ToolManager(context_factory=run_context.build)
     builder = (
         Builder.simple_chat_agent_builder("v4-tooling")
         .with_model(_NoopModelAdapter())
         .with_tool_gateway(gateway)
-        .with_tool_provider(tool_provider)
-        .with_run_context_factory(run_context.build)
         .add_tools(*tools)
     )
     agent = builder.build()
 
-    await tool_provider.refresh()
     tool_defs = agent.context.listing_tools()
+    read_tool_id = next(
+        tool_def["capability_id"]
+        for tool_def in tool_defs
+        if tool_def.get("metadata", {}).get("display_name") == "read_file"
+    )
     result = await gateway.invoke(
-        "tool:read_file",
+        read_tool_id,
         {"path": read_path},
         envelope=Envelope(),
     )

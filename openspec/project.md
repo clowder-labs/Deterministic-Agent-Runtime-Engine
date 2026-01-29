@@ -131,6 +131,7 @@ dare_framework/
 
 > Protocol Adapters（如 MCP）为可选能力来源；Kernel 在未配置任何 Adapter 时仍可运行（native tools only）。
 
+
 ### Testing Strategy
 
 #### 测试层次

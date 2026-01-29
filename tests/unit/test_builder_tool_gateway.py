@@ -7,15 +7,10 @@ import pytest
 from dare_framework.builder import Builder
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
-from dare_framework.plan.types import Envelope
-from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
 from dare_framework.infra.component import ComponentType
-from dare_framework.tool.types import (
-    CapabilityDescriptor,
-    CapabilityType,
-    ProviderStatus,
-    ToolResult,
-)
+from dare_framework.plan.types import Envelope
+from dare_framework.tool import ToolManager
+from dare_framework.tool.types import ToolResult
 
 
 class DummyModelAdapter(IModelAdapter):
@@ -41,19 +36,12 @@ class EchoTool:
         return ToolResult(success=True, output=input)
 
 
-class FakeProvider:
-    def __init__(self, capability: CapabilityDescriptor, payload: dict[str, Any]) -> None:
-        self._capability = capability
-        self._payload = payload
+class ListProvider:
+    def __init__(self, tools: list[EchoTool]) -> None:
+        self._tools = tools
 
-    async def list(self) -> list[CapabilityDescriptor]:
-        return [self._capability]
-
-    async def invoke(self, capability_id: str, params: dict[str, Any]) -> object:
-        return {"capability_id": capability_id, **self._payload, **params}
-
-    async def health_check(self) -> ProviderStatus:
-        return ProviderStatus.HEALTHY
+    def list_tools(self) -> list[EchoTool]:
+        return list(self._tools)
 
 
 @pytest.mark.asyncio
@@ -79,39 +67,29 @@ def test_agent_builder_derives_tool_defs_from_gateway() -> None:
     assert tools
     tool_def = tools[0]
     assert tool_def["type"] == "function"
-    assert tool_def["function"]["name"] == "echo"
-    assert tool_def["capability_id"] == "tool:echo"
+    assert tool_def["function"]["name"] == tool_def["capability_id"]
+    assert tool_def["function"]["name"].startswith("tool_")
     assert tool_def["function"]["parameters"] == EchoTool.input_schema
+    assert tool_def.get("metadata", {}).get("display_name") == "echo"
 
 
 @pytest.mark.asyncio
-async def test_default_tool_gateway_aggregates_and_enforces_allowlist() -> None:
-    gateway = DefaultToolGateway()
+async def test_tool_manager_aggregates_and_enforces_allowlist() -> None:
+    gateway = ToolManager()
 
-    cap_a = CapabilityDescriptor(
-        id="tool:a",
-        type=CapabilityType.TOOL,
-        name="a",
-        description="tool a",
-        input_schema={"type": "object", "properties": {}},
-    )
-    cap_b = CapabilityDescriptor(
-        id="tool:b",
-        type=CapabilityType.TOOL,
-        name="b",
-        description="tool b",
-        input_schema={"type": "object", "properties": {}},
-    )
-
-    gateway.register_provider(FakeProvider(cap_a, {"ok": True}))
-    gateway.register_provider(FakeProvider(cap_b, {"ok": True}))
+    tool_a = EchoTool()
+    tool_b = EchoTool()
+    gateway.register_provider(ListProvider([tool_a]))
+    gateway.register_provider(ListProvider([tool_b]))
 
     capabilities = await gateway.list_capabilities()
-    assert {cap.id for cap in capabilities} == {"tool:a", "tool:b"}
+    assert len(capabilities) == 2
+    cap_ids = [cap.id for cap in capabilities]
 
-    allowed = Envelope(allowed_capability_ids=["tool:a"])
-    result = await gateway.invoke("tool:a", {"value": 1}, envelope=allowed)
-    assert result["capability_id"] == "tool:a"
+    allowed = Envelope(allowed_capability_ids=[cap_ids[0]])
+    result = await gateway.invoke(cap_ids[0], {"value": 1}, envelope=allowed)
+    assert isinstance(result, ToolResult)
+    assert result.success is True
 
     with pytest.raises(PermissionError):
-        await gateway.invoke("tool:b", {}, envelope=allowed)
+        await gateway.invoke(cap_ids[1], {}, envelope=allowed)

@@ -11,7 +11,7 @@
 ### 1.1 分层与目录职责
 
 - `dare_framework/core/`：当前实现中的 Kernel contracts + 数据结构（设计基线：`doc/design/Architecture.md`；接口清单：`doc/design/Interfaces.md`）
-  - Kernel 默认实现按 domain package 归档（例如 `core/event/local_event_log.py`、`core/execution_control/file_execution_control.py`、`core/tool/default_tool_gateway.py`）
+  - Kernel 默认实现按 domain package 归档（例如 `core/event/local_event_log.py`、`core/execution_control/file_execution_control.py`、`core/tool/tool_manager.py`）
 - `dare_framework/contracts/`：共享 contracts/types（tools/model/evidence/risk/run_context 等；供 components/protocols/builder 复用）
 - `dare_framework/protocols/`：Layer 1 Protocol Adapters（如 MCP），负责能力发现/调用的协议适配
 - `dare_framework/components/`：Layer 2 Pluggable Components（planner/validator/remediator/providers/tools 等默认实现）

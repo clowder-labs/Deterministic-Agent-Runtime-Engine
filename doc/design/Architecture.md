@@ -106,8 +106,7 @@ flowchart TB
     Remediator["IRemediator"]
     Model["IModelAdapter"]
     Retrieval["IRetrievalContext\n(STM/LTM/Knowledge)"]
-    ToolProvider["IToolProvider\n(list_tools)"]
-    Providers["ICapabilityProvider"]
+    ToolProvider["IToolProvider\n(list_tools -> List[ITool])"]
     Tools["ITool / Skills"]
   end
 
@@ -140,11 +139,10 @@ flowchart TB
   Ctx --> Retrieval
   Ctx --> ToolProvider
 
-  ToolGW --> Providers
-  Providers --> Tools
-  Providers --> MCP
-  Providers --> A2A
-  Providers --> A2UI
+  ToolProvider --> Tools
+  MCP --> Tools
+  A2A --> Tools
+  A2UI --> Tools
 
   Tools --> External
   MCP --> External
@@ -310,7 +308,7 @@ sequenceDiagram
 - 当前 context 设计以 `dare_framework` 为准：**Context 是核心实体（context-centric）**，`messages` 不作为长期字段，而是在每次模型调用前通过 `Context.assemble(**options)` 临时组装为 `AssembledContext(messages, tools, metadata)`。
 - Retrieval 统一抽象为 `IRetrievalContext.get(query, **kwargs) -> list[Message]`：
   - STM/LTM/Knowledge 都实现该接口，并以引用形式注入到 Context（`short_term_memory / long_term_memory / knowledge`）。
-- tools 由 Context 通过注入的 `IToolProvider.list_tools()` 提供 **结构化 tool defs**（`list[dict]`），供 model adapter 做 function-calling；其来源必须可追溯到 `IToolGateway.list_capabilities()` 的可信 registry（同源可信）。
+- tools 由 Context 通过 ToolManager 的 registry 生成 **结构化 tool defs**（`list[dict]`），供 model adapter 做 function-calling；其来源必须可追溯到同一可信 registry（同源可信）。
 - 审计点建议：
   - `AssembledContext.metadata` 至少包含 `context_id`，并可扩展记录 attribution/budget 等信息。
   - EventLog 记录当次模型调用“使用的 tools 快照（或 capability 列表 hash）”，以支撑复验。
@@ -365,8 +363,8 @@ sequenceDiagram
 | Domain | 主要职责（架构视角） | 核心稳定接口（示例） | 详情章节（接口全集） |
 |---|---|---|---|
 | agent | 编排策略承载域；对外最小运行面；支持多编排实现 | `IAgent.run(...)`；（可选）`IAgentOrchestration.execute(...)` | `doc/design/Interfaces.md` 的 `## 1. agent` |
-| context | 上下文核心实体（context-centric）；持有 STM/LTM/Knowledge 引用与 Budget；每次调用前组装 AssembledContext | `IContext` / `IRetrievalContext` / `Budget`；（依赖）`IToolProvider.list_tools()` | `doc/design/Interfaces.md` 的 `## 2. context（上下文工程）` |
-| tool | 能力目录（registry）与系统调用边界；HITL 控制面；providers/adapters 统一接入 | `IToolGateway` / `IExecutionControl`；（扩展位）`ICapabilityProvider` / `ITool` / `IProtocolAdapter` | `doc/design/Interfaces.md` 的 `## 3. tool（能力模型 + 系统调用边界）` |
+| context | 上下文核心实体（context-centric）；持有 STM/LTM/Knowledge 引用与 Budget；每次调用前组装 AssembledContext | `IContext` / `IRetrievalContext` / `Budget`；（依赖）ToolManager registry | `doc/design/Interfaces.md` 的 `## 2. context（上下文工程）` |
+| tool | 能力目录（registry）与系统调用边界；HITL 控制面；providers/adapters 统一接入 | `IToolGateway` / `IExecutionControl`；（扩展位）`ITool` / `IProtocolAdapter` | `doc/design/Interfaces.md` 的 `## 3. tool（能力模型 + 系统调用边界）` |
 | plan | 任务/计划/结果模型；plan 生成/校验/补救；Proposed vs Validated | `IPlanner` / `IValidator` / `IRemediator`；`Task/RunResult/Envelope` | `doc/design/Interfaces.md` 的 `## 4. plan（任务、计划、结果）` |
 | model | 模型调用适配；统一 ModelInput 输入面 | `IModelAdapter`；`ModelInput(messages + tools + metadata)` | `doc/design/Interfaces.md` 的 `## 5. model（LLM 调用适配）` |
 | security | trust/policy/sandbox 边界；审批策略与参数校验 | `ISecurityBoundary`（及其 policy/sandbox 子接口位） | `doc/design/Interfaces.md` 的 `## 6. security（Trust + Policy + Sandbox）` |

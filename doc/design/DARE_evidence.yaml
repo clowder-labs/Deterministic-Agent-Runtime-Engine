@@ -51,7 +51,7 @@ sources:
     why: "ModelInput(messages+tools+metadata) shape"
   - id: code-tool-provider
     path: dare_framework/tool/interfaces.py
-    why: "IToolProvider.list_tools provides structured tool defs for Context.assemble"
+    why: "IToolProvider.list_tools provides tool instances for ToolManager; tool defs are derived from ToolManager registry"
   - id: code-agent-simple-chat
     path: dare_framework/agent/_internal/simple_chat.py
     why: "Context usage: stm_add -> assemble -> ModelInput(messages+tools+metadata)"
@@ -139,7 +139,7 @@ claims:
 
   - id: C-CTX-002
     type: observed
-    statement: "Context holds retrieval refs (STM/LTM/Knowledge) + Budget and assembles messages/tools on-demand (AssembledContext); tools are provided as structured tool defs (list[dict]) via a tool provider."
+    statement: "Context holds retrieval refs (STM/LTM/Knowledge) + Budget and assembles messages/tools on-demand (AssembledContext); tool defs are derived from the ToolManager registry (list[dict])."
     refs: [doc-arch-compare, code-context, code-tool-provider, code-agent-simple-chat]
     anchors:
       architecture:
@@ -235,7 +235,7 @@ claims:
 
   - id: C-MODEL-001
     type: design_decision
-    statement: "Model input is standardized as ModelInput(messages + trusted tool defs + metadata); structured tool defs must be traceable to ToolGateway registry (same source of truth as tool-catalog message)."
+    statement: "Model input is standardized as ModelInput(messages + trusted tool defs + metadata); structured tool defs must be traceable to the ToolManager registry (same source of truth as tool-catalog message)."
     rationale: "Unifies model invocation surface and fixes tool schema trust source to the gateway registry."
     refs: [code-model-types, code-arch-orchestrator, doc-arch-compare]
     anchors:

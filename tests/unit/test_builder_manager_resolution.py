@@ -12,6 +12,7 @@ from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.interfaces import IValidator
 from dare_framework.plan.types import ProposedPlan
+from dare_framework.tool import ToolManager
 from dare_framework.tool.interfaces import ITool
 from dare_framework.tool.types import ToolResult
 
@@ -56,14 +57,6 @@ class DummyTool(ITool):
 
     async def execute(self, input: dict[str, Any], context: Any) -> ToolResult:
         return ToolResult(success=True, output=input)
-
-
-class FixedToolManager:
-    def __init__(self, tools: list[ITool]) -> None:
-        self._tools = list(tools)
-
-    def load_tools(self, *, config: Config | None = None) -> list[ITool]:
-        return list(self._tools)
 
 
 class RecordingValidator:
@@ -162,16 +155,23 @@ def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:
         Builder.simple_chat_agent_builder("test")
         .with_model(DummyModelAdapter("ok"))
         .with_config(config)
-        .with_managers(tool_manager=FixedToolManager([enabled_tool, disabled_tool]))
+        .with_tool_gateway(_build_tool_manager([enabled_tool, disabled_tool]))
         .add_tools(explicit_tool)
         .build()
     )
 
     tool_defs = agent.context.listing_tools()
-    names = {tool_def["function"]["name"] for tool_def in tool_defs}
+    names = {tool_def.get("metadata", {}).get("display_name") for tool_def in tool_defs}
     assert "explicit_tool" in names
     assert "enabled_tool" in names
     assert "disabled_tool" not in names
+
+
+def _build_tool_manager(tools: list[ITool]) -> ToolManager:
+    manager = ToolManager()
+    for tool in tools:
+        manager.register_tool(tool)
+    return manager
 
 
 @pytest.mark.asyncio

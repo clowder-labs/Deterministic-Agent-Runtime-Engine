@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from dare_framework.tool.interfaces import IMCPClient, ITool
+from dare_framework.tool.interfaces import IMCPClient, ITool, IToolProvider
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,
@@ -14,7 +14,7 @@ from dare_framework.tool.types import (
 )
 
 
-class MCPToolkit:
+class MCPToolkit(IToolProvider):
     """Expose MCP client tools as framework ITool instances."""
 
     def __init__(self, clients: Sequence[IMCPClient]) -> None:

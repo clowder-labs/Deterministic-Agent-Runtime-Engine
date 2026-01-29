@@ -1,15 +1,7 @@
 """tool domain facade."""
 
-from dare_framework.tool.interfaces import (
-    ICapabilityProvider,
-    IProtocolAdapter,
-    IMCPClient,
-    ISkill,
-    ITool,
-    IToolManager,
-    IToolProvider,
-)
-from dare_framework.tool.kernel import IExecutionControl, IToolGateway
+from dare_framework.tool.interfaces import IMCPClient, ISkill, ITool, IToolProvider
+from dare_framework.tool.kernel import IExecutionControl, IToolGateway, IToolManager
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
@@ -35,12 +27,10 @@ from dare_framework.tool.types import (
 from dare_framework.tool._internal import (
     Checkpoint,
     DefaultExecutionControl,
-    DefaultToolGateway,
     EchoTool,
     MCPToolkit,
     NativeToolProvider,
     NoopTool,
-    ProtocolAdapterProvider,
     ToolManager,
 )
 from dare_framework.tool._internal import NoopTool as NoOpTool
@@ -49,8 +39,6 @@ from dare_framework.tool._internal import NoopTool as NoOpTool
 from dare_framework.tool._internal import (
     EditLineTool,
     FileExecutionControl,
-    GatewayToolProvider,
-    MCPAdapter,
     NoOpMCPClient,
     NoOpSkill,
     ReadFileTool,
@@ -83,28 +71,22 @@ __all__ = [
     # Kernel interfaces
     "IExecutionControl",
     "IToolGateway",
+    "IToolManager",
     # Pluggable interfaces
-    "ICapabilityProvider",
-    "IProtocolAdapter",
     "IMCPClient",
     "ISkill",
     "ITool",
-    "IToolManager",
     "IToolProvider",
     # Default implementations
     "Checkpoint",
     "DefaultExecutionControl",
-    "DefaultToolGateway",
     "EchoTool",
     "MCPToolkit",
     "NativeToolProvider",
     "NoopTool",
     "NoOpTool",
-    "ProtocolAdapterProvider",
     "ToolManager",
     # v4 tool runtime helpers and file tools
-    "GatewayToolProvider",
-    "MCPAdapter",
     "NoOpMCPClient",
     "NoOpSkill",
     "RunCommandTool",

@@ -4,11 +4,11 @@ This example demonstrates the tool management capabilities of `dare_framework` w
 
 ## Features Demonstrated
 
-1. **Builder Assembly** - Building the agent shell while injecting a pre-wired gateway/provider
-2. **Gateway & Provider Setup** - Creating and connecting `DefaultToolGateway` with `NativeToolProvider`
+1. **Builder Assembly** - Building the agent shell while injecting a ToolManager-backed gateway
+2. **Gateway Setup** - Creating `ToolManager` as the default gateway
 3. **Tool Registration** - Dynamically registering `NoopTool` and `EchoTool`
 4. **Capability Discovery** - Listing capabilities with trusted metadata
-5. **Health Checking** - Monitoring provider health status
+5. **Health Checking** - Monitoring registry/provider health status
 6. **Tool Invocation** - Invoking tools through the gateway with envelope boundaries
 7. **Envelope Restrictions** - Demonstrating capability allow-lists
 8. **Execution Control** - Using checkpoints, pause, and resume for HITL
@@ -42,9 +42,7 @@ DARE Framework v4 - Tool Management Example
 [2] Registering tools...
     Registered tools: noop, echo
 
-[3] Registering provider with gateway...
-
-[4] Listing capabilities from gateway...
+[3] Listing capabilities from gateway...
     - noop: A no-operation tool that does nothing and always succeeds.
       risk_level: read_only
       requires_approval: False

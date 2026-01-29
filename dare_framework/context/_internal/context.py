@@ -9,6 +9,7 @@ import uuid
 if TYPE_CHECKING:
     from dare_framework.model.types import Prompt
     from dare_framework.tool.interfaces import IToolProvider
+    from dare_framework.tool.kernel import IToolManager
 
 from dare_framework.context.kernel import IContext, IRetrievalContext
 from dare_framework.context.types import AssembledContext, Budget, Message
@@ -43,7 +44,7 @@ class Context(IContext):
     knowledge: IRetrievalContext | None = None
 
     # Tool provider (internal, for listing_tools)
-    _tool_provider: "IToolProvider | None" = field(default=None, repr=False)
+    _tool_provider: "IToolProvider | IToolManager | None" = field(default=None, repr=False)
 
     # System prompt definition (internal, for context assembly)
     _sys_prompt: "Prompt | None" = field(default=None, repr=False)
@@ -122,9 +123,19 @@ class Context(IContext):
     # ========== Tool Methods ==========
 
     def listing_tools(self) -> list[dict[str, Any]]:
-        """Get tool list (internally calls IToolProvider)."""
+        """Get tool list from a ToolManager or provider."""
         if self._tool_provider is not None:
-            self.toollist = self._tool_provider.list_tools()
+            provider = self._tool_provider
+            list_tool_defs = getattr(provider, "list_tool_defs", None)
+            if callable(list_tool_defs):
+                self.toollist = list_tool_defs()
+            else:
+                tools = provider.list_tools()
+                if tools and isinstance(tools[0], dict):
+                    # Backward-compatible path for legacy tool definitions.
+                    self.toollist = tools  # type: ignore[assignment]
+                else:
+                    self.toollist = []
         return self.toollist or []
 
     # ========== Assembly Methods (Core) ==========

@@ -58,17 +58,17 @@ The developer-facing agent API SHALL support composing agents via typed builders
 - **THEN** `tool_x` and `tool_y` MUST be included and `tool_z` MUST be omitted, and `tool_x` MUST NOT be filtered out by config
 
 ### Requirement: Optional MCP Integration Surface
-The interface layer SHALL define IMCPClient and MCPToolkit, and MCP integration SHALL keep the default runtime functional when no MCP clients are configured.
+The interface layer SHALL NOT define protocol adapter interfaces. Protocol adapter surfaces are deferred until a dedicated integration is specified.
 
 #### Scenario: MCP is not configured
 - **WHEN** no MCP clients are provided
-- **THEN** the runtime operates with local tools only and does not attempt MCP discovery
+- **THEN** the runtime operates with local tools only and does not attempt protocol discovery
 
 ### Requirement: Default ToolGateway Aggregates Capability Providers
-The canonical `dare_framework` package SHALL provide a default `IToolGateway` implementation that aggregates registered `ICapabilityProvider`s and enforces envelope allowlists during invocation.
+The canonical `dare_framework` package SHALL provide a default `IToolGateway` implementation backed by `IToolManager` that aggregates registered `IToolProvider` instances and enforces envelope allowlists during invocation.
 
 #### Scenario: List capabilities from multiple providers
-- **GIVEN** two registered capability providers
+- **GIVEN** two registered tool providers
 - **WHEN** `list_capabilities()` is called
 - **THEN** it returns the combined capability descriptors without duplicate ids
 
@@ -79,27 +79,17 @@ The canonical `dare_framework` package SHALL provide a default `IToolGateway` im
 
 ### Requirement: Manager interfaces are domain-owned
 The system SHALL define component manager interfaces alongside their owning domain interfaces, not in the config domain. Specifically:
-- Tool manager: `dare_framework/tool/interfaces.py`
+- Tool manager: `dare_framework/tool/kernel.py`
 - Model adapter manager: `dare_framework/model/interfaces.py`
 - Planner/validator/remediator managers: `dare_framework/plan/interfaces.py`
 - Hook manager: `dare_framework/hook/interfaces.py`
 
-The protocol adapter manager SHALL be defined at the package root in `dare_framework/protocol_adapter_manager.py` until a dedicated protocol domain exists.
-
 #### Scenario: Tool manager import path
 - **WHEN** a contributor imports `IToolManager`
-- **THEN** it is available from `dare_framework.tool.interfaces` and not from `dare_framework.config.interfaces`.
-
-#### Scenario: Plan manager grouping
-- **WHEN** a contributor looks for planner/validator/remediator managers
-- **THEN** the manager interfaces are defined alongside `IPlanner`, `IValidator`, and `IRemediator` in the plan domain.
-
-#### Scenario: Protocol adapter manager root
-- **WHEN** a contributor imports `IProtocolAdapterManager`
-- **THEN** it is available from `dare_framework.protocol_adapter_manager`.
+- **THEN** it is available from `dare_framework.tool.kernel` (and re-exported from `dare_framework.tool`) and not from `dare_framework.tool.interfaces`
 
 ### Requirement: Tool manager contract
-The interface layer SHALL define an `IToolManager` contract in the tool domain. The contract SHALL support trusted tool registration, provider aggregation, and prompt tool definition export without executing tools. At minimum it MUST include:
+The tool domain SHALL define an `IToolManager` contract in `dare_framework/tool/kernel.py` that extends `IToolGateway`. The contract SHALL support trusted tool registration, provider aggregation, and prompt tool definition export without executing tools. At minimum it MUST include:
 - `register_tool(...)`, `unregister_tool(...)`, `update_tool(...)`
 - `register_provider(...)`, `unregister_provider(...)`
 - `list_capabilities(...)`, `refresh(...)`
@@ -125,4 +115,27 @@ The system SHALL provide a stable facade for selecting which builder variant to 
 #### Scenario: Developer selects a builder variant
 - **WHEN** a developer selects a builder variant via the facade
 - **THEN** they receive a builder whose `build()` produces the corresponding agent type
+
+### Requirement: Tool providers return ITool lists
+`IToolProvider` SHALL return tool instances rather than tool definitions. The provider acts only as a tool source for registration into ToolManager.
+
+#### Scenario: Provider supplies tools for registration
+- **GIVEN** an `IToolProvider`
+- **WHEN** `list_tools()` is called
+- **THEN** it returns an ordered `list[ITool]` suitable for registration into ToolManager
+
+### Requirement: Capability id is the tool call identity
+The system SHALL use a UUID-based `capability_id` as the canonical identity for tools. The LLM-facing tool definition MUST use `function.name == capability_id`, and ToolManager/ToolGateway MUST route invocations by this same identifier.
+
+#### Scenario: Tool naming is consistent across LLM and routing
+- **GIVEN** a tool registered into ToolManager
+- **WHEN** the tool is exposed to the model
+- **THEN** the tool definition name equals the tool’s `capability_id` and tool calls route by that value
+
+### Requirement: Trusted tool listings for model prompts
+`IToolProvider.list_tools()` SHALL derive tool definitions from the trusted capability registry exposed by `IToolGateway.list_capabilities()`; tool listings MUST NOT originate from untrusted sources (planner/model output).
+
+#### Scenario: Tool provider uses the gateway registry
+- **WHEN** the context assembles tool definitions for a model prompt
+- **THEN** the tool provider queries the tool gateway capability registry and converts those capabilities into tool definitions for the prompt
 

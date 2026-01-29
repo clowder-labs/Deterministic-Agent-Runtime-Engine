@@ -5,17 +5,16 @@ Imports should prefer `dare_framework.tool` or `dare_framework.tool._internal`
 aggregates; the subpackages below organize internal responsibilities.
 
 Subpackages
-- adapters: protocol adapters (example: MCP adapter + no-op client).
+- adapters: protocol client helpers (example: no-op MCP client).
 - control: execution control plane (pause/resume/checkpoints).
-- gateway: tool gateway implementations (capability registry + invoke).
 - managers: trusted capability registry and tool manager implementations.
-- providers: capability providers / manager-style adapters.
+- providers: tool providers (tool sources) / manager-style adapters.
 - toolkits: tool aggregation helpers (example: MCP toolkit).
 - tools: built-in tools shipped with the framework.
 - utils: shared utilities for tool implementations.
 
 Manager vs built-in tools
-- Manager-style components live in `gateway/`, `providers/`, and `toolkits/`.
+- Manager-style components live in `managers/`, `providers/`, and `toolkits/`.
 - System/built-in tools live in `tools/` (file/command helpers, noop/echo).
 
 Naming

@@ -7,14 +7,10 @@ Concrete implementations (native tools, protocol adapters, gateways) live under
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, Sequence, runtime_checkable
-
-from dare_framework.config.types import Config
+from typing import Any, Literal, Protocol, runtime_checkable
 from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.tool.types import (
-    CapabilityDescriptor,
     CapabilityKind,
-    ProviderStatus,
     RiskLevelName,
     RunContext,
     ToolDefinition,
@@ -27,21 +23,21 @@ from dare_framework.tool.types import (
 class IToolProvider(Protocol):
     """[Component] Tool provider interface.
 
-    Usage: Injected into BaseContext.tools.
-    Provides tool listing capability for context assembly.
+    Usage: Tool source for registration into ToolManager.
+    Provides tool instances rather than tool definitions.
 
-    Note: This is a minimal interface for BaseContext integration.
-    Tool execution boundaries and control-plane contracts are declared in
+    Note: Tool execution boundaries and control-plane contracts are declared in
     `dare_framework.tool.kernel` (v4-style alignment).
     """
 
-    def list_tools(self) -> list[dict[str, Any]]:
-        """Get available tool definitions in LLM-compatible format.
+    def list_tools(self) -> list["ITool"]:
+        """Get available tool instances for registration.
 
         Returns:
-            List of tool definitions with name, description, parameters, etc.
+            List of tool implementations.
         """
         ...
+
 
 @runtime_checkable
 class ITool(IComponent, Protocol):
@@ -110,75 +106,6 @@ class ITool(IComponent, Protocol):
         ...
 
 
-class IToolManager(Protocol):
-    """Tool manager for discovery and trusted registry operations."""
-
-    def load_tools(self, *, config: Config | None = None) -> list[ITool]:
-        """Load tool implementations from configuration."""
-        ...
-
-    def register_tool(
-        self,
-        tool: ITool,
-        *,
-        namespace: str | None = None,
-        version: str | None = None,
-    ) -> CapabilityDescriptor:
-        """Register a tool and return its capability descriptor."""
-        ...
-
-    def unregister_tool(self, capability_id: str) -> bool:
-        """Unregister a tool capability by id."""
-        ...
-
-    def update_tool(
-        self,
-        tool: ITool,
-        *,
-        capability_id: str,
-        enabled: bool | None = None,
-    ) -> CapabilityDescriptor:
-        """Update a registered tool capability."""
-        ...
-
-    def set_capability_enabled(self, capability_id: str, enabled: bool) -> None:
-        """Enable or disable a capability in the registry."""
-        ...
-
-    def register_provider(self, provider: "ICapabilityProvider") -> None:
-        """Register a capability provider."""
-        ...
-
-    def unregister_provider(self, provider: "ICapabilityProvider") -> bool:
-        """Unregister a capability provider."""
-        ...
-
-    async def refresh(self) -> list[CapabilityDescriptor]:
-        """Refresh provider capabilities into the registry."""
-        ...
-
-    def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
-        """List registered capabilities."""
-        ...
-
-    def list_tool_defs(self) -> list[ToolDefinition]:
-        """List tool definitions derived from the registry."""
-        ...
-
-    def get_capability(
-        self,
-        capability_id: str,
-        *,
-        include_disabled: bool = False,
-    ) -> CapabilityDescriptor | None:
-        """Fetch a capability descriptor by id."""
-        ...
-
-    async def health_check(self) -> dict[str, ProviderStatus]:
-        """Check provider health status."""
-        ...
-
-
 @runtime_checkable
 class ISkill(IComponent, Protocol):
     """Pluggable skill capability for higher-level operations."""
@@ -200,60 +127,6 @@ class ISkill(IComponent, Protocol):
 
     async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
         """Execute the skill and return a ToolResult."""
-        ...
-
-
-@runtime_checkable
-class ICapabilityProvider(Protocol):
-    """A provider that exposes capabilities to a ToolGateway registry."""
-
-    async def list(self) -> list[CapabilityDescriptor]:
-        """List available capabilities."""
-        ...
-
-    async def invoke(self, capability_id: str, params: dict[str, Any]) -> object:
-        """Invoke a capability by id."""
-        ...
-
-    async def health_check(self) -> ProviderStatus:
-        """Check provider health status."""
-        ...
-
-
-@runtime_checkable
-class IProtocolAdapter(IComponent, Protocol):
-    """Protocol adapter (e.g., MCP/A2A) translated into canonical capabilities."""
-
-    @property
-    def protocol_name(self) -> str:
-        """Protocol name identifier."""
-        ...
-
-    @property
-    def component_type(self) -> Literal[ComponentType.MCP]:
-        """Component category used for config scoping."""
-        ...
-
-    async def connect(self, endpoint: str, config: dict[str, Any]) -> None:
-        """Connect to an external protocol endpoint."""
-        ...
-
-    async def disconnect(self) -> None:
-        """Disconnect from the protocol endpoint."""
-        ...
-
-    async def discover(self) -> Sequence[CapabilityDescriptor]:
-        """Discover remote capabilities."""
-        ...
-
-    async def invoke(
-        self,
-        capability_id: str,
-        params: dict[str, Any],
-        *,
-        timeout: float | None = None,
-    ) -> Any:
-        """Invoke a remote capability."""
         ...
 
 
@@ -294,10 +167,7 @@ class IMCPClient(Protocol):
 
 
 __all__ = [
-    "ICapabilityProvider",
-    "IProtocolAdapter",
     "ISkill",
-    "IToolManager",
     "ITool",
     "IToolProvider",
     "IMCPClient",

@@ -140,7 +140,7 @@ class IContext(Protocol):
 ```
 
 补充语义（关键约束）：
-- tool defs 的来源必须可追溯到 `IToolGateway.list_capabilities()` 的可信 registry（同源可信）。
+- tool defs 的来源必须可追溯到 ToolManager 的可信 registry（同源可信），并与 `IToolGateway` 的可调用能力一致。
 - （可选兼容）如果某模型需要“文本化的 tool catalog”，由 adapter/策略层渲染，不作为 Context 的必选语义。
 
 ---
@@ -159,8 +159,9 @@ from __future__ import annotations
 
 from typing import Any, Protocol, Sequence
 
+from dare_framework.config.types import Config
 from dare_framework.plan.types import Envelope
-from dare_framework.tool.types import CapabilityDescriptor, ExecutionSignal
+from dare_framework.tool.types import CapabilityDescriptor, ExecutionSignal, ProviderStatus, ToolDefinition, ToolResult
 
 
 class IToolGateway(Protocol):
@@ -171,6 +172,38 @@ class IToolGateway(Protocol):
     async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope) -> Any: ...
 
     def register_provider(self, provider: object) -> None: ...
+
+
+class IToolManager(IToolGateway, Protocol):
+    """可信工具注册表与管理接口。"""
+
+    # NOTE: 通过 forward refs 避免 kernel 依赖 tool/interfaces。
+
+    def load_tools(self, *, config: Config | None = None) -> list["ITool"]: ...
+
+    def register_tool(self, tool: "ITool", *, namespace: str | None = None, version: str | None = None) -> CapabilityDescriptor: ...
+
+    def unregister_tool(self, capability_id: str) -> bool: ...
+
+    def update_tool(self, tool: "ITool", *, capability_id: str, enabled: bool | None = None) -> CapabilityDescriptor: ...
+
+    def set_capability_enabled(self, capability_id: str, enabled: bool) -> None: ...
+
+    def register_provider(self, provider: "IToolProvider") -> None: ...
+
+    def unregister_provider(self, provider: "IToolProvider") -> bool: ...
+
+    async def refresh(self) -> list[CapabilityDescriptor]: ...
+
+    def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]: ...
+
+    def list_tool_defs(self) -> list[ToolDefinition]: ...
+
+    def get_capability(self, capability_id: str, *, include_disabled: bool = False) -> CapabilityDescriptor | None: ...
+
+    async def health_check(self) -> dict[str, ProviderStatus]: ...
+
+    async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope) -> ToolResult: ...
 
 
 class IExecutionControl(Protocol):
@@ -199,9 +232,9 @@ from dare_framework.tool.types import CapabilityDescriptor, RunContext, ToolResu
 
 @runtime_checkable
 class IToolProvider(Protocol):
-    """为 Context.assemble 提供结构化 tool defs（ModelInput.tools）。"""
+    """提供工具实例，供 ToolManager 注册。"""
 
-    def list_tools(self) -> list[dict[str, Any]]: ...
+    def list_tools(self) -> list[ITool]: ...
 
 
 @runtime_checkable
@@ -210,12 +243,6 @@ class ITool(Protocol):
     def name(self) -> str: ...
 
     async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult: ...
-
-
-class ICapabilityProvider(Protocol):
-    async def list(self) -> list[CapabilityDescriptor]: ...
-
-    async def invoke(self, capability_id: str, params: dict[str, Any]) -> object: ...
 
 
 @runtime_checkable
@@ -230,6 +257,8 @@ class IProtocolAdapter(Protocol):
     async def discover(self) -> Sequence[CapabilityDescriptor]: ...
 
     async def invoke(self, capability_id: str, params: dict[str, Any], *, timeout: float | None = None) -> Any: ...
+
+
 ```
 
 ### 3.4 可信 metadata 约定（建议）
@@ -238,6 +267,9 @@ class IProtocolAdapter(Protocol):
 - `risk_level`: string enum
 - `requires_approval`: bool
 - `timeout_seconds`: int
+
+补充约定：
+- `capability_id` 为 UUID，LLM 侧 `function.name` 与该 id 保持一致，以确保调用路由唯一。
 - `is_work_unit`: bool
 - `capability_kind`: `tool` / `skill` / `plan_tool` / `agent` / `ui`
 
@@ -272,7 +304,7 @@ class IProtocolAdapter(Protocol):
 - `ModelInput(messages + trusted tool defs + metadata)`
 
 规则：
-- tool defs 必须可追溯到 ToolGateway 的可信 registry。
+- tool defs 必须可追溯到 ToolManager 的可信 registry，并与 ToolGateway 可调用能力一致。
 - （可选）对不支持结构化 tools 的模型：可由 adapter/策略层渲染 tool catalog system message（审计友好）。
 
 ### 5.2 Adapter 接口（`model/kernel.py`）

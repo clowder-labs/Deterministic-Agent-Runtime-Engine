@@ -4,14 +4,7 @@ from typing import Any
 
 import pytest
 
-from dare_framework.tool import (
-    CapabilityDescriptor,
-    CapabilityKind,
-    CapabilityType,
-    ProviderStatus,
-    ToolManager,
-    ToolType,
-)
+from dare_framework.tool import CapabilityKind, ToolManager, ToolType
 from dare_framework.infra.component import ComponentType
 
 
@@ -68,31 +61,26 @@ class DummyTool:
         return {"ok": True, "text": input.get("text")}
 
 
-class FakeProvider:
-    def __init__(self, capabilities: list[CapabilityDescriptor]) -> None:
-        self._capabilities = capabilities
+class ListProvider:
+    def __init__(self, tools: list[DummyTool]) -> None:
+        self._tools = tools
 
-    async def list(self) -> list[CapabilityDescriptor]:
-        return list(self._capabilities)
-
-    async def invoke(self, capability_id: str, params: dict[str, Any]) -> object:
-        return {"capability_id": capability_id, **params}
-
-    async def health_check(self) -> ProviderStatus:
-        return ProviderStatus.HEALTHY
+    def list_tools(self) -> list[DummyTool]:
+        return list(self._tools)
 
 
-def test_tool_manager_register_update_unregister() -> None:
+@pytest.mark.asyncio
+async def test_tool_manager_register_update_unregister() -> None:
     manager = ToolManager()
     tool = DummyTool("echo", "Echo input text")
 
     descriptor = manager.register_tool(tool)
-    assert descriptor.id == "tool:echo"
+    assert descriptor.id.startswith("tool_")
 
     manager.set_capability_enabled(descriptor.id, False)
     assert manager.list_tool_defs() == []
-    assert manager.list_capabilities() == []
-    assert manager.list_capabilities(include_disabled=True)
+    assert await manager.list_capabilities() == []
+    assert await manager.list_capabilities(include_disabled=True)
 
     updated = DummyTool("echo", "Echo input payload")
     updated_descriptor = manager.update_tool(
@@ -107,38 +95,22 @@ def test_tool_manager_register_update_unregister() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_manager_provider_aggregation() -> None:
+async def test_tool_manager_provider_registration() -> None:
     manager = ToolManager()
+    provider = ListProvider([DummyTool("alpha", "A"), DummyTool("beta", "B")])
 
-    capability_a = CapabilityDescriptor(
-        id="tool:a",
-        type=CapabilityType.TOOL,
-        name="a",
-        description="tool a",
-        input_schema={"type": "object", "properties": {}},
-    )
-    capability_b = CapabilityDescriptor(
-        id="tool:b",
-        type=CapabilityType.TOOL,
-        name="b",
-        description="tool b",
-        input_schema={"type": "object", "properties": {}},
-    )
-
-    provider = FakeProvider([capability_a, capability_b])
     manager.register_provider(provider)
     await manager.refresh()
 
-    ids = {cap.id for cap in manager.list_capabilities()}
-    assert ids == {"tool:a", "tool:b"}
+    capabilities = await manager.list_capabilities()
+    assert len(capabilities) == 2
 
-    duplicate_provider = FakeProvider([capability_a])
-    manager.register_provider(duplicate_provider)
-    with pytest.raises(ValueError):
-        await manager.refresh()
+    assert manager.unregister_provider(provider) is True
+    assert await manager.list_capabilities() == []
 
 
-def test_tool_manager_tool_defs_include_metadata() -> None:
+@pytest.mark.asyncio
+async def test_tool_manager_tool_defs_include_metadata() -> None:
     manager = ToolManager()
     tool = DummyTool("echo", "Echo input text")
 
@@ -149,12 +121,14 @@ def test_tool_manager_tool_defs_include_metadata() -> None:
 
     tool_def = tool_defs[0]
     assert tool_def["type"] == "function"
-    assert tool_def["function"]["name"] == "echo"
-    assert tool_def["capability_id"] == "tool:echo"
+    assert tool_def["function"]["name"] == tool_def["capability_id"]
+    assert tool_def["function"]["name"].startswith("tool_")
     assert tool_def["function"]["parameters"] == tool.input_schema
+    assert tool_def["capability_id"] in {cap.id for cap in await manager.list_capabilities()}
 
     metadata = tool_def.get("metadata", {})
     assert metadata.get("risk_level") == "non_idempotent_effect"
     assert metadata.get("requires_approval") is True
     assert metadata.get("timeout_seconds") == 12
     assert metadata.get("is_work_unit") is False
+    assert metadata.get("display_name") == "echo"

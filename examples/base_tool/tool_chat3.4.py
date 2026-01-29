@@ -23,15 +23,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from dare_framework.builder import Builder
 from dare_framework.model import OpenAIModelAdapter
 from dare_framework.tool import (
-    DefaultToolGateway,
     EditLineTool,
-    GatewayToolProvider,
-    NativeToolProvider,
     NoOpTool,
     ReadFileTool,
     RunCommandTool,
     RunContextState,
     SearchCodeTool,
+    ToolManager,
     WriteFileTool,
 )
 
@@ -121,27 +119,16 @@ async def main() -> None:
         NoOpTool(),
     ]
 
-    gateway = DefaultToolGateway()
-    provider = NativeToolProvider(
-        tools=tools,
-        context_factory=run_context.build,
-        # Align capability ids with tool call names emitted by the model.
-        capability_prefix="",
-    )
-    gateway.register_provider(provider)
-
-    # Inject a tool provider so we can refresh tool defs asynchronously in this loop.
-    tool_provider = GatewayToolProvider(gateway)
-    await tool_provider.refresh()
-    _log_tool_defs(tool_provider.list_tools())
+    gateway = ToolManager(context_factory=run_context.build)
 
     agent = (
         Builder.five_layer_agent_builder("tool-chat-v3_4")
         .with_model(model_adapter)
         .with_tool_gateway(gateway)
-        .with_tool_provider(tool_provider)
+        .add_tools(*tools)
         .build()
     )
+    _log_tool_defs(agent.context.listing_tools())
 
     print("Tool Chat v3.4 - Type your message (or /quit to exit):", flush=True)
     while True:

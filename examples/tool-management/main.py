@@ -22,12 +22,10 @@ from dare_framework.model import IModelAdapter
 from dare_framework.plan import Envelope
 from dare_framework.tool import (
     DefaultExecutionControl,
-    DefaultToolGateway,
     EchoTool,
-    GatewayToolProvider,
-    NativeToolProvider,
     NoopTool,
     RunContextState,
+    ToolManager,
 )
 
 # Configuration (consistent with examples/base_tool)
@@ -64,31 +62,27 @@ async def main():
         }
     )
 
-    gateway = DefaultToolGateway()
+    gateway = ToolManager(context_factory=run_context.build)
     execution_control = DefaultExecutionControl()
     tools = [NoopTool(), EchoTool()]
-    provider = NativeToolProvider(tools=tools, context_factory=run_context.build)
-    tool_provider = GatewayToolProvider(gateway)
 
     # Build the agent shell while keeping tool wiring explicit for this demo.
     _agent = (
         Builder.simple_chat_agent_builder("tool-management")
         .with_model(_NoopModelAdapter())
         .with_tool_gateway(gateway)
-        .with_tool_provider(tool_provider)
+        .add_tools(*tools)
         .build()
     )
 
-    # 2. Register tools with the provider
+    # 2. Register tools with the ToolManager gateway
     print("\n[2] Registering tools...")
     print(f"    Registered tools: noop, echo")
+    descriptors = [gateway.register_tool(tool) for tool in tools]
+    cap_ids = {desc.name: desc.id for desc in descriptors}
 
-    # 3. Register provider with gateway
-    print("\n[3] Registering provider with gateway...")
-    gateway.register_provider(provider)
-
-    # 4. List capabilities
-    print("\n[4] Listing capabilities from gateway...")
+    # 3. List capabilities
+    print("\n[3] Listing capabilities from gateway...")
     capabilities = await gateway.list_capabilities()
     for cap in capabilities:
         print(f"    - {cap.name}: {cap.description}")
@@ -96,39 +90,39 @@ async def main():
             print(f"      risk_level: {cap.metadata.get('risk_level')}")
             print(f"      requires_approval: {cap.metadata.get('requires_approval')}")
 
-    # 5. Check provider health
-    print("\n[5] Checking provider health...")
+    # 4. Check provider health
+    print("\n[4] Checking provider health...")
     health = await gateway.health_check()
     for provider_id, status in health.items():
         print(f"    {provider_id}: {status.value}")
 
-    # 6. Invoke tools through gateway
-    print("\n[6] Invoking tools...")
+    # 5. Invoke tools through gateway
+    print("\n[5] Invoking tools...")
 
     # Create an envelope (execution boundary)
-    envelope = Envelope(allowed_capability_ids=["tool:noop", "tool:echo"])
+    envelope = Envelope(allowed_capability_ids=list(cap_ids.values()))
 
     # Invoke noop tool
     print("\n    Invoking 'noop'...")
-    result = await gateway.invoke("tool:noop", {}, envelope=envelope)
+    result = await gateway.invoke(cap_ids["noop"], {}, envelope=envelope)
     print(f"    Result: success={result.success}, output={result.output}")
 
     # Invoke echo tool
     print("\n    Invoking 'echo' with message='Hello, DARE!'...")
-    result = await gateway.invoke("tool:echo", {"message": "Hello, DARE!"}, envelope=envelope)
+    result = await gateway.invoke(cap_ids["echo"], {"message": "Hello, DARE!"}, envelope=envelope)
     print(f"    Result: success={result.success}, output={result.output}")
 
-    # 7. Demonstrate envelope restrictions
-    print("\n[7] Demonstrating envelope restrictions...")
-    restricted_envelope = Envelope(allowed_capability_ids=["tool:noop"])  # echo not allowed
+    # 6. Demonstrate envelope restrictions
+    print("\n[6] Demonstrating envelope restrictions...")
+    restricted_envelope = Envelope(allowed_capability_ids=[cap_ids["noop"]])  # echo not allowed
 
     try:
-        await gateway.invoke("tool:echo", {"message": "test"}, envelope=restricted_envelope)
+        await gateway.invoke(cap_ids["echo"], {"message": "test"}, envelope=restricted_envelope)
     except PermissionError as e:
         print(f"    Expected error: {e}")
 
-    # 8. Demonstrate execution control
-    print("\n[8] Demonstrating execution control...")
+    # 7. Demonstrate execution control
+    print("\n[7] Demonstrating execution control...")
 
     # Create a checkpoint
     checkpoint_id = await execution_control.checkpoint("demo", {"action": "test"})
@@ -143,21 +137,21 @@ async def main():
     await execution_control.resume(pause_checkpoint)
     print(f"    Resumed, signal: {execution_control.poll().value}")
 
-    # 9. Get LLM-compatible tool definitions
-    print("\n[9] Getting LLM-compatible tool definitions...")
-    await tool_provider.refresh()
-    tool_defs = tool_provider.list_tools()
+    # 8. Get LLM-compatible tool definitions
+    print("\n[8] Getting LLM-compatible tool definitions...")
+    tool_defs = gateway.list_tool_defs()
     for tool_def in tool_defs:
         func = tool_def["function"]
         print(f"    - {func['name']}: {func['description'][:50]}...")
 
-    # 10. Dynamic tool management
-    print("\n[10] Demonstrating dynamic tool management...")
-    print(f"    Tools before unregister: {len(await provider.list())}")
-    provider.unregister_tool("noop")
-    print(f"    Tools after unregister 'noop': {len(await provider.list())}")
-    provider.register_tool(NoopTool())
-    print(f"    Tools after re-register: {len(await provider.list())}")
+    # 9. Dynamic tool management
+    print("\n[9] Demonstrating dynamic tool management...")
+    print(f"    Tools before unregister: {len(await gateway.list_capabilities())}")
+    gateway.unregister_tool(cap_ids["noop"])
+    print(f"    Tools after unregister 'noop': {len(await gateway.list_capabilities())}")
+    new_descriptor = gateway.register_tool(NoopTool())
+    print(f"    Tools after re-register: {len(await gateway.list_capabilities())}")
+    cap_ids["noop"] = new_descriptor.id
 
     print("\n" + "=" * 60)
     print("Example completed successfully!")
