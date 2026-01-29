@@ -1,0 +1,23 @@
+Task: 写一个可以玩的贪吃蛇游戏
+
+Expected Plan (correct):
+{
+  "plan_description": "创建可玩的贪吃蛇游戏",
+  "steps": [
+    {
+      "step_id": "evidence_1",
+      "capability_id": "file_evidence",
+      "params": {"expected_files": "snake.py游戏文件"},
+      "description": "证据：创建了贪吃蛇游戏文件"
+    },
+    {
+      "step_id": "evidence_2", 
+      "capability_id": "test_evidence",
+      "params": {"test_method": "手动运行测试"},
+      "description": "证据：游戏可以运行并可玩"
+    }
+  ]
+}
+
+Wrong behavior (what probably happened):
+Model直接在Plan阶段输出了Python代码...
