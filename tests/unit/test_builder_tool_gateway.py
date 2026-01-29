@@ -5,10 +5,11 @@ from typing import Any
 import pytest
 
 from dare_framework.builder import Builder
-from dare_framework.model.interfaces import IModelAdapter
-from dare_framework.model.types import ModelResponse, Prompt
+from dare_framework.model.kernel import IModelAdapter
+from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.types import Envelope
 from dare_framework.tool._internal.gateway.default_tool_gateway import DefaultToolGateway
+from dare_framework.infra.component import ComponentType
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityType,
@@ -18,7 +19,15 @@ from dare_framework.tool.types import (
 
 
 class DummyModelAdapter(IModelAdapter):
-    async def generate(self, prompt: Prompt, *, options: Any | None = None) -> ModelResponse:
+    @property
+    def name(self) -> str:
+        return "dummy"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.MODEL_ADAPTER
+
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
         return ModelResponse(content="ok")
 
 

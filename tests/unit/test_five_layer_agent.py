@@ -10,7 +10,7 @@ import pytest
 
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Budget, Context, Message
-from dare_framework.model.types import ModelResponse, Prompt
+from dare_framework.model.types import ModelInput, ModelResponse
 
 
 # =============================================================================
@@ -26,12 +26,12 @@ class MockModelAdapter:
             ModelResponse(content="Hello! I'm a mock response.", tool_calls=[])
         ]
         self._call_idx = 0
-        self.generate_calls: list[Prompt] = []
+        self.generate_calls: list[ModelInput] = []
 
     async def generate(
-        self, prompt: Prompt, *, options: Any = None
+        self, model_input: ModelInput, *, options: Any = None
     ) -> ModelResponse:
-        self.generate_calls.append(prompt)
+        self.generate_calls.append(model_input)
         response = self.responses[self._call_idx % len(self.responses)]
         self._call_idx += 1
         return response

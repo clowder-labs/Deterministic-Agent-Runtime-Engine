@@ -1,43 +1,30 @@
-"""Model domain component interfaces."""
+"""Model domain component manager interfaces."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from dare_framework.model.types import GenerateOptions, ModelResponse, Prompt
+from typing import Protocol
 
 from dare_framework.config.types import Config
-from dare_framework.infra.component import ComponentType, IComponent
-
-
-@runtime_checkable
-class IModelAdapter(IComponent, Protocol):
-    """[Component] Model adapter contract for LLM invocation.
-
-    Usage: Called by the agent to generate model responses.
-    """
-
-    @property
-    def component_type(self) -> Literal[ComponentType.MODEL_ADAPTER]:
-        ...
-
-    async def generate(
-        self,
-        prompt: "Prompt",
-        *,
-        options: "GenerateOptions | None" = None,
-    ) -> "ModelResponse":
-        """[Component] Generate a model response for a prompt.
-
-        Usage: Called during plan or execution stages.
-        """
-        ...
+from dare_framework.model.kernel import IModelAdapter
+from dare_framework.model.types import Prompt
 
 class IModelAdapterManager(Protocol):
     """Loads the model adapter implementation (single-select)."""
 
     def load_model_adapter(self, *, config: Config | None = None) -> IModelAdapter | None: ...
 
+class IPromptLoader(Protocol):
+    """Loads Prompt definitions from a single source."""
 
-__all__ = ["IModelAdapter", "IModelAdapterManager"]
+    def load(self) -> list[Prompt]:
+        ...
+
+
+class IPromptStore(Protocol):
+    """Resolves Prompt definitions by id, model identity, and optional version."""
+
+    def get(self, prompt_id: str, *, model: str | None = None, version: str | None = None) -> Prompt:
+        ...
+
+
+__all__ = ["IModelAdapterManager", "IPromptLoader", "IPromptStore"]

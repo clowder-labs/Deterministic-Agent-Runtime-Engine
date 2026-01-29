@@ -170,6 +170,8 @@ class Config:
     components: dict[str, ComponentConfig] = field(default_factory=dict)
     workspace_dir: str = field(default_factory=_default_workspace_dir)
     user_dir: str = field(default_factory=_default_user_dir)
+    prompt_store_path_pattern: str = ".dare/_prompts.json"
+    default_prompt_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Config":
@@ -186,6 +188,12 @@ class Config:
             for key, value in components_raw.items()
             if isinstance(value, dict)
         }
+        prompt_store_path_pattern = data.get("prompt_store_path_pattern")
+        if not isinstance(prompt_store_path_pattern, str) or not prompt_store_path_pattern:
+            prompt_store_path_pattern = ".dare/_prompts.json"
+        default_prompt_id = data.get("default_prompt_id")
+        if default_prompt_id is not None:
+            default_prompt_id = str(default_prompt_id)
         workspace_dir_raw = data.get("workspace_dir")
         if isinstance(workspace_dir_raw, str):
             workspace_dir = workspace_dir_raw
@@ -206,6 +214,8 @@ class Config:
             components=components,
             workspace_dir=workspace_dir,
             user_dir=user_dir,
+            prompt_store_path_pattern=prompt_store_path_pattern,
+            default_prompt_id=default_prompt_id,
         )
 
     def component_settings(self, component_type: ComponentType | str) -> ComponentConfig:
@@ -248,5 +258,7 @@ class Config:
             "components": {key: value.to_dict() for key, value in self.components.items()},
             "workspace_dir": self.workspace_dir,
             "user_dir": self.user_dir,
+            "prompt_store_path_pattern": self.prompt_store_path_pattern,
+            "default_prompt_id": self.default_prompt_id,
         }
 __all__ = ["ComponentType", "ProxyConfig", "LLMConfig", "ComponentConfig", "Config"]

@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.builder import Builder
+from dare_framework.config import Config
 from dare_framework.model import OpenAIModelAdapter
 
 MODEL = "qwen-7b"
@@ -21,6 +22,7 @@ ENDPOINT = "http://127.0.0.1:8000/v1"
 # httpx 0.28 (used by openai client) does not expose allow_env_proxies; set trust_env=False to bypass proxies.
 HTTP_CLIENT_OPTIONS = {"trust_env": False, "proxy": None}
 LOG_LEVEL = os.getenv("CHAT_LOG_LEVEL", "INFO").upper()
+PROMPT_ID = os.getenv("CHAT_PROMPT_ID")
 
 logger = logging.getLogger("basic-chat-simple")
 
@@ -52,7 +54,15 @@ async def main() -> None:
         endpoint=ENDPOINT,
         http_client_options=HTTP_CLIENT_OPTIONS,
     )
-    agent = Builder.simple_chat_agent_builder("basic-chat").with_model(model_adapter).build()
+    config = Config(workspace_dir=str(PROJECT_ROOT))
+    builder = (
+        Builder.simple_chat_agent_builder("basic-chat")
+        .with_model(model_adapter)
+        .with_config(config)
+    )
+    if PROMPT_ID:
+        builder = builder.with_prompt_id(PROMPT_ID)
+    agent = builder.build()
 
     while True:
         try:

@@ -13,6 +13,7 @@ All builder variants share the same precedence rules:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from dare_framework.agent import FiveLayerAgent, SimpleChatAgent
@@ -23,7 +24,12 @@ from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IHook
 from dare_framework.knowledge import IKnowledge
 from dare_framework.memory import ILongTermMemory, IShortTermMemory
-from dare_framework.model.interfaces import IModelAdapter, IModelAdapterManager
+from dare_framework.model.kernel import IModelAdapter
+from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
+from dare_framework.model.types import Prompt
+from dare_framework.model._internal.builtin_prompt_loader import BuiltInPromptLoader
+from dare_framework.model._internal.filesystem_prompt_loader import FileSystemPromptLoader
+from dare_framework.model._internal.layered_prompt_store import LayeredPromptStore
 from dare_framework.plan._internal.composite_validator import CompositeValidator
 from dare_framework.plan.interfaces import (
     IPlanner,
@@ -67,6 +73,9 @@ class _BaseAgentBuilder:
         self._short_term_memory: IShortTermMemory | None = None
         self._long_term_memory: ILongTermMemory | None = None
         self._knowledge: IKnowledge | None = None
+        self._prompt_store: IPromptStore | None = None
+        self._prompt_override: Prompt | None = None
+        self._prompt_id_override: str | None = None
 
         # Tool wiring (shared across variants).
         self._tools: list[ITool] = []
@@ -121,6 +130,20 @@ class _BaseAgentBuilder:
 
     def with_model(self: TBuilder, model: IModelAdapter) -> TBuilder:
         self._model = model
+        return self
+
+    def with_prompt_store(self: TBuilder, store: IPromptStore) -> TBuilder:
+        self._prompt_store = store
+        return self
+
+    def with_prompt(self: TBuilder, prompt: Prompt) -> TBuilder:
+        self._prompt_override = prompt
+        self._prompt_id_override = None
+        return self
+
+    def with_prompt_id(self: TBuilder, prompt_id: str) -> TBuilder:
+        self._prompt_id_override = prompt_id
+        self._prompt_override = None
         return self
 
     def with_context(self: TBuilder, context: Context) -> TBuilder:
@@ -181,6 +204,44 @@ class _BaseAgentBuilder:
     def _default_run_context(self) -> RunContext[Any]:
         """Create a default run context for tool invocation."""
         return RunContext(deps=None, metadata={"agent": self._name})
+
+    def _effective_config(self) -> Config:
+        return self._config or Config()
+
+    def _resolve_prompt_store(self) -> IPromptStore:
+        if self._prompt_store is not None:
+            return self._prompt_store
+        config = self._effective_config()
+        pattern = config.prompt_store_path_pattern
+        workspace_manifest = Path(config.workspace_dir) / pattern
+        user_manifest = Path(config.user_dir) / pattern
+        loaders = [
+            FileSystemPromptLoader(workspace_manifest),
+            FileSystemPromptLoader(user_manifest),
+            BuiltInPromptLoader(),
+        ]
+        return LayeredPromptStore(loaders)
+
+    def _resolve_sys_prompt(self, model: IModelAdapter) -> Prompt | None:
+        if self._prompt_override is not None:
+            return self._prompt_override
+
+        model_name = getattr(model, "name", None)
+        if not model_name:
+            raise ValueError("Model adapter must define a stable name for prompt resolution")
+
+        store = self._resolve_prompt_store()
+
+        prompt_id = self._prompt_id_override
+        if prompt_id is None:
+            prompt_id = self._effective_config().default_prompt_id
+        if prompt_id is None:
+            prompt_id = "base.system"
+
+        try:
+            return store.get(prompt_id, model=model_name)
+        except KeyError as exc:
+            raise ValueError(f"Prompt not found: {prompt_id}") from exc
 
     def _refresh_tool_provider_sync(self, provider: GatewayToolProvider) -> None:
         """Synchronously refresh tool capabilities on a provider."""
@@ -271,6 +332,7 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
 
     def build(self) -> SimpleChatAgent:
         model = self._resolved_model()
+        sys_prompt = self._resolve_sys_prompt(model)
 
         tools = self._resolved_tools()
         self._ensure_tool_manager_registry(tools)
@@ -282,19 +344,26 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
         tool_provider = self._ensure_tool_provider(tool_gateway)
 
         if self._context is None:
-            return SimpleChatAgent(
-                name=self._name,
-                model=model,
+            context = Context(
+                id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
                 long_term_memory=self._long_term_memory,
                 knowledge=self._knowledge,
-                tools=tool_provider,
-                budget=self._budget,
+                budget=self._budget or Budget(),
+            )
+            if tool_provider is not None:
+                context._tool_provider = tool_provider
+            context._sys_prompt = sys_prompt
+            return SimpleChatAgent(
+                name=self._name,
+                model=model,
+                context=context,
             )
 
         self._apply_context_overrides(self._context)
         if tool_provider is not None:
             setattr(self._context, "_tool_provider", tool_provider)
+        setattr(self._context, "_sys_prompt", sys_prompt)
 
         return SimpleChatAgent(
             name=self._name,
@@ -343,6 +412,7 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
 
     def build(self) -> FiveLayerAgent:
         model = self._resolved_model()
+        sys_prompt = self._resolve_sys_prompt(model)
 
         tools = self._resolved_tools()
         self._ensure_tool_manager_registry(tools)
@@ -396,11 +466,20 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
         hooks = resolved_hooks or None
 
         if self._context is None:
+            context = Context(
+                id=f"context_{self._name}",
+                short_term_memory=self._short_term_memory,
+                long_term_memory=self._long_term_memory,
+                knowledge=self._knowledge,
+                budget=self._budget or Budget(),
+            )
+            if tool_provider is not None:
+                context._tool_provider = tool_provider
+            context._sys_prompt = sys_prompt
             return FiveLayerAgent(
                 name=self._name,
                 model=model,
-                short_term_memory=self._short_term_memory,
-                long_term_memory=self._long_term_memory,
+                context=context,
                 tools=tool_provider,
                 tool_gateway=tool_gateway,
                 execution_control=self._execution_control,
@@ -409,12 +488,12 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
                 remediator=remediator,
                 event_log=self._event_log,
                 hooks=hooks,
-                budget=self._budget,
             )
 
         self._apply_context_overrides(self._context)
         if tool_provider is not None:
             setattr(self._context, "_tool_provider", tool_provider)
+        setattr(self._context, "_sys_prompt", sys_prompt)
 
         return FiveLayerAgent(
             name=self._name,

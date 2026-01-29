@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any
 import uuid
 
 if TYPE_CHECKING:
+    from dare_framework.model.types import Prompt
     from dare_framework.tool.interfaces import IToolProvider
 
 from dare_framework.context.kernel import IContext, IRetrievalContext
 from dare_framework.context.types import AssembledContext, Budget, Message
-
 
 # ============================================================
 # Implementation
@@ -44,6 +44,9 @@ class Context(IContext):
 
     # Tool provider (internal, for listing_tools)
     _tool_provider: "IToolProvider | None" = field(default=None, repr=False)
+
+    # System prompt definition (internal, for context assembly)
+    _sys_prompt: "Prompt | None" = field(default=None, repr=False)
 
     # Cached tool list
     toollist: list[dict[str, Any]] | None = None
@@ -132,6 +135,7 @@ class Context(IContext):
         tools = self.listing_tools()
         return AssembledContext(
             messages=messages,
+            sys_prompt=self._sys_prompt,
             tools=tools,
             metadata={"context_id": self.id},
         )

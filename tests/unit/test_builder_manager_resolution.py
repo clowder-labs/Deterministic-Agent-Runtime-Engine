@@ -8,8 +8,8 @@ from dare_framework.builder import Builder
 from dare_framework.config.types import ComponentConfig, Config
 from dare_framework.hook.kernel import IHook
 from dare_framework.infra.component import ComponentType
-from dare_framework.model.interfaces import IModelAdapter
-from dare_framework.model.types import ModelResponse, Prompt
+from dare_framework.model.kernel import IModelAdapter
+from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.interfaces import IValidator
 from dare_framework.plan.types import ProposedPlan
 from dare_framework.tool.interfaces import ITool
@@ -28,7 +28,7 @@ class DummyModelAdapter(IModelAdapter):
     def component_type(self) -> ComponentType:
         return ComponentType.MODEL_ADAPTER
 
-    async def generate(self, prompt: Prompt, *, options: Any | None = None) -> ModelResponse:
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
         return ModelResponse(content=self._content)
 
 

@@ -129,7 +129,7 @@ class IContext(Protocol):
     def budget_check(self) -> None: ...
     def budget_remaining(self, resource: str) -> float: ...
 
-    # Tool listing (for Prompt.tools)
+    # Tool listing (for ModelInput.tools)
     def listing_tools(self) -> list[dict[str, Any]]: ...
 
     # Assembly (core)
@@ -199,7 +199,7 @@ from dare_framework.tool.types import CapabilityDescriptor, RunContext, ToolResu
 
 @runtime_checkable
 class IToolProvider(Protocol):
-    """为 Context.assemble 提供结构化 tool defs（Prompt.tools）。"""
+    """为 Context.assemble 提供结构化 tool defs（ModelInput.tools）。"""
 
     def list_tools(self) -> list[dict[str, Any]]: ...
 
@@ -269,15 +269,15 @@ class IProtocolAdapter(Protocol):
 ### 5.1 统一输入面
 
 标准化模型输入为：
-- `Prompt(messages + trusted tool defs + metadata)`
+- `ModelInput(messages + trusted tool defs + metadata)`
 
 规则：
 - tool defs 必须可追溯到 ToolGateway 的可信 registry。
 - （可选）对不支持结构化 tools 的模型：可由 adapter/策略层渲染 tool catalog system message（审计友好）。
 
-### 5.2 Adapter 接口（`model/interfaces.py`）
+### 5.2 Adapter 接口（`model/kernel.py`）
 
-- `IModelAdapter.generate(prompt, options=None) -> ModelResponse`
+- `IModelAdapter.generate(model_input: ModelInput, options=None) -> ModelResponse`
 
 ---
 

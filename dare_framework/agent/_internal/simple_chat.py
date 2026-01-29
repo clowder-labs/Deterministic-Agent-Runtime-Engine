@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from dare_framework.agent._internal.base import BaseAgent
 from dare_framework.context import Context, Message
-from dare_framework.model import IModelAdapter, Prompt
+from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.tool import IToolProvider
 
 if TYPE_CHECKING:
@@ -106,15 +106,28 @@ class SimpleChatAgent(BaseAgent):
         # 2. Assemble context for LLM call
         assembled = self._context.assemble()
 
-        # 3. Convert to Prompt format
-        prompt = Prompt(
-            messages=assembled.messages,
+        messages = list(assembled.messages)
+        prompt_def = getattr(assembled, "sys_prompt", None)
+        if prompt_def is not None:
+            messages = [
+                Message(
+                    role=prompt_def.role,
+                    content=prompt_def.content,
+                    name=prompt_def.name,
+                    metadata=dict(prompt_def.metadata),
+                ),
+                *messages,
+            ]
+
+        # 3. Convert to ModelInput format
+        model_input = ModelInput(
+            messages=messages,
             tools=assembled.tools,
             metadata=assembled.metadata,
         )
 
         # 4. Generate model response
-        response = await self._model.generate(prompt)
+        response = await self._model.generate(model_input)
 
         # 5. Add assistant response to short-term memory
         assistant_message = Message(role="assistant", content=response.content)

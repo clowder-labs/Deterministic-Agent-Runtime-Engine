@@ -8,7 +8,10 @@ Alignment note:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dare_framework.model.types import Prompt
 
 
 @dataclass
@@ -43,6 +46,7 @@ class AssembledContext:
     """Request-time context for a single LLM call."""
 
     messages: list[Message]
+    sys_prompt: "Prompt | None" = None
     tools: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 

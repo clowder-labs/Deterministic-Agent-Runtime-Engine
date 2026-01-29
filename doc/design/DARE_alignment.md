@@ -20,7 +20,7 @@
 | C-CTX-002 | Context 持有 STM/LTM/Knowledge 引用 + Budget；assemble 按需组装 messages/tools（结构化 tool defs） | Architecture.md#4.4 上下文工程（Context Engineering） | Interfaces.md#2 |
 | C-TOOL-001 | IToolGateway.invoke 是副作用单一边界 | Architecture.md#1.3 不变量（必须长期成立）；Architecture.md#4.1 统一能力模型（Capability）与系统调用边界 | Interfaces.md#3 |
 | C-PROTOCOL-001 | protocol adapter 翻译成 canonical CapabilityDescriptor | Architecture.md#2.1 架构总览图；Architecture.md#4.1 统一能力模型（Capability）与系统调用边界 | Interfaces.md#3 |
-| C-MODEL-001 | Prompt(messages + trusted tools + metadata) 标准化输入面 | Architecture.md#4.4 上下文工程（Context Engineering）；Architecture.md#5. 关键组件能力设计（按 domain 摘要） | Interfaces.md#5 |
+| C-MODEL-001 | ModelInput(messages + trusted tools + metadata) 标准化输入面 | Architecture.md#4.4 上下文工程（Context Engineering）；Architecture.md#5. 关键组件能力设计（按 domain 摘要） | Interfaces.md#5 |
 | C-PLAN-001 | Plan Attempt Isolation + Proposed/Validated 分离 | Architecture.md#3.3 核心约束：Plan Attempt Isolation（失败计划隔离） | Interfaces.md#4 |
 | C-PLAN-TOOL-001 | Plan Tool 触发停止执行并回外层 re-plan | Architecture.md#3.4 核心约束：Plan Tool（控制类工具） | Interfaces.md#11 |
 | C-HITL-001 | HITL：pause/wait_for_human/resume + 审计事件链 | Architecture.md#4.3 HITL（人在回路） | Interfaces.md#3 |

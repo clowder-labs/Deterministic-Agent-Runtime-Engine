@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from dare_framework.model.interfaces import IModelAdapter
-from dare_framework.model.types import ModelResponse, Prompt, GenerateOptions
+from dare_framework.model.kernel import IModelAdapter
+from dare_framework.model.types import ModelInput, ModelResponse, GenerateOptions
+from dare_framework.infra.component import ComponentType
 
 if TYPE_CHECKING:
     from dare_framework.tool.types import ToolDefinition
@@ -41,11 +42,13 @@ class OpenAIModelAdapter(IModelAdapter):
 
     def __init__(
         self,
+        name: str | None = None,
         model: str | None = None,
         api_key: str | None = None,
         endpoint: str | None = None,
         http_client_options: dict[str, Any] | None = None,
     ) -> None:
+        self._name = name or "openai"
         self._model = model
         self._api_key = api_key
         self._endpoint = endpoint
@@ -53,16 +56,24 @@ class OpenAIModelAdapter(IModelAdapter):
         self._extra: dict[str, Any] = {}
         self._client: Any = None
 
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def component_type(self) -> Literal[ComponentType.MODEL_ADAPTER]:
+        return ComponentType.MODEL_ADAPTER
+
     async def generate(
         self,
-        prompt: Prompt,
+        model_input: ModelInput,
         *,
         options: GenerateOptions | None = None,
     ) -> ModelResponse:
         """Generate a response from the OpenAI-compatible model.
 
         Args:
-            prompt: Prompt containing messages and tools
+            model_input: ModelInput containing messages and tools
             options: Generation options
 
         Returns:
@@ -72,12 +83,12 @@ class OpenAIModelAdapter(IModelAdapter):
         client = self._apply_options(client, options)
         
         # Convert tools from dict format to ToolDefinition-like format
-        tools = self._convert_tools(prompt.tools) if prompt.tools else None
+        tools = self._convert_tools(model_input.tools) if model_input.tools else None
         if tools:
             client = client.bind_tools([self._tool_definition(tool) for tool in tools])
         
         self._log_client_config(client)
-        response = await client.ainvoke(self._to_langchain_messages(prompt.messages))
+        response = await client.ainvoke(self._to_langchain_messages(model_input.messages))
         
         tool_calls = self._extract_tool_calls(response)
         usage = self._extract_usage(response)

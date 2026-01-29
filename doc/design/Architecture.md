@@ -17,7 +17,8 @@
 3. 核心流程（以 FiveLayerAgent 为例）
 4. 关键特性设计（特性说明 + 流程/约束）
 5. 关键组件能力设计（按 domain 摘要）
-6. 文档驱动收敛与清理计划
+6. 模块级设计文档索引
+7. 文档驱动收敛与清理计划
 
 ---
 
@@ -367,7 +368,7 @@ sequenceDiagram
 | context | 上下文核心实体（context-centric）；持有 STM/LTM/Knowledge 引用与 Budget；每次调用前组装 AssembledContext | `IContext` / `IRetrievalContext` / `Budget`；（依赖）`IToolProvider.list_tools()` | `doc/design/Interfaces.md` 的 `## 2. context（上下文工程）` |
 | tool | 能力目录（registry）与系统调用边界；HITL 控制面；providers/adapters 统一接入 | `IToolGateway` / `IExecutionControl`；（扩展位）`ICapabilityProvider` / `ITool` / `IProtocolAdapter` | `doc/design/Interfaces.md` 的 `## 3. tool（能力模型 + 系统调用边界）` |
 | plan | 任务/计划/结果模型；plan 生成/校验/补救；Proposed vs Validated | `IPlanner` / `IValidator` / `IRemediator`；`Task/RunResult/Envelope` | `doc/design/Interfaces.md` 的 `## 4. plan（任务、计划、结果）` |
-| model | 模型调用适配；统一 Prompt 输入面 | `IModelAdapter`；`Prompt(messages + tools + metadata)` | `doc/design/Interfaces.md` 的 `## 5. model（LLM 调用适配）` |
+| model | 模型调用适配；统一 ModelInput 输入面 | `IModelAdapter`；`ModelInput(messages + tools + metadata)` | `doc/design/Interfaces.md` 的 `## 5. model（LLM 调用适配）` |
 | security | trust/policy/sandbox 边界；审批策略与参数校验 | `ISecurityBoundary`（及其 policy/sandbox 子接口位） | `doc/design/Interfaces.md` 的 `## 6. security（Trust + Policy + Sandbox）` |
 | event | 可审计事件日志（WORM）与查询/重放 | `IEventLog` | `doc/design/Interfaces.md` 的 `## 7. event（审计与重放）` |
 | hook | 生命周期扩展点；best-effort hooks | `IExtensionPoint` | `doc/design/Interfaces.md` 的 `## 8. hook（生命周期扩展点）` |
@@ -381,7 +382,7 @@ sequenceDiagram
 - **context**：Context 核心实体（context-centric），持有检索引用与 Budget，`assemble()` 产出单次调用所需上下文。
 - **tool**：系统调用边界（invoke）与能力目录（registry），统一 providers/adapters 接入与 Tool Loop 执行语义。
 - **plan**：任务/计划/结果模型与规划闭环（planner/validator/remediator）。
-- **model**：模型调用适配与统一 Prompt 输入面。
+- **model**：模型调用适配与统一 ModelInput 输入面。
 - **security**：trust/policy/sandbox 边界与审批策略。
 - **event**：WORM 事件日志与 replay/query 支撑。
 - **hook**：生命周期 hooks 扩展点（默认 best-effort）。
@@ -421,7 +422,24 @@ class IExecutionControl(Protocol):
 
 ---
 
-## 6. 文档驱动收敛与清理计划（摘要）
+## 6. 模块级设计文档索引
+
+> 各模块的详细设计文档位于 `doc/design/modules/`，按域拆分，便于渐进完善。
+
+- agent: `doc/design/modules/agent/README.md`
+- context: `doc/design/modules/context/README.md`
+- tool: `doc/design/modules/tool/README.md`
+- plan: `doc/design/modules/plan/README.md`
+- model: `doc/design/modules/model/Model_Prompt_Management.md`
+- security: `doc/design/modules/security/README.md`
+- event: `doc/design/modules/event/README.md`
+- hook: `doc/design/modules/hook/README.md`
+- config: `doc/design/modules/config/README.md`
+- memory/knowledge: `doc/design/modules/memory_knowledge/README.md`
+
+---
+
+## 7. 文档驱动收敛与清理计划（摘要）
 
 在架构文档评审通过后：
 1) 依据本文与接口文档，整合 `dare_framework/` 下真实实现（收敛到单架构）。

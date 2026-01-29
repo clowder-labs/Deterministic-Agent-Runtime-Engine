@@ -20,8 +20,8 @@ from uuid import uuid4
 from dare_framework.agent._internal.base import BaseAgent
 from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
 from dare_framework.agent.interfaces import IAgentOrchestration
-from dare_framework.context import Context, Message
-from dare_framework.model import IModelAdapter, Prompt
+from dare_framework.context import AssembledContext, Context, Message
+from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import (
     Milestone,
     RunResult,
@@ -324,15 +324,15 @@ class FiveLayerAgent(BaseAgent):
         # Assemble context
         assembled = self._context.assemble()
 
-        # Create prompt
-        prompt = Prompt(
-            messages=assembled.messages,
+        # Create model input
+        model_input = ModelInput(
+            messages=self._assemble_messages(assembled),
             tools=[],  # No tools in simple mode
             metadata=assembled.metadata,
         )
 
         # Generate model response
-        response = await self._model.generate(prompt)
+        response = await self._model.generate(model_input)
 
         # Add response to STM
         assistant_message = Message(role="assistant", content=response.content)
@@ -570,8 +570,8 @@ class FiveLayerAgent(BaseAgent):
         assembled = self._context.assemble()
 
         # Create prompt
-        prompt = Prompt(
-            messages=assembled.messages,
+        model_input = ModelInput(
+            messages=self._assemble_messages(assembled),
             tools=assembled.tools,
             metadata=assembled.metadata,
         )
@@ -588,7 +588,7 @@ class FiveLayerAgent(BaseAgent):
                 self._poll_or_raise()
 
             # Generate model response
-            response = await self._model.generate(prompt)
+            response = await self._model.generate(model_input)
 
             await self._log_event("model.response", {
                 "iteration": iteration + 1,
@@ -642,8 +642,8 @@ class FiveLayerAgent(BaseAgent):
 
             # Update prompt with tool results for next iteration
             # (Simplified: in production would format properly)
-            prompt = Prompt(
-                messages=assembled.messages,
+            model_input = ModelInput(
+                messages=self._assemble_messages(assembled),
                 tools=assembled.tools,
                 metadata=assembled.metadata,
             )
@@ -752,6 +752,21 @@ class FiveLayerAgent(BaseAgent):
         signal = self._exec_ctl.poll()
         # TODO(@bouillipx): Handle different signal types
         # For now, just continue
+
+    def _assemble_messages(self, assembled: AssembledContext) -> list[Message]:
+        messages = list(assembled.messages)
+        prompt_def = getattr(assembled, "sys_prompt", None)
+        if prompt_def is None:
+            return messages
+        return [
+            Message(
+                role=prompt_def.role,
+                content=prompt_def.content,
+                name=prompt_def.name,
+                metadata=dict(prompt_def.metadata),
+            ),
+            *messages,
+        ]
 
     async def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         """Log an event to the event log (if configured)."""

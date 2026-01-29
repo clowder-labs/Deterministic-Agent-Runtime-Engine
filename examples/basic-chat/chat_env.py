@@ -1,4 +1,4 @@
-"""Chat example configured via environment variables (builder-based)."""
+"""Chat example configured via environment variables."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.builder import Builder
+from dare_framework.config import Config
 from dare_framework.model import OpenAIModelAdapter
 
 # Configuration
@@ -23,6 +24,9 @@ ENDPOINT = os.getenv("CHAT_ENDPOINT", "https://dashscope.aliyuncs.com/compatible
 # httpx 0.28 (used by openai client) does not expose allow_env_proxies; set trust_env=False to bypass proxies.
 HTTP_CLIENT_OPTIONS = {"trust_env": False, "proxy": None}
 LOG_LEVEL = os.getenv("CHAT_LOG_LEVEL", "INFO").upper()
+PROMPT_ID = os.getenv("CHAT_PROMPT_ID")
+PROMPT_STORE_PATTERN = os.getenv("CHAT_PROMPT_STORE_PATTERN", ".dare/_prompts.json")
+DEFAULT_PROMPT_ID = os.getenv("CHAT_DEFAULT_PROMPT_ID")
 
 logger = logging.getLogger("basic-chat-env")
 
@@ -58,7 +62,19 @@ async def main() -> None:
     )
     logger.info("using OpenAIModelAdapter")
 
-    agent = Builder.simple_chat_agent_builder("basic-chat-env").with_model(model_adapter).build()
+    config = Config(
+        workspace_dir=str(PROJECT_ROOT),
+        prompt_store_path_pattern=PROMPT_STORE_PATTERN,
+        default_prompt_id=DEFAULT_PROMPT_ID,
+    )
+    builder = (
+        Builder.simple_chat_agent_builder("basic-chat-env")
+        .with_model(model_adapter)
+        .with_config(config)
+    )
+    if PROMPT_ID:
+        builder = builder.with_prompt_id(PROMPT_ID)
+    agent = builder.build()
 
     logger.info("agent created", extra={"agent_name": agent.name})
 

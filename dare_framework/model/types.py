@@ -5,12 +5,57 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dare_framework.context import Message
+from dare_framework.context.types import Message
 
 
 @dataclass(frozen=True)
 class Prompt:
-    """Prompt representation for model adapters."""
+    """Prompt definition loaded from manifests or built-in defaults."""
+
+    prompt_id: str
+    role: str
+    content: str
+    supported_models: list[str]
+    order: int
+    version: str | None = None
+    name: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Prompt":
+        """Create a Prompt from a manifest dictionary."""
+        prompt_id = str(data.get("prompt_id", ""))
+        role = str(data.get("role", ""))
+        content = str(data.get("content", ""))
+        supported_models_raw = data.get("supported_models", [])
+        if not isinstance(supported_models_raw, list):
+            supported_models = []
+        else:
+            supported_models = [str(item) for item in supported_models_raw]
+        order_raw = data.get("order", 0)
+        try:
+            order = int(order_raw)
+        except (TypeError, ValueError):
+            order = 0
+        version = data.get("version")
+        name = data.get("name")
+        metadata_raw = data.get("metadata")
+        metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
+        return cls(
+            prompt_id=prompt_id,
+            role=role,
+            content=content,
+            supported_models=supported_models,
+            order=order,
+            version=str(version) if version is not None else None,
+            name=str(name) if name is not None else None,
+            metadata=metadata,
+        )
+
+
+@dataclass(frozen=True)
+class ModelInput:
+    """Model input representation for model adapters."""
 
     messages: list[Message]
     tools: list[dict[str, Any]] = field(default_factory=list)
@@ -38,4 +83,4 @@ class GenerateOptions:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-__all__ = ["Prompt", "ModelResponse", "GenerateOptions"]
+__all__ = ["Prompt", "ModelInput", "ModelResponse", "GenerateOptions"]
