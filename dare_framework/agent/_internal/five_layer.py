@@ -114,6 +114,7 @@ class DareAgent(BaseAgent):
         max_milestone_attempts: int = 3,
         max_plan_attempts: int = 3,
         max_tool_iterations: int = 20,
+        verbose: bool = False,
     ) -> None:
         """Initialize DareAgent.
 
@@ -171,6 +172,7 @@ class DareAgent(BaseAgent):
         self._max_milestone_attempts = max_milestone_attempts
         self._max_plan_attempts = max_plan_attempts
         self._max_tool_iterations = max_tool_iterations
+        self._verbose = verbose
 
         # Runtime state (set during execution)
         self._session_state: SessionState | None = None
@@ -202,6 +204,11 @@ class DareAgent(BaseAgent):
         Just model generation, no tools.
         """
         return self._planner is None and self._tool_gateway is None
+
+    def _log(self, message: str) -> None:
+        """Print message if verbose mode is enabled."""
+        if self._verbose:
+            print(f"[DareAgent] {message}")
 
     # =========================================================================
     # IAgentOrchestration Implementation
@@ -571,6 +578,7 @@ class DareAgent(BaseAgent):
 
     async def _run_execute_loop(self, plan: ValidatedPlan | None) -> dict[str, Any]:
         """Run the execute loop - model-driven execution."""
+        self._log("Starting execute loop")
         # Budget check
         self._context.budget_check()
 
@@ -596,7 +604,14 @@ class DareAgent(BaseAgent):
                 self._poll_or_raise()
 
             # Generate model response
+            self._log(f"Execute iteration {iteration + 1}/{self._max_tool_iterations}")
             response = await self._model.generate(model_input)
+
+            # Log model response
+            if response.content:
+                content_preview = response.content[:200] + "..." if len(response.content) > 200 else response.content
+                self._log(f"LLM Response: {content_preview}")
+            self._log(f"Tool calls: {len(response.tool_calls)}")
 
             await self._log_event("model.response", {
                 "iteration": iteration + 1,
@@ -624,8 +639,19 @@ class DareAgent(BaseAgent):
 
             # Process tool calls
             capability_index = await self._capability_index() if response.tool_calls else {}
+
+            # Add assistant message with tool_calls to STM (so LLM can see what it called)
+            import json
+            assistant_msg = Message(
+                role="assistant",
+                content=response.content or "",
+                metadata={"tool_calls": response.tool_calls} if response.tool_calls else {},
+            )
+            self._context.stm_add(assistant_msg)
+
             for tool_call in response.tool_calls:
                 name = tool_call.get("name", "")
+                tool_call_id = tool_call.get("id", "")
                 capability_id = tool_call.get("capability_id") or name
                 descriptor = capability_index.get(capability_id) or capability_index.get(name)
 
@@ -640,19 +666,59 @@ class DareAgent(BaseAgent):
                     }
 
                 # Run tool loop
+                # Get actual tool name for logging (not internal ID)
+                tool_name = name or capability_id
+                args = tool_call.get('arguments', {})
+                # Log tool call with readable format
+                if 'path' in args:
+                    self._log(f"🔧 Calling [{tool_name}] path={args.get('path')}")
+                elif 'command' in args:
+                    self._log(f"🔧 Calling [{tool_name}] command={args.get('command', '')[:50]}")
+                elif 'query' in args:
+                    self._log(f"🔧 Calling [{tool_name}] query={args.get('query', '')[:50]}")
+                else:
+                    self._log(f"🔧 Calling [{tool_name}] params={list(args.keys())}")
+
                 tool_result = await self._run_tool_loop(
                     ToolLoopRequest(
                         capability_id=capability_id,
                         params=tool_call.get("arguments", {}),
                     )
                 )
+
+                # Log result
+                result_success = tool_result.get("success", False)
+                result_output = tool_result.get("output", {})
+                result_error = tool_result.get("error", "")
+                
+                if result_success:
+                    self._log(f"   ✅ Success: {result_output}")
+                else:
+                    self._log(f"   ❌ Failed: {result_error}")
+
+                # Add tool result as message to STM (CRITICAL: LLM needs to see result!)
+                tool_result_content = json.dumps({
+                    "success": result_success,
+                    "output": result_output,
+                    "error": result_error,
+                }) if not result_success else json.dumps({
+                    "success": True,
+                    "output": result_output,
+                })
+                tool_msg = Message(
+                    role="tool",
+                    name=tool_call_id or capability_id,  # Use tool_call_id for OpenAI API format
+                    content=tool_result_content,
+                )
+                self._context.stm_add(tool_msg)
+
                 outputs.append(tool_result)
 
-                if not tool_result.get("success", False):
-                    errors.append(tool_result.get("error", "tool failed"))
+                if not result_success:
+                    errors.append(result_error or "tool failed")
 
-            # Update prompt with tool results for next iteration
-            # (Simplified: in production would format properly)
+            # Reassemble context with new messages for next iteration
+            assembled = self._context.assemble()
             model_input = ModelInput(
                 messages=self._assemble_messages(assembled),
                 tools=assembled.tools,

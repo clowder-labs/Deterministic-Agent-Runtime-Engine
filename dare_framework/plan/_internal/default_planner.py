@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from dare_framework.context import Message
 from dare_framework.infra.component import ComponentType
-from dare_framework.model.types import Prompt
+from dare_framework.model.types import ModelInput
 from dare_framework.plan.types import ProposedPlan, ProposedStep
 
 if TYPE_CHECKING:
@@ -180,7 +180,7 @@ class DefaultPlanner:
 Please analyze this task and generate an Implementation Plan.
 Output ONLY valid JSON following the structure defined in your instructions."""
 
-        prompt = Prompt(
+        model_input = ModelInput(
             messages=[
                 Message(role="system", content=self._system_prompt),
                 Message(role="user", content=user_prompt),
@@ -192,7 +192,7 @@ Output ONLY valid JSON following the structure defined in your instructions."""
 
         # Generate plan
         try:
-            response = await self._model.generate(prompt)
+            response = await self._model.generate(model_input)
             plan_data = self._parse_response(response.content)
 
             steps = [
@@ -206,7 +206,13 @@ Output ONLY valid JSON following the structure defined in your instructions."""
             ]
 
             if self._verbose:
-                print(f"[DefaultPlanner] Generated {len(steps)} evidence requirements")
+                print(f"[DefaultPlanner] Generated plan with {len(steps)} evidence requirements:")
+                print(f"  📋 Plan: {plan_data.get('plan_description', 'N/A')}")
+                for i, step in enumerate(steps):
+                    print(f"  {i+1}. [{step.capability_id}] {step.description}")
+                    if step.params:
+                        for k, v in step.params.items():
+                            print(f"     - {k}: {v}")
 
             return ProposedPlan(
                 plan_description=plan_data.get("plan_description", task_description),
