@@ -22,7 +22,7 @@ Transport Domain 负责 **Client（用户端）与 Agent（编排端）之间的
 ```python
 # === 基础接口 ===
 class IOutputTransport(Protocol):
-    """发送消息（由 Bridge 注入实现）"""
+    """发送消息"""
     async def send(self, msg: Message) -> None: ...
 
 class IInputTransport(Protocol):
@@ -36,13 +36,25 @@ class ITransport(IInputTransport, IOutputTransport, Protocol):
 # === 消息处理 ===
 class IMessageHandler(Protocol):
     """消息处理器（用户/Agent 实现）"""
-    async def handle(self, msg: Message) -> None: ...
+    async def handle(self, context: ITransportContext, msg: Message) -> None: ...
 
 # === Transport Context ===
 class ITransportContext(Protocol):
     """Transport 上下文（双方共用）"""
     async def put(self, msg: Message) -> None: ...
     def poll(self, msg_type: str | None = None) -> Message | None: ...
+
+class IAgentTransportContext(ITransportContext, Protocol):
+    """Agent 侧扩展上下文"""
+    async def get(self, msg_type: str | None = None) -> Message: ...
+    def register_task(self, task: asyncio.Task) -> None: ...
+    def cancel_all_tasks(self) -> None: ...
+
+# === Channel（传输通道）===
+class IInputOutputChannel(Protocol):
+    """双向通道：管理 Client 和 Agent 的连接"""
+    def register_client(self, client: IInputTransport) -> IOutputTransport: ...
+    def register_agent(self, agent: IInputTransport) -> IOutputTransport: ...
 
 # === 角色专用接口 ===
 class IClientTransport(ITransport, Protocol):
@@ -53,15 +65,9 @@ class IClientTransport(ITransport, Protocol):
 class IAgentTransport(ITransport, Protocol):
     """Agent 侧 Transport 接口"""
     @property
-    def context(self) -> "IAgentTransportContext": ...
+    def context(self) -> IAgentTransportContext: ...
     async def recv(self, msg_type: str | None = None) -> Message: ...
     def run_interruptible(self, coro) -> asyncio.Task: ...
-
-class IAgentTransportContext(ITransportContext, Protocol):
-    """Agent 侧扩展上下文"""
-    async def get(self, msg_type: str | None = None) -> Message: ...
-    def register_task(self, task: asyncio.Task) -> None: ...
-    def cancel_all_tasks(self) -> None: ...
 ```
 
 ---
@@ -100,116 +106,135 @@ class Message:
 ### 4.1 角色
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       Processor (Bridge)                         │
-│   创建 IOutputTransport 实例并注入给两侧，负责消息转发              │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-          ┌─────────────────┼─────────────────┐
-          │                 │                 │
-          ▼                 │                 ▼
-┌─────────────────┐         │         ┌─────────────────┐
-│ ClientTransport │         │         │ AgentTransport  │
-├─────────────────┤         │         ├─────────────────┤
-│ output ─────────────────────────────────→ on_message  │
-│ on_message ←───────────────────────────────── output  │
-│ handler         │                   │ context         │
-└─────────────────┘                   │ handler         │
-                                      │ recv()          │
-                                      └─────────────────┘
+┌─────────────────┐                           ┌─────────────────┐
+│ ClientTransport │                           │ AgentTransport  │
+├─────────────────┤                           ├─────────────────┤
+│ context         │                           │ context         │
+│ handler         │                           │ handler         │
+│ _output ────────┼───┐                   ┌───┼──────── _output │
+│ on_message() ◄──┼─┐ │                   │ ┌─┼─► on_message()  │
+└─────────────────┘ │ │                   │ │ │ recv()          │
+                    │ │ ┌───────────────┐ │ │ └─────────────────┘
+                    │ └►│IInputOutput   │◄┘ │
+                    │   │   Channel     │   │
+                    │   ├───────────────┤   │
+                    │   │_client ───────┼───┘
+                    └───┼─────── _agent │
+                        │register_client│
+                        │register_agent │
+                        └───────────────┘
+                                │
+              ┌─────────────────┴─────────────────┐
+              ▼                                   ▼
+    ┌─────────────────┐                 ┌─────────────────┐
+    │ProcessorChannel │                 │WebSocketChannel │
+    │  (同进程直连)    │                 │  (远程连接)      │
+    └─────────────────┘                 └─────────────────┘
 ```
 
 ### 4.2 职责划分
 
 | 角色 | 职责 |
 |------|------|
-| **IClientTransport** | 持有 `output` 发送消息，调用 `handler` 处理消息，管理 `context` |
-| **IAgentTransport** | 持有 `output` 发送消息，提供 `recv()` 阻塞等待，管理扩展的 `context` |
-| **Processor (Bridge)** | 创建 output 通道，连接两侧的 output → 对方的 on_message |
+| **IInputOutputChannel** | 双向通道接口：`register_client()`/`register_agent()` 注册两端 |
+| **ProcessorChannel** | 同进程实现：直接转发消息 |
+| **WebSocketChannel** | 远程实现：通过 WebSocket 传输消息 |
+| **ClientTransport** | 组合 Channel，调用 `handler` 处理消息，管理 `context` |
+| **AgentTransport** | 组合 Channel，提供 `recv()` 阻塞等待，可中断任务管理 |
 | **TransportContext** | 基础：消息缓冲 (`put`/`poll`) |
-| **AgentTransportContext** | 扩展：阻塞等待 (`get`) + 可中断任务管理 |
+| **AgentTransportContext** | 扩展：阻塞等待 (`get`) + 任务管理 |
 
 ---
 
 ## 5. 实现
 
-### 5.1 ProcessorTransport
+### 5.1 ProcessorChannel（同进程直连）
 
 ```python
-class ProcessorTransport(ITransport):
-    """抽象基类：包含消息处理 + 对端连接能力"""
+class ProcessorChannel(IInputOutputChannel):
+    """同进程直连通道：直接调用对端的 on_message()"""
     
-    def __init__(self, handler: IMessageHandler):
-        self._handler = handler
-        self._peer: "ProcessorTransport | None" = None
+    def __init__(self):
+        self._client: IInputTransport | None = None
+        self._agent: IInputTransport | None = None
     
-    def connect(self, peer: "ProcessorTransport") -> None:
-        """与对端 Transport 建立连接（双向）"""
-        self._peer = peer
-        if peer._peer is not self:
-            peer.connect(self)
+    def register_client(self, client: IInputTransport) -> IOutputTransport:
+        self._client = client
+        return _ChannelSender(target=lambda: self._agent)
+    
+    def register_agent(self, agent: IInputTransport) -> IOutputTransport:
+        self._agent = agent
+        return _ChannelSender(target=lambda: self._client)
+
+
+class _ChannelSender(IOutputTransport):
+    def __init__(self, target: Callable[[], IInputTransport | None]):
+        self._get_target = target
     
     async def send(self, msg: Message) -> None:
-        """发送消息到对端"""
-        if self._peer:
-            await self._peer.on_message(msg)
-    
-    async def on_message(self, msg: Message) -> None:
-        """接收消息并交给 handler 处理"""
-        await self._handler.handle(msg)
+        target = self._get_target()
+        if target:
+            await target.on_message(msg)
 ```
 
 ### 5.2 ClientTransport
 
 ```python
-class ClientTransport(ProcessorTransport, IClientTransport):
-    """Client 侧：用户传入 MessageHandler"""
+class ClientTransport(IClientTransport):
+    """Client 侧：组合 Channel，管理 context 和 handler"""
     
-    def __init__(self, handler: IMessageHandler):
-        super().__init__(handler)
+    def __init__(self, channel: IInputOutputChannel, handler: IMessageHandler):
+        self._handler = handler
         self._context = TransportContext()
+        self._output = channel.register_client(self)
     
     @property
     def context(self) -> TransportContext:
         return self._context
+    
+    async def send(self, msg: Message) -> None:
+        await self._output.send(msg)
+    
+    async def on_message(self, msg: Message) -> None:
+        await self._handler.handle(self._context, msg)
 ```
 
 ### 5.3 AgentTransport
 
 ```python
-class AgentTransport(ProcessorTransport, IAgentTransport):
-    """Agent 侧：内置 handler + 提供 recv()"""
+class AgentTransport(IAgentTransport):
+    """Agent 侧：组合 Channel，提供 recv() 和可中断任务"""
     
-    def __init__(self):
+    def __init__(self, channel: IInputOutputChannel, handler: IMessageHandler | None = None):
         self._context = AgentTransportContext()
-        super().__init__(handler=AgentMessageHandler(self._context))
+        self._handler = handler or AgentMessageHandler()
+        self._output = channel.register_agent(self)
     
     @property
     def context(self) -> AgentTransportContext:
         return self._context
     
+    async def send(self, msg: Message) -> None:
+        await self._output.send(msg)
+    
+    async def on_message(self, msg: Message) -> None:
+        await self._handler.handle(self._context, msg)
+    
     async def recv(self, msg_type: str | None = None) -> Message:
-        """阻塞等待消息"""
         return await self._context.get(msg_type)
     
     def run_interruptible(self, coro) -> asyncio.Task:
-        """运行可被 interrupt 取消的协程"""
         task = asyncio.create_task(coro)
         self._context.register_task(task)
         return task
 
 
 class AgentMessageHandler(IMessageHandler):
-    """内置 handler：消息入队，interrupt 触发取消"""
-    
-    def __init__(self, context: AgentTransportContext):
-        self._context = context
-    
-    async def handle(self, msg: Message) -> None:
+    async def handle(self, context: IAgentTransportContext, msg: Message) -> None:
         if msg.type == "interrupt":
-            self._context.cancel_all_tasks()
+            context.cancel_all_tasks()
         else:
-            await self._context.put(msg)
+            await context.put(msg)
 ```
 
 ### 5.4 TransportContext（基础）
@@ -281,16 +306,16 @@ class AgentTransportContext(TransportContext, IAgentTransportContext):
 
 ```python
 class CLIHandler(IMessageHandler):
-    def __init__(self, transport: ClientTransport):
-        self._transport = transport
+    def __init__(self, get_transport: Callable[[], ClientTransport]):
+        self._get_transport = get_transport  # 延迟获取以处理循环依赖
     
-    async def handle(self, msg: Message) -> None:
+    async def handle(self, context: TransportContext, msg: Message) -> None:
         match msg.type:
             case "response":
                 print(msg.payload["content"])
             case "authorize.request":
                 approved = input("Approve? (y/n): ") == "y"
-                await self._transport.send(Message(
+                await self._get_transport().send(Message(
                     type="authorize.response",
                     payload={"approved": approved}
                 ))
@@ -298,9 +323,10 @@ class CLIHandler(IMessageHandler):
                 print("Done!")
 
 # 初始化
-client = ClientTransport(handler=CLIHandler(...))
-agent = AgentTransport()
-bridge = InProcessBridge(client, agent)
+channel = ProcessorChannel()
+handler = CLIHandler(lambda: client)  # 延迟引用
+client = ClientTransport(channel, handler)
+agent = AgentTransport(channel)
 
 # 发送任务
 await client.send(Message(type="task", payload={"text": "..."}))
@@ -358,6 +384,6 @@ class ToolHookTransport:
 
 | 场景 | 替换组件 |
 |------|----------|
-| 跨进程通信 | `InProcessBridge` → `WebSocketBridge` |
-| 多 Client | 扩展 Bridge 支持广播 |
-| 消息持久化 | 在 Bridge 中添加日志 |
+| 跨进程通信 | 实现 `WebSocketChannel` 替代 `ProcessorChannel` |
+| 多 Client | Channel 内部支持多个 Client/Agent 注册 |
+| 消息持久化 | 在 `IInputOutputChannel.send()` 链条中添加日志层 |
