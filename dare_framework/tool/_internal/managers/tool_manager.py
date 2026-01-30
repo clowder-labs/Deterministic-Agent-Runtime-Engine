@@ -45,6 +45,7 @@ class ToolManager(IToolManager, IToolProvider):
         self._namespace = namespace or ""
         self._registry: dict[str, _registry_entry] = {}
         self._tool_index_by_object: dict[int, str] = {}
+        self._tool_index_by_name: dict[str, str] = {}
         self._providers: list[IToolProvider] = []
         self._provider_capabilities: dict[IToolProvider, set[str]] = {}
         self._context_factory = context_factory or (lambda: RunContext())
@@ -61,6 +62,9 @@ class ToolManager(IToolManager, IToolProvider):
             entry = self._registry.get(existing_id)
             if entry is not None:
                 return entry.descriptor
+        existing_name_id = self._tool_index_by_name.get(tool.name)
+        if existing_name_id is not None:
+            raise ValueError(f"Tool name already registered: {tool.name}")
         capability_id = _unique_capability_id(self._registry)
         descriptor = _descriptor_from_tool(tool, capability_id)
         self._registry[capability_id] = _registry_entry(
@@ -70,6 +74,7 @@ class ToolManager(IToolManager, IToolProvider):
             tool=tool,
         )
         self._tool_index_by_object[id(tool)] = capability_id
+        self._tool_index_by_name[tool.name] = capability_id
         return descriptor
 
     def unregister_tool(self, capability_id: str) -> bool:
@@ -94,6 +99,11 @@ class ToolManager(IToolManager, IToolProvider):
         if entry.source is not _TOOL_SOURCE:
             raise ValueError("Cannot update provider-owned capability")
         old_tool = entry.tool
+        old_name = entry.descriptor.name
+        if tool.name != old_name:
+            existing_name_id = self._tool_index_by_name.get(tool.name)
+            if existing_name_id is not None and existing_name_id != capability_id:
+                raise ValueError(f"Tool name already registered: {tool.name}")
         descriptor = _descriptor_from_tool(tool, capability_id)
         entry.descriptor = descriptor
         entry.tool = tool
@@ -102,6 +112,9 @@ class ToolManager(IToolManager, IToolProvider):
         if old_tool is not None and id(old_tool) != id(tool):
             self._tool_index_by_object.pop(id(old_tool), None)
         self._tool_index_by_object[id(tool)] = capability_id
+        if tool.name != old_name:
+            self._tool_index_by_name.pop(old_name, None)
+            self._tool_index_by_name[tool.name] = capability_id
         return descriptor
 
     def set_capability_enabled(self, capability_id: str, enabled: bool) -> None:
@@ -113,9 +126,8 @@ class ToolManager(IToolManager, IToolProvider):
     def register_provider(self, provider: IToolProvider) -> None:
         if provider in self._providers:
             return
-        self._providers.append(provider)
-        self._provider_capabilities.setdefault(provider, set())
         self._sync_provider_tools(provider, provider.list_tools())
+        self._providers.append(provider)
 
     def unregister_provider(self, provider: IToolProvider) -> bool:
         if provider not in self._providers:
@@ -210,13 +222,35 @@ class ToolManager(IToolManager, IToolProvider):
         return await entry.tool.execute(params, context)
 
     def _sync_provider_tools(self, provider: IToolProvider, tools: list[ITool]) -> None:
+        tool_list = list(tools)
+        # Validate names before mutating registry to keep updates atomic on failure.
+        _assert_unique_tool_names(tool_list)
+        for tool in tool_list:
+            existing_name_id = self._tool_index_by_name.get(tool.name)
+            if existing_name_id is None:
+                continue
+            entry = self._registry.get(existing_name_id)
+            if entry is not None and entry.source is not provider:
+                raise ValueError(f"Tool name already registered: {tool.name}")
+
         existing_ids = self._provider_capabilities.get(provider, set())
+        existing_by_name = {
+            self._registry[capability_id].descriptor.name: capability_id
+            for capability_id in existing_ids
+            if capability_id in self._registry
+        }
         incoming_ids: set[str] = set()
-        for tool in tools:
+        for tool in tool_list:
+            existing_id = existing_by_name.get(tool.name)
+            if existing_id is not None:
+                self._update_provider_tool(provider, tool, existing_id)
+                incoming_ids.add(existing_id)
+                continue
             capability_id = self._register_provider_tool(provider, tool)
             entry = self._registry.get(capability_id)
             if entry and entry.source is provider:
                 incoming_ids.add(capability_id)
+
         for capability_id in existing_ids - incoming_ids:
             entry = self._registry.get(capability_id)
             if entry and entry.source is provider:
@@ -227,6 +261,9 @@ class ToolManager(IToolManager, IToolProvider):
         existing_id = self._tool_index_by_object.get(id(tool))
         if existing_id:
             return existing_id
+        existing_name_id = self._tool_index_by_name.get(tool.name)
+        if existing_name_id is not None:
+            raise ValueError(f"Tool name already registered: {tool.name}")
         capability_id = _unique_capability_id(self._registry)
         descriptor = _descriptor_from_tool(tool, capability_id)
         self._registry[capability_id] = _registry_entry(
@@ -236,12 +273,28 @@ class ToolManager(IToolManager, IToolProvider):
             tool=tool,
         )
         self._tool_index_by_object[id(tool)] = capability_id
+        self._tool_index_by_name[tool.name] = capability_id
         return capability_id
+
+    def _update_provider_tool(self, provider: IToolProvider, tool: ITool, capability_id: str) -> None:
+        entry = self._registry.get(capability_id)
+        if entry is None or entry.source is not provider:
+            raise KeyError(f"Unknown provider capability id: {capability_id}")
+        old_tool = entry.tool
+        descriptor = _descriptor_from_tool(tool, capability_id)
+        entry.descriptor = descriptor
+        entry.tool = tool
+        if old_tool is not None and id(old_tool) != id(tool):
+            self._tool_index_by_object.pop(id(old_tool), None)
+        self._tool_index_by_object[id(tool)] = capability_id
 
     def _remove_entry(self, capability_id: str) -> None:
         entry = self._registry.pop(capability_id, None)
-        if entry and entry.tool is not None:
+        if entry is None:
+            return
+        if entry.tool is not None:
             self._tool_index_by_object.pop(id(entry.tool), None)
+        self._tool_index_by_name.pop(entry.descriptor.name, None)
 
 
 def _unique_capability_id(registry: dict[str, _registry_entry]) -> str:
@@ -283,7 +336,7 @@ def _tool_definition(capability: CapabilityDescriptor) -> ToolDefinition:
     tool_def: ToolDefinition = {
         "type": "function",
         "function": {
-            "name": capability.id,
+            "name": capability.name,
             "description": capability.description,
             "parameters": capability.input_schema,
         },
@@ -322,6 +375,15 @@ def _normalize_capability_kind(value: Any) -> CapabilityKind:
         return CapabilityKind(str(value))
     except ValueError:
         return CapabilityKind.TOOL
+
+
+def _assert_unique_tool_names(tools: list[ITool]) -> None:
+    seen: set[str] = set()
+    for tool in tools:
+        name = tool.name
+        if name in seen:
+            raise ValueError(f"Duplicate tool name in provider: {name}")
+        seen.add(name)
 
 
 __all__ = ["ToolManager"]

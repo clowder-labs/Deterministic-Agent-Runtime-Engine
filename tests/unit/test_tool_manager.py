@@ -109,6 +109,16 @@ async def test_tool_manager_provider_registration() -> None:
     assert await manager.list_capabilities() == []
 
 
+def test_tool_manager_provider_duplicate_names_rejected() -> None:
+    manager = ToolManager()
+    provider = ListProvider([DummyTool("alpha", "A"), DummyTool("alpha", "B")])
+
+    with pytest.raises(ValueError) as exc_info:
+        manager.register_provider(provider)
+
+    assert "Duplicate tool name" in str(exc_info.value)
+
+
 @pytest.mark.asyncio
 async def test_tool_manager_tool_defs_include_metadata() -> None:
     manager = ToolManager()
@@ -121,9 +131,9 @@ async def test_tool_manager_tool_defs_include_metadata() -> None:
 
     tool_def = tool_defs[0]
     assert tool_def["type"] == "function"
-    assert tool_def["function"]["name"] == tool_def["capability_id"]
-    assert tool_def["function"]["name"].startswith("tool_")
+    assert tool_def["function"]["name"] == tool.name
     assert tool_def["function"]["parameters"] == tool.input_schema
+    assert tool_def["capability_id"].startswith("tool_")
     assert tool_def["capability_id"] in {cap.id for cap in await manager.list_capabilities()}
 
     metadata = tool_def.get("metadata", {})
@@ -132,3 +142,13 @@ async def test_tool_manager_tool_defs_include_metadata() -> None:
     assert metadata.get("timeout_seconds") == 12
     assert metadata.get("is_work_unit") is False
     assert metadata.get("display_name") == "echo"
+
+
+def test_tool_manager_rejects_duplicate_tool_names() -> None:
+    manager = ToolManager()
+    manager.register_tool(DummyTool("echo", "Echo input text"))
+
+    with pytest.raises(ValueError) as exc_info:
+        manager.register_tool(DummyTool("echo", "Duplicate echo"))
+
+    assert "already registered" in str(exc_info.value)

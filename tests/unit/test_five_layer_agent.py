@@ -273,7 +273,14 @@ class TestReActMode:
             ),
             ModelResponse(content="Done!", tool_calls=[]),
         ])
-        tool_gateway = MockToolGateway()
+        read_tool = CapabilityDescriptor(
+            id="tool_123",
+            type=CapabilityType.TOOL,
+            name="read_file",
+            description="Read a file.",
+            input_schema={"type": "object", "properties": {"path": {"type": "string"}}},
+        )
+        tool_gateway = MockToolGateway([read_tool])
         agent = FiveLayerAgent(
             name="react-agent",
             model=model,
@@ -283,7 +290,7 @@ class TestReActMode:
         result = await agent.run("Read a file")
 
         assert len(tool_gateway.invoke_calls) == 1
-        assert tool_gateway.invoke_calls[0][0] == "read_file"
+        assert tool_gateway.invoke_calls[0][0] == "tool_123"
 
 
 # =============================================================================

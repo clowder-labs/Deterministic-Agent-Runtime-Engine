@@ -269,7 +269,7 @@ class IProtocolAdapter(Protocol):
 - `timeout_seconds`: int
 
 补充约定：
-- `capability_id` 为 UUID，LLM 侧 `function.name` 与该 id 保持一致，以确保调用路由唯一。
+- LLM 侧 `function.name` 使用 `ITool.name`；运行时通过 registry 将工具名映射到 `capability_id` 再调用网关。
 - `is_work_unit`: bool
 - `capability_kind`: `tool` / `skill` / `plan_tool` / `agent` / `ui`
 

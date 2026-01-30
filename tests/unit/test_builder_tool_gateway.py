@@ -36,6 +36,10 @@ class EchoTool:
         return ToolResult(success=True, output=input)
 
 
+class EchoToolB(EchoTool):
+    name = "echo_b"
+
+
 class ListProvider:
     def __init__(self, tools: list[EchoTool]) -> None:
         self._tools = tools
@@ -67,8 +71,8 @@ def test_agent_builder_derives_tool_defs_from_gateway() -> None:
     assert tools
     tool_def = tools[0]
     assert tool_def["type"] == "function"
-    assert tool_def["function"]["name"] == tool_def["capability_id"]
-    assert tool_def["function"]["name"].startswith("tool_")
+    assert tool_def["function"]["name"] == "echo"
+    assert tool_def["capability_id"].startswith("tool_")
     assert tool_def["function"]["parameters"] == EchoTool.input_schema
     assert tool_def.get("metadata", {}).get("display_name") == "echo"
 
@@ -78,7 +82,7 @@ async def test_tool_manager_aggregates_and_enforces_allowlist() -> None:
     gateway = ToolManager()
 
     tool_a = EchoTool()
-    tool_b = EchoTool()
+    tool_b = EchoToolB()
     gateway.register_provider(ListProvider([tool_a]))
     gateway.register_provider(ListProvider([tool_b]))
 

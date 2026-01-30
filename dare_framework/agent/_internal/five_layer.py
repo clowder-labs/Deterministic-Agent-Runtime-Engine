@@ -634,10 +634,18 @@ class FiveLayerAgent(BaseAgent):
                         "plan_tool_name": name,
                     }
 
+                if descriptor is None:
+                    requested = name or capability_id or "<unknown>"
+                    errors.append(f"unknown capability: {requested}")
+                    outputs.append({"success": False, "error": f"unknown capability: {requested}"})
+                    continue
+
+                resolved_id = descriptor.id
+
                 # Run tool loop
                 tool_result = await self._run_tool_loop(
                     ToolLoopRequest(
-                        capability_id=capability_id,
+                        capability_id=resolved_id,
                         params=tool_call.get("arguments", {}),
                     )
                 )
