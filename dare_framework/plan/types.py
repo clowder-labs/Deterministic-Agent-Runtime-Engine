@@ -120,7 +120,10 @@ class ProposedStep:
 
 @dataclass(frozen=True)
 class ValidatedStep:
-    """Trusted step derived from registries and policy/trust checks."""
+    """Trusted step derived from registries and policy/trust checks.
+
+    Trusted registry fields beyond `risk_level` are stored in `metadata`.
+    """
 
     step_id: str
     capability_id: str
@@ -128,6 +131,7 @@ class ValidatedStep:
     params: dict[str, Any] = field(default_factory=dict)
     description: str = ""
     envelope: Envelope | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

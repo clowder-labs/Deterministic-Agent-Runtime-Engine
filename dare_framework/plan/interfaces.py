@@ -11,6 +11,8 @@ from dare_framework.plan.types import ProposedPlan, RunResult, ValidatedPlan, Ve
 
 
 class IPlanner(IComponent, Protocol):
+    """Plan generator that emits untrusted ProposedPlan output."""
+
     @property
     def component_type(self) -> Literal[ComponentType.PLANNER]:
         ...
@@ -19,6 +21,12 @@ class IPlanner(IComponent, Protocol):
 
 
 class IValidator(IComponent, Protocol):
+    """Plan and milestone validator that derives trusted plan state.
+
+    Implementations SHOULD derive security-critical fields (e.g., risk metadata)
+    from trusted registries rather than planner/model output.
+    """
+
     @property
     def component_type(self) -> Literal[ComponentType.VALIDATOR]:
         ...
@@ -29,6 +37,8 @@ class IValidator(IComponent, Protocol):
 
 
 class IRemediator(IComponent, Protocol):
+    """Produces reflection text to guide the next planning attempt."""
+
     @property
     def component_type(self) -> Literal[ComponentType.REMEDIATOR]:
         ...

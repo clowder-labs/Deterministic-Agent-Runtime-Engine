@@ -30,6 +30,7 @@ from dare_framework.plan.types import (
     ValidatedPlan,
     VerifyResult,
 )
+from dare_framework.tool.types import CapabilityKind
 
 
 @dataclass
@@ -615,11 +616,14 @@ class FiveLayerAgent(BaseAgent):
                 }
 
             # Process tool calls
+            capability_index = await self._capability_index() if response.tool_calls else {}
             for tool_call in response.tool_calls:
                 name = tool_call.get("name", "")
+                capability_id = tool_call.get("capability_id") or name
+                descriptor = capability_index.get(capability_id) or capability_index.get(name)
 
-                # Check for plan tool
-                if name.startswith("plan:"):
+                # Check for plan tool (registry kind preferred, prefix supported)
+                if self._is_plan_tool_call(name, descriptor):
                     return {
                         "success": False,
                         "outputs": outputs,
@@ -631,7 +635,7 @@ class FiveLayerAgent(BaseAgent):
                 # Run tool loop
                 tool_result = await self._run_tool_loop(
                     ToolLoopRequest(
-                        capability_id=name,
+                        capability_id=capability_id,
                         params=tool_call.get("arguments", {}),
                     )
                 )
@@ -734,6 +738,31 @@ class FiveLayerAgent(BaseAgent):
     # =========================================================================
     # Helpers
     # =========================================================================
+
+    async def _capability_index(self) -> dict[str, Any]:
+        """Build a capability index from the trusted tool registry."""
+        if self._tool_gateway is None:
+            return {}
+        try:
+            capabilities = await self._tool_gateway.list_capabilities()
+        except Exception:
+            return {}
+        index: dict[str, Any] = {}
+        for capability in capabilities:
+            index[capability.id] = capability
+            index.setdefault(capability.name, capability)
+        return index
+
+    def _is_plan_tool_call(self, name: str, descriptor: Any | None) -> bool:
+        """Return True if the tool call should trigger a re-plan."""
+        if name.startswith("plan:"):
+            return True
+        if descriptor is None or descriptor.metadata is None:
+            return False
+        kind = descriptor.metadata.get("capability_kind")
+        if hasattr(kind, "value"):
+            kind = kind.value
+        return str(kind) == CapabilityKind.PLAN_TOOL.value
 
     def _poll_or_raise(self) -> None:
         """Poll execution control and raise if interrupted.

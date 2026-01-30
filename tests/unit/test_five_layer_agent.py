@@ -11,6 +11,7 @@ import pytest
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Budget, Context, Message
 from dare_framework.model.types import ModelInput, ModelResponse
+from dare_framework.tool.types import CapabilityDescriptor, CapabilityKind, CapabilityType
 
 
 # =============================================================================
@@ -84,8 +85,12 @@ class MockValidator:
 class MockToolGateway:
     """Mock tool gateway for testing."""
 
-    def __init__(self) -> None:
+    def __init__(self, capabilities: list[Any] | None = None) -> None:
         self.invoke_calls = []
+        self._capabilities = list(capabilities or [])
+
+    async def list_capabilities(self) -> list[Any]:
+        return list(self._capabilities)
 
     async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Any) -> Any:
         self.invoke_calls.append((capability_id, params, envelope))
@@ -323,6 +328,44 @@ class TestFiveLayerMode:
         await agent.run("Complete a milestone")
 
         assert len(validator.verify_calls) >= 1
+
+    @pytest.mark.asyncio
+    async def test_plan_tool_detected_via_registry_metadata(self) -> None:
+        """Plan tool detection prefers trusted registry metadata over name prefix."""
+        plan_tool = CapabilityDescriptor(
+            id="tool:replan",
+            type=CapabilityType.TOOL,
+            name="replan",
+            description="Trigger replanning.",
+            input_schema={"type": "object", "properties": {}},
+            metadata={"capability_kind": CapabilityKind.PLAN_TOOL},
+        )
+        model = MockModelAdapter(
+            [
+                ModelResponse(
+                    content="Need to replan.",
+                    tool_calls=[{"name": "replan", "arguments": {}}],
+                ),
+                ModelResponse(content="Done.", tool_calls=[]),
+            ]
+        )
+        planner = MockPlanner()
+        validator = MockValidator()
+        tool_gateway = MockToolGateway([plan_tool])
+        agent = FiveLayerAgent(
+            name="five-layer-agent",
+            model=model,
+            planner=planner,
+            validator=validator,
+            tool_gateway=tool_gateway,
+        )
+
+        result = await agent.run("Handle plan tool")
+
+        assert result.success is True
+        state = agent._session_state.current_milestone_state
+        assert state is not None
+        assert any("plan tool encountered" in text for text in state.reflections)
 
 
 if __name__ == "__main__":
