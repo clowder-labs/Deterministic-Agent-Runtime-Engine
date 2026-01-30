@@ -10,6 +10,13 @@ from typing import Any, Protocol
 
 from dare_framework.plan.types import RunResult, Task
 
+# TODO(@zts): Consider simplifying IAgent.run() signature.
+# Current design accepts `str | Task`, but `Task` contains `milestones` which is
+# an orchestration concept. For a minimal Kernel interface, consider:
+# - IAgent.run(task: str) → simple string input
+# - IAgentOrchestration.execute(task: Task) → full Task with milestones
+# This would better separate Kernel (minimal) from Orchestration (rich).
+
 
 class IAgent(Protocol):
     """Framework minimal runtime surface."""
