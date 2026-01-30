@@ -2,7 +2,7 @@
 
 This module provides two public builders:
 - SimpleChatAgentBuilder: builds SimpleChatAgent (simple chat mode)
-- FiveLayerAgentBuilder: builds FiveLayerAgent (five-layer orchestration)
+- DareAgentBuilder: builds DareAgent (five-layer orchestration)
 
 All builder variants share the same precedence rules:
 1) Explicit builder injection wins (highest precedence).
@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
-from dare_framework.agent import FiveLayerAgent, SimpleChatAgent
+from dare_framework.agent import DareAgent, SimpleChatAgent
 from dare_framework.config.types import Config
 from dare_framework.context import Budget, Context
 from dare_framework.event.kernel import IEventLog
@@ -344,8 +344,8 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
         )
 
 
-class FiveLayerAgentBuilder(_BaseAgentBuilder):
-    """Builder for FiveLayerAgent (five-layer orchestration)."""
+class DareAgentBuilder(_BaseAgentBuilder):
+    """Builder for DareAgent (five-layer orchestration)."""
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
@@ -358,31 +358,31 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
         self._execution_control: IExecutionControl | None = None
         self._hooks: list[IHook] = []
 
-    def with_planner(self, planner: IPlanner) -> "FiveLayerAgentBuilder":
+    def with_planner(self, planner: IPlanner) -> "DareAgentBuilder":
         self._planner = planner
         return self
 
-    def add_validators(self, *validators: IValidator) -> "FiveLayerAgentBuilder":
+    def add_validators(self, *validators: IValidator) -> "DareAgentBuilder":
         self._validators.extend(validators)
         return self
 
-    def with_remediator(self, remediator: IRemediator) -> "FiveLayerAgentBuilder":
+    def with_remediator(self, remediator: IRemediator) -> "DareAgentBuilder":
         self._remediator = remediator
         return self
 
-    def with_event_log(self, event_log: IEventLog) -> "FiveLayerAgentBuilder":
+    def with_event_log(self, event_log: IEventLog) -> "DareAgentBuilder":
         self._event_log = event_log
         return self
 
-    def with_execution_control(self, execution_control: IExecutionControl) -> "FiveLayerAgentBuilder":
+    def with_execution_control(self, execution_control: IExecutionControl) -> "DareAgentBuilder":
         self._execution_control = execution_control
         return self
 
-    def add_hooks(self, *hooks: IHook) -> "FiveLayerAgentBuilder":
+    def add_hooks(self, *hooks: IHook) -> "DareAgentBuilder":
         self._hooks.extend(hooks)
         return self
 
-    def build(self) -> FiveLayerAgent:
+    def build(self) -> DareAgent:
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
@@ -446,7 +446,7 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
             if tool_provider is not None:
                 context._tool_provider = tool_provider
             context._sys_prompt = sys_prompt
-            return FiveLayerAgent(
+            return DareAgent(
                 name=self._name,
                 model=model,
                 context=context,
@@ -465,7 +465,7 @@ class FiveLayerAgentBuilder(_BaseAgentBuilder):
             setattr(self._context, "_tool_provider", tool_provider)
         setattr(self._context, "_sys_prompt", sys_prompt)
 
-        return FiveLayerAgent(
+        return DareAgent(
             name=self._name,
             model=model,
             context=self._context,
@@ -488,11 +488,11 @@ class Builder:
         return SimpleChatAgentBuilder(name)
 
     @staticmethod
-    def five_layer_agent_builder(name: str) -> FiveLayerAgentBuilder:
-        return FiveLayerAgentBuilder(name)
+    def five_layer_agent_builder(name: str) -> DareAgentBuilder:
+        return DareAgentBuilder(name)
 
 
-__all__ = ["Builder", "FiveLayerAgentBuilder", "SimpleChatAgentBuilder"]
+__all__ = ["Builder", "DareAgentBuilder", "SimpleChatAgentBuilder"]
 
 
 class _ConfiguredToolProvider(IToolProvider):
