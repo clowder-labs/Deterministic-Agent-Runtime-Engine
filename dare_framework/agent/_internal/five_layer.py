@@ -1,4 +1,4 @@
-"""FiveLayerAgent - Five-layer loop agent implementation.
+"""DareAgent - DARE Framework agent implementation.
 
 This agent implements the full five-layer orchestration loop:
 1. Session Loop - Top-level task lifecycle
@@ -55,8 +55,8 @@ if TYPE_CHECKING:
     from dare_framework.tool.kernel import IExecutionControl, IToolGateway
 
 
-class FiveLayerAgent(BaseAgent):
-    """Five-layer loop agent implementation.
+class DareAgent(BaseAgent):
+    """DARE Framework agent implementation.
 
     This agent implements the IAgentOrchestration interface and supports
     the full five-layer orchestration loop while allowing graceful
@@ -67,9 +67,14 @@ class FiveLayerAgent(BaseAgent):
         - Overrides BaseAgent.run() to delegate to execute()
         - Preserves _execute() for BaseAgent compatibility
 
+    Modes:
+        - **Full Five-Layer**: planner provided → Session→Milestone→Plan→Execute→Tool
+        - **ReAct Mode**: no planner, has tools → Execute→Tool loop directly
+        - **Simple Mode**: no planner, no tools → Single model generation
+
     Example:
         # Full five-layer mode
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="full-agent",
             model=model,
             planner=planner,
@@ -77,7 +82,7 @@ class FiveLayerAgent(BaseAgent):
         )
 
         # ReAct mode (no planner/validator)
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="react-agent",
             model=model,
             tool_gateway=gateway,
@@ -110,7 +115,7 @@ class FiveLayerAgent(BaseAgent):
         max_plan_attempts: int = 3,
         max_tool_iterations: int = 20,
     ) -> None:
-        """Initialize FiveLayerAgent.
+        """Initialize DareAgent.
 
         Args:
             name: Agent name identifier.
@@ -849,7 +854,7 @@ class FiveLayerAgent(BaseAgent):
         await self._event_log.append(event_type, payload)
 
 
-__all__ = ["FiveLayerAgent"]
+__all__ = ["DareAgent"]
 
 
 def _done_predicate_satisfied(done_predicate: DonePredicate, result: Any) -> bool:
@@ -863,3 +868,4 @@ def _done_predicate_satisfied(done_predicate: DonePredicate, result: Any) -> boo
         if key not in output:
             return False
     return True
+

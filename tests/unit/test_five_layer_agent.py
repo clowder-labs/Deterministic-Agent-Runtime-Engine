@@ -1,4 +1,4 @@
-"""Unit tests for FiveLayerAgent."""
+"""Unit tests for DareAgent."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from dare_framework.agent import FiveLayerAgent
+from dare_framework.agent import DareAgent
 from dare_framework.context import Budget, Context, Message
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityKind, CapabilityType
@@ -112,13 +112,13 @@ class MockEventLog:
 # =============================================================================
 
 
-class TestFiveLayerAgentInit:
-    """Tests for FiveLayerAgent initialization."""
+class TestDareAgentInit:
+    """Tests for DareAgent initialization."""
 
     def test_init_with_minimal_deps(self) -> None:
         """Agent can be created with only required dependencies."""
         model = MockModelAdapter()
-        agent = FiveLayerAgent(name="test-agent", model=model)
+        agent = DareAgent(name="test-agent", model=model)
 
         assert agent.name == "test-agent"
         assert agent.context is not None
@@ -129,7 +129,7 @@ class TestFiveLayerAgentInit:
         """Agent can use a provided context."""
         model = MockModelAdapter()
         context = Context(id="custom-context", budget=Budget(max_tokens=1000))
-        agent = FiveLayerAgent(name="test-agent", model=model, context=context)
+        agent = DareAgent(name="test-agent", model=model, context=context)
 
         assert agent.context.id == "custom-context"
 
@@ -137,7 +137,7 @@ class TestFiveLayerAgentInit:
         """Providing a planner enables full five-layer mode."""
         model = MockModelAdapter()
         planner = MockPlanner()
-        agent = FiveLayerAgent(name="test-agent", model=model, planner=planner)
+        agent = DareAgent(name="test-agent", model=model, planner=planner)
 
         assert agent.is_full_five_layer_mode
 
@@ -149,7 +149,7 @@ class TestFiveLayerAgentInit:
         tool_gateway = MockToolGateway()
         event_log = MockEventLog()
 
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="full-agent",
             model=model,
             planner=planner,
@@ -169,7 +169,7 @@ class TestFiveLayerAgentInit:
         from dare_framework.agent.interfaces import IAgentOrchestration
 
         model = MockModelAdapter()
-        agent = FiveLayerAgent(name="test-agent", model=model)
+        agent = DareAgent(name="test-agent", model=model)
 
         # Verify execute method exists with correct signature
         assert hasattr(agent, "execute")
@@ -185,8 +185,8 @@ class TestFiveLayerAgentInit:
 # =============================================================================
 
 
-class TestFiveLayerAgentExecution:
-    """Tests for FiveLayerAgent execution."""
+class TestDareAgentExecution:
+    """Tests for DareAgent execution."""
 
     @pytest.mark.asyncio
     async def test_simple_task_without_tools(self) -> None:
@@ -194,7 +194,7 @@ class TestFiveLayerAgentExecution:
         model = MockModelAdapter([
             ModelResponse(content="The answer is 42.", tool_calls=[])
         ])
-        agent = FiveLayerAgent(name="test-agent", model=model)
+        agent = DareAgent(name="test-agent", model=model)
 
         result = await agent.run("What is the answer?")
 
@@ -207,7 +207,7 @@ class TestFiveLayerAgentExecution:
         """Events are logged when event_log is provided."""
         model = MockModelAdapter()
         event_log = MockEventLog()
-        agent = FiveLayerAgent(name="test-agent", model=model, event_log=event_log)
+        agent = DareAgent(name="test-agent", model=model, event_log=event_log)
 
         await agent.run("Test task")
 
@@ -232,7 +232,7 @@ class TestFiveLayerAgentExecution:
             metadata={},
         ))
 
-        agent = FiveLayerAgent(name="test-agent", model=model, context=context)
+        agent = DareAgent(name="test-agent", model=model, context=context)
         await agent.run("Test task")
 
         # Budget check should be called multiple times
@@ -252,7 +252,7 @@ class TestReActMode:
         """Without planner but with tools, runs in ReAct mode."""
         model = MockModelAdapter()
         tool_gateway = MockToolGateway()
-        agent = FiveLayerAgent(name="react-agent", model=model, tool_gateway=tool_gateway)
+        agent = DareAgent(name="react-agent", model=model, tool_gateway=tool_gateway)
 
         # Should be in react mode
         assert agent.is_react_mode
@@ -274,7 +274,7 @@ class TestReActMode:
             ModelResponse(content="Done!", tool_calls=[]),
         ])
         tool_gateway = MockToolGateway()
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="react-agent",
             model=model,
             tool_gateway=tool_gateway,
@@ -300,7 +300,7 @@ class TestFiveLayerMode:
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="five-layer-agent",
             model=model,
             planner=planner,
@@ -318,7 +318,7 @@ class TestFiveLayerMode:
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="five-layer-agent",
             model=model,
             planner=planner,
@@ -352,7 +352,7 @@ class TestFiveLayerMode:
         planner = MockPlanner()
         validator = MockValidator()
         tool_gateway = MockToolGateway([plan_tool])
-        agent = FiveLayerAgent(
+        agent = DareAgent(
             name="five-layer-agent",
             model=model,
             planner=planner,
