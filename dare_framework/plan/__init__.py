@@ -20,16 +20,20 @@ from dare_framework.plan.types import (
     ValidatedStep,
     VerifyResult,
 )
+from dare_framework.plan._internal.default_planner import DefaultPlanner
+from dare_framework.plan._internal.default_remediator import DefaultRemediator
 
 __all__ = [
-    "DonePredicate",
-    "Envelope",
+    # Interfaces
     "IPlanner",
     "IPlannerManager",
     "IRemediator",
     "IRemediatorManager",
     "IValidator",
     "IValidatorManager",
+    # Types
+    "DonePredicate",
+    "Envelope",
     "ProposedPlan",
     "ProposedStep",
     "RunResult",
@@ -38,4 +42,8 @@ __all__ = [
     "ValidatedPlan",
     "ValidatedStep",
     "VerifyResult",
+    # Default implementations
+    "DefaultPlanner",
+    "DefaultRemediator",
 ]
+
