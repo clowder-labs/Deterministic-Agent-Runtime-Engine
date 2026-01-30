@@ -11,6 +11,7 @@ from dare_framework.plan.interfaces import (
 from dare_framework.plan.types import (
     DonePredicate,
     Envelope,
+    Milestone,
     ProposedPlan,
     ProposedStep,
     RunResult,
@@ -34,6 +35,7 @@ __all__ = [
     # Types
     "DonePredicate",
     "Envelope",
+    "Milestone",
     "ProposedPlan",
     "ProposedStep",
     "RunResult",

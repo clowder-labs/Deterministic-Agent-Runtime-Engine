@@ -14,6 +14,20 @@ class Milestone:
     """A milestone representing a sub-goal within a task.
 
     Milestones are the unit of verification in the five-layer loop.
+    Each milestone goes through its own Plan → Execute → Verify cycle.
+
+    Attributes:
+        milestone_id: Unique identifier for this milestone.
+        description: What this milestone aims to achieve.
+        user_input: Original user input that led to this milestone.
+        success_criteria: List of criteria to verify milestone completion.
+
+    Example:
+        milestone = Milestone(
+            milestone_id="m1",
+            description="Implement authentication module",
+            success_criteria=["All tests pass", "Code review approved"],
+        )
     """
 
     milestone_id: str
@@ -24,7 +38,32 @@ class Milestone:
 
 @dataclass(frozen=True)
 class Task:
-    """A high-level execution request."""
+    """A high-level execution request.
+
+    Task is the top-level input to `IAgent.run()`. It can be used in two ways:
+
+    1. **Simple Mode**: Just provide `description`, milestones will be auto-generated.
+    2. **Orchestrated Mode**: Pre-define `milestones` for explicit multi-step execution.
+
+    When to use milestones:
+        - Complex tasks requiring multiple distinct phases (design → implement → test)
+        - Tasks with specific verification checkpoints
+        - Enterprise workflows with audit requirements
+
+    When NOT to use milestones:
+        - Simple questions or explanations
+        - Single-step operations
+        - Exploratory tasks
+
+    Attributes:
+        description: Main task description or goal.
+        task_id: Optional unique identifier (auto-generated if not provided).
+        milestones: Pre-defined sub-goals. If empty, a single milestone is auto-created.
+        metadata: Arbitrary key-value data for context or audit.
+
+    See Also:
+        doc/用户旅程地图：全栈智能研发 Agent 交付云服务 LandingZone 对接.md
+    """
 
     description: str
     task_id: str | None = None
@@ -47,6 +86,8 @@ class Task:
                 user_input=self.description,
             )
         ]
+
+
 
 
 @dataclass(frozen=True)
