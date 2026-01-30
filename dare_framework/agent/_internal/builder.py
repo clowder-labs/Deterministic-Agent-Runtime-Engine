@@ -349,6 +349,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
         self._event_log: IEventLog | None = None
         self._execution_control: IExecutionControl | None = None
         self._hooks: list[IHook] = []
+        self._verbose: bool = False
 
     def with_planner(self, planner: IPlanner) -> DareAgentBuilder:
         self._planner = planner
@@ -372,6 +373,10 @@ class DareAgentBuilder(_BaseAgentBuilder):
 
     def add_hooks(self, *hooks: IHook) -> DareAgentBuilder:
         self._hooks.extend(hooks)
+        return self
+
+    def with_verbose(self, verbose: bool = True) -> DareAgentBuilder:
+        self._verbose = verbose
         return self
 
     def build(self) -> DareAgent:
@@ -450,6 +455,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
                 remediator=remediator,
                 event_log=self._event_log,
                 hooks=hooks,
+                verbose=self._verbose,
             )
 
         self._apply_context_overrides(self._context)
@@ -469,6 +475,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
             remediator=remediator,
             event_log=self._event_log,
             hooks=hooks,
+            verbose=self._verbose,
         )
 
 

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 from dare_framework.context import Message
 from dare_framework.infra.component import ComponentType
-from dare_framework.model.types import Prompt
+from dare_framework.model.types import ModelInput
 from dare_framework.plan.types import VerifyResult
 
 if TYPE_CHECKING:
@@ -172,7 +172,7 @@ class DefaultRemediator:
 
 Please analyze this failure and provide your structured reflection."""
 
-        prompt = Prompt(
+        model_input = ModelInput(
             messages=[
                 Message(role="system", content=self._system_prompt),
                 Message(role="user", content=user_prompt),
@@ -183,7 +183,7 @@ Please analyze this failure and provide your structured reflection."""
             print(f"[DefaultRemediator] Analyzing failure: {errors[0][:50]}...")
 
         try:
-            response = await self._model.generate(prompt)
+            response = await self._model.generate(model_input)
             reflection = response.content.strip()
 
             if self._verbose:

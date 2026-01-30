@@ -103,7 +103,7 @@ async def test_registry_validator_flags_unknown_capability() -> None:
         steps=[
             ProposedStep(
                 step_id="s1",
-                capability_id="tool:missing",
+                capability_id="missing",
                 params={},
             )
         ],

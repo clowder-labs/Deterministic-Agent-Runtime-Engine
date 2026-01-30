@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable
-from uuid import uuid4
 
 from dare_framework.config.types import Config
 from dare_framework.plan.types import Envelope
@@ -61,7 +60,9 @@ class ToolManager(IToolManager, IToolProvider):
             entry = self._registry.get(existing_id)
             if entry is not None:
                 return entry.descriptor
-        capability_id = _unique_capability_id(self._registry)
+        capability_id = tool.name
+        if capability_id in self._registry:
+            raise ValueError(f"Tool name already registered: {tool.name}")
         descriptor = _descriptor_from_tool(tool, capability_id)
         self._registry[capability_id] = _registry_entry(
             descriptor=descriptor,
@@ -88,6 +89,10 @@ class ToolManager(IToolManager, IToolProvider):
         capability_id: str,
         enabled: bool | None = None,
     ) -> CapabilityDescriptor:
+        if tool.name != capability_id:
+            raise ValueError(
+                f"Tool name must match capability id: {tool.name} != {capability_id}"
+            )
         entry = self._registry.get(capability_id)
         if entry is None:
             raise KeyError(f"Unknown capability id: {capability_id}")
@@ -227,7 +232,9 @@ class ToolManager(IToolManager, IToolProvider):
         existing_id = self._tool_index_by_object.get(id(tool))
         if existing_id:
             return existing_id
-        capability_id = _unique_capability_id(self._registry)
+        capability_id = tool.name
+        if capability_id in self._registry:
+            raise ValueError(f"Tool name already registered: {tool.name}")
         descriptor = _descriptor_from_tool(tool, capability_id)
         self._registry[capability_id] = _registry_entry(
             descriptor=descriptor,
@@ -242,13 +249,6 @@ class ToolManager(IToolManager, IToolProvider):
         entry = self._registry.pop(capability_id, None)
         if entry and entry.tool is not None:
             self._tool_index_by_object.pop(id(entry.tool), None)
-
-
-def _unique_capability_id(registry: dict[str, _registry_entry]) -> str:
-    while True:
-        candidate = f"tool_{uuid4().hex}"
-        if candidate not in registry:
-            return candidate
 
 
 def _descriptor_from_tool(tool: ITool, capability_id: str) -> CapabilityDescriptor:

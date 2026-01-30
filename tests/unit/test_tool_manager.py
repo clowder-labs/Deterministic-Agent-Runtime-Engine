@@ -75,7 +75,7 @@ async def test_tool_manager_register_update_unregister() -> None:
     tool = DummyTool("echo", "Echo input text")
 
     descriptor = manager.register_tool(tool)
-    assert descriptor.id.startswith("tool_")
+    assert descriptor.id == "echo"
 
     manager.set_capability_enabled(descriptor.id, False)
     assert manager.list_tool_defs() == []
@@ -122,7 +122,7 @@ async def test_tool_manager_tool_defs_include_metadata() -> None:
     tool_def = tool_defs[0]
     assert tool_def["type"] == "function"
     assert tool_def["function"]["name"] == tool_def["capability_id"]
-    assert tool_def["function"]["name"].startswith("tool_")
+    assert tool_def["function"]["name"] == "echo"
     assert tool_def["function"]["parameters"] == tool.input_schema
     assert tool_def["capability_id"] in {cap.id for cap in await manager.list_capabilities()}
 
@@ -132,3 +132,13 @@ async def test_tool_manager_tool_defs_include_metadata() -> None:
     assert metadata.get("timeout_seconds") == 12
     assert metadata.get("is_work_unit") is False
     assert metadata.get("display_name") == "echo"
+
+
+def test_tool_manager_rejects_duplicate_tool_name() -> None:
+    manager = ToolManager()
+    manager.register_tool(DummyTool("echo", "Echo input text"))
+
+    with pytest.raises(ValueError) as excinfo:
+        manager.register_tool(DummyTool("echo", "Duplicate echo"))
+
+    assert "echo" in str(excinfo.value)

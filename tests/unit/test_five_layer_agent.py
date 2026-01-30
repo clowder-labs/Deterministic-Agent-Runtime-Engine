@@ -284,6 +284,9 @@ class TestReActMode:
 
         assert len(tool_gateway.invoke_calls) == 1
         assert tool_gateway.invoke_calls[0][0] == "read_file"
+        messages = agent._context.stm_get()
+        assert any(msg.role == "assistant" and msg.metadata.get("tool_calls") for msg in messages)
+        assert any(msg.role == "tool" for msg in messages)
 
 
 # =============================================================================
@@ -333,7 +336,7 @@ class TestFiveLayerMode:
     async def test_plan_tool_detected_via_registry_metadata(self) -> None:
         """Plan tool detection prefers trusted registry metadata over name prefix."""
         plan_tool = CapabilityDescriptor(
-            id="tool:replan",
+            id="replan",
             type=CapabilityType.TOOL,
             name="replan",
             description="Trigger replanning.",
