@@ -42,7 +42,7 @@ async def test_snake_game_scenario():
     tool_gateway.register_provider(tool_provider)
 
     # Create model adapter
-    from model_adapters import OpenRouterModelAdapter
+    from dare_framework.model import OpenRouterModelAdapter
     model = OpenRouterModelAdapter()
     print(f"✓ Model: {model.model_name}\n")
 

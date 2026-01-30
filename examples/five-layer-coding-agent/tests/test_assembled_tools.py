@@ -32,7 +32,7 @@ async def test_assembled_tools():
     print("=" * 70)
 
     # Create model adapter
-    from model_adapters import OpenRouterModelAdapter
+    from dare_framework.model import OpenRouterModelAdapter
     model = OpenRouterModelAdapter()
 
     # Create agent with tools

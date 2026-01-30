@@ -47,13 +47,14 @@ class OpenAIModelAdapter(IModelAdapter):
         api_key: str | None = None,
         endpoint: str | None = None,
         http_client_options: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         self._name = name or "openai"
         self._model = model
         self._api_key = api_key
         self._endpoint = endpoint
         self._http_client_options = dict(http_client_options or {})
-        self._extra: dict[str, Any] = {}
+        self._extra: dict[str, Any] = dict(extra or {})
         self._client: Any = None
 
     @property

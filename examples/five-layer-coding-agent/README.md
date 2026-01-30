@@ -67,7 +67,7 @@ five-layer-coding-agent/
 │   ├── simple_validator.py     # 修复后的验证器
 │   └── __init__.py
 │
-├── model_adapters/              # 模型适配器
+├── dare_framework/model/        # 模型适配器（OpenRouter 适配器已迁移）
 │   ├── openrouter.py            # OpenRouter 适配器（支持工具调用）
 │   └── __init__.py
 │

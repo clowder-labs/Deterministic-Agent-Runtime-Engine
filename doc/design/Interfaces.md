@@ -25,6 +25,7 @@ dare_framework/<domain>/
 - `types.py` MUST NOT 依赖 `interfaces.py` 或 `_internal/`
 - `kernel.py` SHOULD 只依赖 `types.py`
 - `interfaces.py` MAY 依赖其他域的 `kernel.py`（表达组合）
+- `_internal/` 默认实现对外通过 domain factory 或 `__init__.py` facade 暴露，其他域不直接引用实现模块
 
 ---
 

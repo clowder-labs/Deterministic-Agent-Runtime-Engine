@@ -3,7 +3,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-from dare_framework.model import Prompt
+from dare_framework.model import ModelInput
 from dare_framework.context import Message
 
 
@@ -16,7 +16,7 @@ async def test_tool_use():
         print("❌ OPENROUTER_API_KEY not found")
         return
 
-    from model_adapters import OpenRouterModelAdapter
+    from dare_framework.model import OpenRouterModelAdapter
     model = OpenRouterModelAdapter()
 
     print(f"✓ Using model: {model.model_name}")
@@ -47,11 +47,11 @@ async def test_tool_use():
         }
     ]
 
-    prompt = Prompt(
+    model_input = ModelInput(
         messages=[
             Message(role="user", content="请创建一个名为 test.py 的文件，内容是 print('hello')")
         ],
-        tools=tools
+        tools=tools,
     )
 
     print("\n📋 Sending prompt to model...")
@@ -59,7 +59,7 @@ async def test_tool_use():
     print(f"Tools provided: {len(tools)} tools (write_file)")
     print("="*70)
 
-    response = await model.generate(prompt)
+    response = await model.generate(model_input)
 
     print("\n📊 Model Response:")
     print(f"Content length: {len(response.content)} chars")

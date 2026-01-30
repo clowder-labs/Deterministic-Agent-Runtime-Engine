@@ -176,6 +176,7 @@ flowchart TB
 可选：
 - `interfaces.py`：可插拔接口位、跨域组合接口位（例如 `IKnowledgeTool = IKnowledge + ITool`）
 - `_internal/`：默认实现（不稳定；不作为公共 API）
+- 对外默认实现应通过 domain factory 或 facade 暴露，其他 domain 不直接 import `_internal/`
 
 推荐依赖规则：
 - `types.py` 不依赖 `interfaces.py/_internal/`

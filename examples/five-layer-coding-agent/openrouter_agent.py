@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
-from dare_framework.model import Prompt
 from dare_framework.plan.types import ProposedPlan, ProposedStep, Task
 from dare_framework.tool import (
     ReadFileTool,
@@ -17,7 +16,7 @@ from dare_framework.tool import (
     DefaultToolGateway,
 )
 
-from model_adapters import OpenRouterModelAdapter
+from dare_framework.model import OpenRouterModelAdapter
 from planners import DeterministicPlanner
 from validators import SimpleValidator
 

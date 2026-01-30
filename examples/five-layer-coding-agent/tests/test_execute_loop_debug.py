@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
-from dare_framework.model import Prompt
+from dare_framework.model import ModelInput
 from dare_framework.plan.types import Task
 from dare_framework.tool import (
     ReadFileTool,
@@ -34,7 +34,7 @@ async def test_execute_loop_debug():
     print("=" * 70)
 
     # Create model adapter
-    from model_adapters import OpenRouterModelAdapter
+    from dare_framework.model import OpenRouterModelAdapter
     model = OpenRouterModelAdapter()
 
     # Create agent with tools
@@ -77,22 +77,22 @@ async def test_execute_loop_debug():
         func = tool.get('function', {})
         print(f"  {i}. {func.get('name', 'N/A')}: {func.get('description', 'N/A')[:60]}...")
 
-    # Create prompt (same as Execute Loop does)
-    prompt = Prompt(
+    # Create model input (same as Execute Loop does)
+    model_input = ModelInput(
         messages=assembled.messages,
         tools=assembled.tools,
         metadata=assembled.metadata,
     )
 
-    print(f"\n⚙️ Prompt created:")
-    print(f"  Messages: {len(prompt.messages)}")
-    print(f"  Tools: {len(prompt.tools)}")
+    print(f"\n⚙️ ModelInput created:")
+    print(f"  Messages: {len(model_input.messages)}")
+    print(f"  Tools: {len(model_input.tools)}")
 
     # Call model (same as Execute Loop does)
     print(f"\n🤖 Calling model.generate()...")
     print(f"   Model: {model.model_name}")
 
-    response = await model.generate(prompt)
+    response = await model.generate(model_input)
 
     print(f"\n📊 Model Response:")
     print(f"  Content length: {len(response.content) if response.content else 0} chars")

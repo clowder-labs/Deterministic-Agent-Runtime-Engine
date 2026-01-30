@@ -3,6 +3,10 @@
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptLoader, IPromptStore
 from dare_framework.model.types import Prompt, ModelInput, ModelResponse, GenerateOptions
+from dare_framework.model.factories import (
+    create_default_model_adapter_manager,
+    create_default_prompt_store,
+)
 from dare_framework.model._internal.builtin_prompt_loader import BuiltInPromptLoader
 from dare_framework.model._internal.filesystem_prompt_loader import FileSystemPromptLoader
 from dare_framework.model._internal.layered_prompt_store import LayeredPromptStore
@@ -18,6 +22,8 @@ __all__ = [
     "ModelInput",
     "ModelResponse",
     "GenerateOptions",
+    "create_default_model_adapter_manager",
+    "create_default_prompt_store",
     "BuiltInPromptLoader",
     "FileSystemPromptLoader",
     "LayeredPromptStore",

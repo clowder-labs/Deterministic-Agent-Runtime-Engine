@@ -12,7 +12,6 @@ All builder variants share the same precedence rules:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from dare_framework.agent import DareAgent, SimpleChatAgent
@@ -27,9 +26,10 @@ from dare_framework.memory import ILongTermMemory, IShortTermMemory
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
 from dare_framework.model.types import Prompt
-from dare_framework.model._internal.builtin_prompt_loader import BuiltInPromptLoader
-from dare_framework.model._internal.filesystem_prompt_loader import FileSystemPromptLoader
-from dare_framework.model._internal.layered_prompt_store import LayeredPromptStore
+from dare_framework.model.factories import (
+    create_default_model_adapter_manager,
+    create_default_prompt_store,
+)
 from dare_framework.plan._internal.composite_validator import CompositeValidator
 from dare_framework.plan.interfaces import (
     IPlanner,
@@ -195,16 +195,7 @@ class _BaseAgentBuilder:
     def _resolve_prompt_store(self) -> IPromptStore:
         if self._prompt_store is not None:
             return self._prompt_store
-        config = self._effective_config()
-        pattern = config.prompt_store_path_pattern
-        workspace_manifest = Path(config.workspace_dir) / pattern
-        user_manifest = Path(config.user_dir) / pattern
-        loaders = [
-            FileSystemPromptLoader(workspace_manifest),
-            FileSystemPromptLoader(user_manifest),
-            BuiltInPromptLoader(),
-        ]
-        return LayeredPromptStore(loaders)
+        return create_default_prompt_store(self._effective_config())
 
     def _resolve_sys_prompt(self, model: IModelAdapter) -> Prompt | None:
         if self._prompt_override is not None:
@@ -274,7 +265,7 @@ class _BaseAgentBuilder:
         if self._model is not None:
             return self._model
 
-        manager = self._model_adapter_manager
+        manager = self._model_adapter_manager or create_default_model_adapter_manager(self._manager_config())
         if manager is None:
             raise ValueError("Builder requires a model adapter (explicit or manager-resolved)")
 

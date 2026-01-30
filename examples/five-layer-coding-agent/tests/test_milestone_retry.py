@@ -44,7 +44,7 @@ async def test_milestone_retry():
     tool_gateway.register_provider(tool_provider)
 
     # Create model
-    from model_adapters import OpenRouterModelAdapter
+    from dare_framework.model import OpenRouterModelAdapter
     model = OpenRouterModelAdapter()
     print(f"✓ Model: {model.model_name}")
 

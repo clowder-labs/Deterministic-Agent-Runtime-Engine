@@ -7,7 +7,7 @@ from pathlib import Path
 from dare_framework.context.kernel import IContext
 from dare_framework.context import Message
 from dare_framework.infra.component import ComponentType
-from dare_framework.model import IModelAdapter, Prompt
+from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import ProposedPlan, ProposedStep
 
 
@@ -87,12 +87,12 @@ Important:
 
         # Call model
         try:
-            prompt = Prompt(messages=[
+            model_input = ModelInput(messages=[
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt),
             ])
 
-            response = await self._model.generate(prompt)
+            response = await self._model.generate(model_input)
             response_text = response.content.strip()
 
             if self._verbose:

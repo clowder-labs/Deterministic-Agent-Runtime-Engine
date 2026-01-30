@@ -377,7 +377,7 @@ async def run_interactive_cli(use_real_model: bool = False):
             print("Please create .env file with your API key")
             return
 
-        from model_adapters import OpenRouterModelAdapter
+        from dare_framework.model import OpenRouterModelAdapter
         model = OpenRouterModelAdapter()
         print_success(f"Using OpenRouter model: {model.model_name}")
     else:

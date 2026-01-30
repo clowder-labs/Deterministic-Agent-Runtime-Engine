@@ -28,7 +28,7 @@ async def test_snake_task():
         print("❌ OPENROUTER_API_KEY not found")
         return
 
-    from model_adapters import OpenRouterModelAdapter
+    from dare_framework.model import OpenRouterModelAdapter
     model = OpenRouterModelAdapter()
 
     print(f"✓ Using model: {model.model_name}")

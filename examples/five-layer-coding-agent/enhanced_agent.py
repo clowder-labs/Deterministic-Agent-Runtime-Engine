@@ -2,7 +2,7 @@
 from typing import Any
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
-from dare_framework.model import Prompt
+from dare_framework.model import ModelInput
 from dare_framework.plan.types import ValidatedPlan
 
 
@@ -51,7 +51,7 @@ Remember: TAKE ACTION using tools, don't just explain what you would do!"""
             messages = [system_msg] + messages
 
         # Create prompt with enhanced messages
-        prompt = Prompt(
+        model_input = ModelInput(
             messages=messages,
             tools=assembled.tools,
             metadata=assembled.metadata,
@@ -63,9 +63,9 @@ Remember: TAKE ACTION using tools, don't just explain what you would do!"""
             # Show full content for debugging
             print(f"  {i}. [{msg.role}]")
             print(f"     Content: {msg.content}")
-        print(f"[DEBUG] Tools: {len(prompt.tools)} tools")
-        if prompt.tools:
-            for tool in prompt.tools[:3]:  # Show first 3 tools
+        print(f"[DEBUG] Tools: {len(model_input.tools)} tools")
+        if model_input.tools:
+            for tool in model_input.tools[:3]:  # Show first 3 tools
                 func = tool.get('function', {})
                 print(f"  - {func.get('name', 'N/A')}: {func.get('description', 'N/A')[:60]}")
         print()
@@ -82,7 +82,7 @@ Remember: TAKE ACTION using tools, don't just explain what you would do!"""
                 self._poll_or_raise()
 
             # Generate model response
-            response = await self._model.generate(prompt)
+            response = await self._model.generate(model_input)
 
             await self._log_event("model.response", {
                 "iteration": iteration + 1,
@@ -168,7 +168,7 @@ Remember: TAKE ACTION using tools, don't just explain what you would do!"""
                 system_msg = Message(role="system", content=self.EXECUTE_SYSTEM_PROMPT)
                 messages = [system_msg] + messages
 
-            prompt = Prompt(
+            model_input = ModelInput(
                 messages=messages,
                 tools=assembled.tools,
                 metadata=assembled.metadata,

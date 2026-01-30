@@ -138,9 +138,8 @@ validators/
   ├── __init__.py
   └── simple_validator.py    - Fixed validator (checks outputs)
 
-model_adapters/
-  ├── __init__.py
-  └── openrouter.py          - OpenRouter adapter with tool calling
+dare_framework/model/
+  └── _internal/openrouter_adapter.py  - OpenRouter adapter with tool calling (exported via dare_framework.model)
 ```
 
 ### Tests & Documentation
