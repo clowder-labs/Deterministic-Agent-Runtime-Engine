@@ -46,6 +46,9 @@ class IContext(Protocol):
     # Assembly (core)
     def assemble(self, **options: Any) -> AssembledContext: ...
 
+    # Compress (core)
+    def compress(self, **options: Any) -> None: ...
+
     # Config
     def config_update(self, patch: dict[str, Any]) -> None: ...
 

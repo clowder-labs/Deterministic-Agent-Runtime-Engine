@@ -150,6 +150,11 @@ class Context(IContext):
             tools=tools,
             metadata={"context_id": self.id},
         )
+    
+    def compress(self, **options: Any) -> None:
+        """Compress context to fit within budget; delegates to STM's compress."""
+        if self.short_term_memory is not None:
+            self.short_term_memory.compress(**options)
 
     # ========== Config Methods ==========
 
