@@ -624,8 +624,17 @@ class DareAgent(BaseAgent):
 
             # Process tool calls
             capability_index = await self._capability_index() if response.tool_calls else {}
+
+            assistant_msg = Message(
+                role="assistant",
+                content=response.content or "",
+                metadata={"tool_calls": response.tool_calls},
+            )
+            self._context.stm_add(assistant_msg)
+
             for tool_call in response.tool_calls:
                 name = tool_call.get("name", "")
+                tool_call_id = tool_call.get("id", "")
                 capability_id = tool_call.get("capability_id") or name
                 descriptor = capability_index.get(capability_id) or capability_index.get(name)
 
@@ -651,8 +660,17 @@ class DareAgent(BaseAgent):
                 if not tool_result.get("success", False):
                     errors.append(tool_result.get("error", "tool failed"))
 
+                tool_result_content = _format_tool_result(tool_result)
+                tool_msg = Message(
+                    role="tool",
+                    name=tool_call_id or capability_id,
+                    content=tool_result_content,
+                )
+                self._context.stm_add(tool_msg)
+
             # Update prompt with tool results for next iteration
             # (Simplified: in production would format properly)
+            assembled = self._context.assemble()
             model_input = ModelInput(
                 messages=self._assemble_messages(assembled),
                 tools=assembled.tools,
@@ -852,6 +870,28 @@ class DareAgent(BaseAgent):
             }
 
         await self._event_log.append(event_type, payload)
+
+
+def _format_tool_result(tool_result: dict[str, Any]) -> str:
+    import json
+
+    success = bool(tool_result.get("success", False))
+    result_obj = tool_result.get("result")
+    output: Any = None
+    error: Any = None
+
+    if result_obj is not None and hasattr(result_obj, "output"):
+        output = getattr(result_obj, "output", None)
+        error = getattr(result_obj, "error", None)
+    else:
+        output = tool_result.get("output")
+        error = tool_result.get("error")
+
+    payload = {"success": success, "output": output}
+    if error:
+        payload["error"] = error
+
+    return json.dumps(payload, ensure_ascii=True)
 
 
 __all__ = ["DareAgent"]
