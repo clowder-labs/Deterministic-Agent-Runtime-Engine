@@ -23,6 +23,8 @@ from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.context import AssembledContext, Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import (
+    DonePredicate,
+    Envelope,
     Milestone,
     RunResult,
     Task,
@@ -676,42 +678,69 @@ class FiveLayerAgent(BaseAgent):
                 "error": "no tool gateway configured",
             }
 
-        await self._log_event("tool.invoke", {
-            "capability_id": request.capability_id,
-        })
+        done_predicate = request.envelope.done_predicate
+        max_calls = self._tool_loop_max_calls(request.envelope)
+        attempts = 0
 
-        try:
-            result = await self._tool_gateway.invoke(
-                request.capability_id,
-                request.params,
-                envelope=request.envelope,
-            )
+        while True:
+            attempts += 1
+            self._context.budget_check()
+            self._context.budget_use("tool_calls", 1)
 
-            await self._log_event("tool.result", {
+            await self._log_event("tool.invoke", {
                 "capability_id": request.capability_id,
-                "success": True,
+                "attempt": attempts,
             })
 
-            # Collect evidence
-            milestone_state = self._session_state.current_milestone_state
-            if milestone_state and hasattr(result, "evidence"):
-                for evidence in result.evidence:
-                    milestone_state.add_evidence(evidence)
+            try:
+                result = await self._tool_gateway.invoke(
+                    request.capability_id,
+                    request.params,
+                    envelope=request.envelope,
+                )
 
-            return {
-                "success": True,
-                "result": result,
-            }
+                await self._log_event("tool.result", {
+                    "capability_id": request.capability_id,
+                    "success": True,
+                    "attempt": attempts,
+                })
 
-        except Exception as e:
-            await self._log_event("tool.error", {
-                "capability_id": request.capability_id,
-                "error": str(e),
-            })
-            return {
-                "success": False,
-                "error": str(e),
-            }
+                if hasattr(result, "success") and not result.success:
+                    return {
+                        "success": False,
+                        "error": result.error or "tool failed",
+                        "result": result,
+                    }
+
+                # Collect evidence
+                milestone_state = self._session_state.current_milestone_state
+                if milestone_state and hasattr(result, "evidence"):
+                    for evidence in result.evidence:
+                        milestone_state.add_evidence(evidence)
+
+                if done_predicate is None or _done_predicate_satisfied(done_predicate, result):
+                    return {
+                        "success": True,
+                        "result": result,
+                    }
+
+                if max_calls is not None and attempts >= max_calls:
+                    return {
+                        "success": False,
+                        "error": "done predicate not satisfied before budget exhausted",
+                        "result": result,
+                    }
+
+            except Exception as e:
+                await self._log_event("tool.error", {
+                    "capability_id": request.capability_id,
+                    "error": str(e),
+                    "attempt": attempts,
+                })
+                return {
+                    "success": False,
+                    "error": str(e),
+                }
 
     # =========================================================================
     # Verify
@@ -764,6 +793,13 @@ class FiveLayerAgent(BaseAgent):
             kind = kind.value
         return str(kind) == CapabilityKind.PLAN_TOOL.value
 
+    def _tool_loop_max_calls(self, envelope: Envelope) -> int | None:
+        if envelope.budget.max_tool_calls is not None:
+            return envelope.budget.max_tool_calls
+        if self._context.budget.max_tool_calls is not None:
+            return self._context.budget.max_tool_calls
+        return self._max_tool_iterations
+
     def _poll_or_raise(self) -> None:
         """Poll execution control and raise if interrupted.
 
@@ -814,3 +850,16 @@ class FiveLayerAgent(BaseAgent):
 
 
 __all__ = ["FiveLayerAgent"]
+
+
+def _done_predicate_satisfied(done_predicate: DonePredicate, result: Any) -> bool:
+    required_keys = list(done_predicate.required_keys or [])
+    if not required_keys:
+        return True
+    output = getattr(result, "output", None)
+    if not isinstance(output, dict):
+        return False
+    for key in required_keys:
+        if key not in output:
+            return False
+    return True

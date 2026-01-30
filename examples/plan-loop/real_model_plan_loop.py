@@ -23,17 +23,16 @@ if str(PROJECT_ROOT) not in sys.path:
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
 from dare_framework.infra.component import ComponentType
-from dare_framework.model import OpenAIModelAdapter, Prompt
+from dare_framework.model import OpenAIModelAdapter
+from dare_framework.model.types import ModelInput
 from dare_framework.plan import ProposedPlan, ProposedStep
 from dare_framework.plan._internal.registry_validator import RegistryPlanValidator
 from dare_framework.tool import (
-    DefaultToolGateway,
     EchoTool,
-    GatewayToolProvider,
-    NativeToolProvider,
     ReadFileTool,
     RunContextState,
     SearchCodeTool,
+    ToolManager,
 )
 
 MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
@@ -62,12 +61,16 @@ def _tool_catalog(tool_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         function = tool.get("function") if isinstance(tool, dict) else None
         if not isinstance(function, dict):
             continue
-        name = function.get("name")
-        if not isinstance(name, str) or not name:
+        capability_id = function.get("name")
+        if not isinstance(capability_id, str) or not capability_id:
             continue
+        display_name = tool.get("metadata", {}).get("display_name")
+        if not isinstance(display_name, str) or not display_name:
+            display_name = capability_id
         catalog.append(
             {
-                "name": name,
+                "capability_id": capability_id,
+                "name": display_name,
                 "description": function.get("description", ""),
                 "parameters": function.get("parameters", {}),
             }
@@ -125,7 +128,13 @@ class JsonPlanPlanner:
     ) -> None:
         self._model = model
         self._tool_defs = list(tool_defs)
-        self._tool_names = {tool["name"] for tool in _tool_catalog(self._tool_defs)}
+        self._tool_catalog = _tool_catalog(self._tool_defs)
+        self._tool_ids = {tool["capability_id"] for tool in self._tool_catalog}
+        self._tool_aliases: dict[str, set[str]] = {}
+        for tool in self._tool_catalog:
+            alias = tool.get("name")
+            if isinstance(alias, str) and alias:
+                self._tool_aliases.setdefault(alias, set()).add(tool["capability_id"])
         self._default_read_path = default_read_path
         self._max_steps = max_steps
         self.last_plan: ProposedPlan | None = None
@@ -140,16 +149,15 @@ class JsonPlanPlanner:
 
     async def plan(self, ctx: Any) -> ProposedPlan:
         task = _latest_user_message(ctx.stm_get()) or "unknown task"
-        tool_catalog = _tool_catalog(self._tool_defs)
-        prompt = Prompt(
+        prompt = ModelInput(
             messages=[
                 Message(
                     role="system",
                     content=(
                         "You are a planning module. Return JSON only (no markdown).\n"
                         "Format: {\"plan_description\": str, \"steps\": "
-                        "[{\"tool\": str, \"arguments\": object, \"description\": str}]}\n"
-                        "Use only tools from the provided catalog and keep steps <= max_steps."
+                        "[{\"tool_id\": str, \"arguments\": object, \"description\": str}]}\n"
+                        "Use only tool_id values from the provided catalog and keep steps <= max_steps."
                     ),
                 ),
                 Message(
@@ -158,7 +166,7 @@ class JsonPlanPlanner:
                         f"Task: {task}\n"
                         f"Default read path: {self._default_read_path}\n"
                         f"max_steps: {self._max_steps}\n"
-                        f"Tool catalog: {json.dumps(tool_catalog, ensure_ascii=True)}"
+                        f"Tool catalog: {json.dumps(self._tool_catalog, ensure_ascii=True)}"
                     ),
                 ),
             ],
@@ -189,19 +197,32 @@ class JsonPlanPlanner:
         for idx, raw in enumerate(raw_steps[: self._max_steps], start=1):
             if not isinstance(raw, dict):
                 continue
-            tool_name = raw.get("tool") or raw.get("tool_name") or raw.get("name")
-            if not isinstance(tool_name, str) or tool_name not in self._tool_names:
+            tool_token = (
+                raw.get("tool_id")
+                or raw.get("capability_id")
+                or raw.get("tool")
+                or raw.get("tool_name")
+                or raw.get("name")
+            )
+            if not isinstance(tool_token, str):
                 continue
+            if tool_token in self._tool_ids:
+                resolved_id = tool_token
+            else:
+                aliases = self._tool_aliases.get(tool_token, set())
+                if len(aliases) != 1:
+                    continue
+                resolved_id = next(iter(aliases))
             params = raw.get("arguments") or raw.get("params") or raw.get("input") or {}
             if not isinstance(params, dict):
                 params = {}
-            if tool_name == "read_file" and "path" not in params:
+            if "path" not in params and self._tool_name_for(resolved_id) == "read_file":
                 params["path"] = self._default_read_path
 
             steps.append(
                 ProposedStep(
                     step_id=f"step-{idx}",
-                    capability_id=f"tool:{tool_name}",
+                    capability_id=resolved_id,
                     params=params,
                     description=str(raw.get("description") or ""),
                 )
@@ -209,25 +230,37 @@ class JsonPlanPlanner:
 
         return steps
 
+    def _tool_name_for(self, capability_id: str) -> str:
+        for tool in self._tool_catalog:
+            if tool.get("capability_id") == capability_id:
+                return str(tool.get("name", ""))
+        return ""
+
     def _fallback_steps(self, task: str) -> list[ProposedStep]:
-        if "read_file" in self._tool_names:
-            return [
-                ProposedStep(
-                    step_id="step-1",
-                    capability_id="tool:read_file",
-                    params={"path": self._default_read_path},
-                    description="Fallback to read the default file.",
-                )
-            ]
-        if "echo" in self._tool_names:
-            return [
-                ProposedStep(
-                    step_id="step-1",
-                    capability_id="tool:echo",
-                    params={"message": task},
-                    description="Fallback to echo the task.",
-                )
-            ]
+        if "read_file" in self._tool_aliases:
+            capability_ids = self._tool_aliases.get("read_file", set())
+            if len(capability_ids) == 1:
+                capability_id = next(iter(capability_ids))
+                return [
+                    ProposedStep(
+                        step_id="step-1",
+                        capability_id=capability_id,
+                        params={"path": self._default_read_path},
+                        description="Fallback to read the default file.",
+                    )
+                ]
+        if "echo" in self._tool_aliases:
+            capability_ids = self._tool_aliases.get("echo", set())
+            if len(capability_ids) == 1:
+                capability_id = next(iter(capability_ids))
+                return [
+                    ProposedStep(
+                        step_id="step-1",
+                        capability_id=capability_id,
+                        params={"message": task},
+                        description="Fallback to echo the task.",
+                    )
+                ]
         return []
 
 
@@ -267,26 +300,24 @@ async def main() -> None:
         }
     )
 
-    tools = [ReadFileTool(), SearchCodeTool(), EchoTool()]
-    gateway = DefaultToolGateway()
-    gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
-
-    tool_provider = GatewayToolProvider(gateway)
-    await tool_provider.refresh()
+    tool_manager = ToolManager(context_factory=run_context.build)
+    tool_manager.register_tool(ReadFileTool())
+    tool_manager.register_tool(SearchCodeTool())
+    tool_manager.register_tool(EchoTool())
 
     planner = JsonPlanPlanner(
         model,
-        tool_provider.list_tools(),
+        tool_manager.list_tool_defs(),
         default_read_path=DEFAULT_READ_PATH,
         max_steps=MAX_STEPS,
     )
-    validator = RegistryPlanValidator(tool_gateway=gateway)
+    validator = RegistryPlanValidator(tool_gateway=tool_manager)
 
     agent = FiveLayerAgent(
         name="plan-loop-real-model",
         model=model,
-        tools=tool_provider,
-        tool_gateway=gateway,
+        tools=tool_manager,
+        tool_gateway=tool_manager,
         planner=planner,
         validator=validator,
     )

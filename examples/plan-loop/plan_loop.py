@@ -20,15 +20,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
 from dare_framework.infra.component import ComponentType
-from dare_framework.model.types import ModelResponse, Prompt
+from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan import ProposedPlan, ProposedStep
 from dare_framework.plan._internal.registry_validator import RegistryPlanValidator
 from dare_framework.tool import (
-    DefaultToolGateway,
     EchoTool,
-    GatewayToolProvider,
-    NativeToolProvider,
     RunContextState,
+    ToolManager,
 )
 
 
@@ -42,9 +40,10 @@ def _latest_user_message(messages: list[Message]) -> str:
 class EchoPlanner:
     """Deterministic planner that emits a single echo step."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, capability_id: str) -> None:
         self._attempt = 0
         self.last_plan: ProposedPlan | None = None
+        self._capability_id = capability_id
 
     @property
     def name(self) -> str:
@@ -65,7 +64,7 @@ class EchoPlanner:
             steps=[
                 ProposedStep(
                     step_id=f"step-{self._attempt}",
-                    capability_id="tool:echo",
+                    capability_id=self._capability_id,
                     params={"message": message},
                     description="Echo user input.",
                 )
@@ -82,8 +81,9 @@ class DeterministicToolCallModel:
     This keeps the example fully offline while still exercising the Tool Loop.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, capability_id: str) -> None:
         self._calls = 0
+        self._capability_id = capability_id
 
     @property
     def name(self) -> str:
@@ -93,9 +93,9 @@ class DeterministicToolCallModel:
     def component_type(self) -> ComponentType:
         return ComponentType.MODEL_ADAPTER
 
-    async def generate(self, prompt: Prompt, *, options: Any = None) -> ModelResponse:
+    async def generate(self, model_input: ModelInput, *, options: Any = None) -> ModelResponse:
         self._calls += 1
-        message = _latest_user_message(prompt.messages)
+        message = _latest_user_message(model_input.messages)
 
         if self._calls == 1:
             # First response triggers the tool call.
@@ -103,8 +103,8 @@ class DeterministicToolCallModel:
                 content="",
                 tool_calls=[
                     {
-                        "name": "echo",
-                        "capability_id": "tool:echo",
+                        "name": self._capability_id,
+                        "capability_id": self._capability_id,
                         "arguments": {"message": message},
                     }
                 ],
@@ -120,22 +120,18 @@ class DeterministicToolCallModel:
 async def main() -> None:
     run_context = RunContextState(config={"workspace_roots": ["."]})
 
-    gateway = DefaultToolGateway()
-    provider = NativeToolProvider(tools=[EchoTool()], context_factory=run_context.build)
-    gateway.register_provider(provider)
+    tool_manager = ToolManager(context_factory=run_context.build)
+    descriptor = tool_manager.register_tool(EchoTool())
 
-    tool_provider = GatewayToolProvider(gateway)
-    await tool_provider.refresh()
-
-    planner = EchoPlanner()
-    validator = RegistryPlanValidator(tool_gateway=gateway)
-    model = DeterministicToolCallModel()
+    planner = EchoPlanner(capability_id=descriptor.id)
+    validator = RegistryPlanValidator(tool_gateway=tool_manager)
+    model = DeterministicToolCallModel(capability_id=descriptor.id)
 
     agent = FiveLayerAgent(
         name="plan-loop-demo",
         model=model,
-        tools=tool_provider,
-        tool_gateway=gateway,
+        tools=tool_manager,
+        tool_gateway=tool_manager,
         planner=planner,
         validator=validator,
     )
