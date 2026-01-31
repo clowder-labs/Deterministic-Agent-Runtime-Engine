@@ -222,9 +222,10 @@ def build_agent(
         http_client_options={"timeout": timeout_seconds},
     )
     tools = [ReadFileTool(), WriteFileTool(), SearchCodeTool(), RunCommandTool()]
+    # expected_files=[]：不强制检查某文件，仅按执行是否成功验证，避免“创建 helloworld.py”等任务因缺少 snake_game.py 而一直重试
     validator = FileExistsValidator(
         workspace=workspace,
-        expected_files=["snake_game.py"],
+        expected_files=[],
         verbose=False,
     )
 
@@ -270,9 +271,19 @@ async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
             display.error(f"errors: {result.errors}")
 
 
-async def run_cli_loop(lines: Iterable[str], *, agent: Any, model: OpenRouterModelAdapter, display: CLIDisplay) -> None:
-    state = CLISessionState()
+async def run_cli_loop(
+    lines: Iterable[str],
+    *,
+    agent: Any,
+    model: OpenRouterModelAdapter,
+    display: CLIDisplay,
+    state: CLISessionState | None = None,
+) -> tuple[CLISessionState, bool]:
+    """Run CLI loop over input lines. Returns (state, quit_requested)."""
+    if state is None:
+        state = CLISessionState()
     display.show_mode(state.mode)
+    quit_requested = False
 
     for raw in lines:
         command_or_task = parse_command(raw)
@@ -280,6 +291,7 @@ async def run_cli_loop(lines: Iterable[str], *, agent: Any, model: OpenRouterMod
             cmd = command_or_task
             if cmd.type == CommandType.QUIT:
                 display.info("bye")
+                quit_requested = True
                 break
             if cmd.type == CommandType.HELP:
                 display.info("/mode [plan|execute], /approve, /reject, /status, /quit")
@@ -328,6 +340,8 @@ async def run_cli_loop(lines: Iterable[str], *, agent: Any, model: OpenRouterMod
             state.status = SessionStatus.RUNNING
             await run_task(agent, task_text, display)
             state.reset_task()
+
+    return (state, quit_requested)
 
 
 async def main(argv: list[str] | None = None) -> None:
@@ -384,6 +398,7 @@ async def main(argv: list[str] | None = None) -> None:
         return
 
     display.info("type /help for commands. /quit to exit.")
+    cli_state = CLISessionState()
     while True:
         try:
             raw = input("dare> ").strip()
@@ -391,7 +406,11 @@ async def main(argv: list[str] | None = None) -> None:
             break
         if not raw:
             continue
-        await run_cli_loop([raw], agent=agent, model=model, display=display)
+        cli_state, quit_requested = await run_cli_loop(
+            [raw], agent=agent, model=model, display=display, state=cli_state
+        )
+        if quit_requested:
+            break
 
 
 if __name__ == "__main__":

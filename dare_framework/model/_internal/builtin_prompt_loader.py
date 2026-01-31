@@ -24,11 +24,13 @@ When you have tools available, follow these principles:
    - To create or modify files → use write_file
    - To read file contents → use read_file
    - To search code → use search_code
-   - To run commands → use run_command (if available)
+   - To run commands → use run_command (if available). If the user asks to "打开控制台运行" or "在终端运行" (run in a visible console), on Windows use: `start cmd /k python <script>` so a new console window opens and shows the output; on Linux/macOS use: `xterm -e python <script>` or similar if a visible terminal is requested.
 
 4. **Handle Results**: After each tool call, check the result before proceeding. If something fails, try a different approach.
 
 5. **Be Precise**: Provide exact parameters. For file operations, use correct paths and complete content.
+
+6. **When Done**: When the user's goal is fully achieved (judge from the task description and tool results), respond with a short final summary in plain text only. Do NOT call any more tools after that.
 
 Remember: Your goal is to complete the task, not just explain how it could be done.""",
             supported_models=["*"],
