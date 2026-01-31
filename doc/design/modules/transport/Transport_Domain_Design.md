@@ -1,452 +1,270 @@
-# Transport Domain 设计规范
+# Transport Domain 设计规范 (Synthesized)
 
-> 版本: Draft v2  
+> 版本: Draft v4  
 > 状态: 待评审
+> 核心：基础 I/O 接口 (ITransport) + 责任链模型 (Pipeline)
 
 ---
 
-## 1. 概述
+## 1. 核心愿景 (Design Philosophy)
 
-Transport Domain 负责 **Client（用户端）与 Agent（编排端）之间的双向异步通信**。
+本规范旨在整合**底层通信的简洁性**与**逻辑处理的高扩展性**。通过将对称的 I/O 接口作为物理底座，叠加 Netty 风格的责任链模型，实现：
 
-### 设计原则
-
-- **双向异步**：非请求-响应模式，双方可随时发送消息
-- **关注点分离**：Client 和 Agent 各自只关心自己的收发逻辑
-- **可扩展**：新增 Client 类型只需实现 MessageHandler
+- **物理对称性**：底层通信始终基于 `on_message` 和 `send`，保持两端一致。
+- **协议无关性**：Agent 业务逻辑无需关心底层物理实现。
+- **控制与数据平面分离**：高性能的抢占式指令（控制面）与有序的消息流（数据面）并行。
+- **拉取式消费**：通过 `AgentContext` 将异步推送转换为阻塞式拉取，降低业务复杂度。
 
 ---
 
-## 2. 接口定义 (Kernel)
+## 2. 基础通信接口 (The Plumbing)
+
+这是框架最底层的通信原语，确保所有传输实现（同进程、TCP、WebSocket）具有统一的行为。
 
 ```python
-# === 基础接口 ===
-class IOutputTransport(Protocol):
-    """发送消息"""
-    async def send(self, msg: Message) -> None: ...
-
 class IInputTransport(Protocol):
-    """接收消息"""
+    """入站接口：接收来自对端的消息"""
     async def on_message(self, msg: Message) -> None: ...
 
+class IOutputTransport(Protocol):
+    """出站接口：向对端发送消息"""
+    async def send(self, msg: Message) -> None: ...
+
 class ITransport(IInputTransport, IOutputTransport, Protocol):
-    """完整的双向 Transport"""
+    """双向通信接口"""
     pass
+```
 
-# === 消息处理 ===
+---
+
+## 3. 逻辑架构组件 (The Engine)
+
+在基础 I/O 接口之上，构建逻辑处理层。
+
+### 3.1 Channel (通道)
+`Channel` 是 `ITransport` 的具体实现，它：
+- 持有物理连接（或本身就是物理连接）。
+- 持有一个 `Pipeline` 负责逻辑处理。
+- 当 `on_message` 被调用时，将消息推入 Pipeline 的入站流程。
+
+### 3.2 Pipeline & Handler (分层处理)
+- **Pipeline**: 管理一个 `IMessageHandler` 链表。
+- **IMessageHandler**: 处理入站/出站消息或 User Event（如中断信号）。
+
+### 3.3 AgentContext (业务接口)
+Agent 实例能看到的唯一高级接口，彻底隔离传输细节：
+- **poll()**: 阻塞式拉取经过 Pipeline 处理后的业务消息。
+- **send(msg)**: 发送消息，触发 Pipeline 的出站流程。
+- **set_interrupt_handler(cb)**: 注册中断指令的回调。
+
+---
+
+## 4. 核心接口定义 (Kernel)
+
+```python
+# === 1. 逻辑层接口 (Netty Style) ===
+class IAgentTransportContext(Protocol):
+    """Agent 专用高级接口"""
+    async def send(self, msg: Message) -> None: ...
+    async def poll(self) -> Message: ... # 阻塞式拉取
+    def set_interrupt_handler(self, callback: Callable): ...
+
 class IMessageHandler(Protocol):
-    """消息处理器（用户/Agent 实现）"""
-    async def handle(self, context: ITransportContext, msg: Message) -> None: ...
+    """责任链处理器"""
+    async def handle_inbound(self, ctx: "IHandlerContext", msg: Any): ...
+    async def handle_outbound(self, ctx: "IHandlerContext", msg: Any): ...
+    async def user_event_triggered(self, ctx: "IHandlerContext", event: Any): ...
 
-# === Transport Context ===
-class ITransportContext(Protocol):
-    """Transport 上下文（双方共用）"""
-    async def put(self, msg: Message) -> None: ...
-    def poll(self, msg_type: str | None = None) -> Message | None: ...
-
-class IAgentTransportContext(ITransportContext, Protocol):
-    """Agent 侧扩展上下文"""
-    async def get(self, msg_type: str | None = None) -> Message: ...
-    def register_task(self, task: asyncio.Task) -> None: ...
-    def cancel_all_tasks(self) -> None: ...
-
-# === Channel（传输通道）===
-class IInputOutputChannel(Protocol):
-    """双向通道：管理 Client 和 Agent 的连接"""
-    def register_client(self, client: IInputTransport) -> IOutputTransport: ...
-    def register_agent(self, agent: IInputTransport) -> IOutputTransport: ...
-
-# === 角色专用接口 ===
-class IClientTransport(ITransport, Protocol):
-    """Client 侧 Transport 接口"""
+# === 2. 桥接层接口 ===
+class IChannel(ITransport, Protocol):
+    """通道：既是物理端点，也是逻辑入口"""
     @property
-    def context(self) -> ITransportContext: ...
+    def pipeline(self) -> "IPipeline": ...
 
-class IAgentTransport(ITransport, Protocol):
-    """Agent 侧 Transport 接口"""
-    @property
-    def context(self) -> IAgentTransportContext: ...
-    async def recv(self, msg_type: str | None = None) -> Message: ...
-    def run_interruptible(self, coro) -> asyncio.Task: ...
+class IHandlerContext(Protocol):
+    """Handler 执行上下文"""
+    async def fire_channel_read(self, msg: Any): ...
+    async def fire_user_event_triggered(self, event: Any): ...
+    async def write(self, msg: Any): ... # 触发下级出站
 ```
 
 ---
 
-## 3. 消息协议
+## 5. 全链路交互流程 (Workflow)
+
+### 5.1 数据流 (Data Plane - 任务流)
+1. **上游输入**：物理层调用 `Channel.on_message(msg)`。
+2. **流水线处理**：`Channel` 触发 `pipeline.fire_channel_read(msg)`。
+3. **缓冲消费**：`AgentExecuteHandler` 将消息存入 `asyncio.Queue`，Agent 通过 `await context.poll()` 激活。
+
+### 5.2 控制流 (Control Plane - 抢占流)
+1. **识别信号**：`MessageDecoder` 在入站过程中识别出系统指令。
+2. **广播事件**：通过 `ctx.fire_user_event_triggered(InterruptEvent())` 广播。
+3. **即时抢占**：`AgentExecuteHandler` 捕获事件，立即执行 Agent 注册的回调，不进入数据队列。
+
+---
+
+## 6. 核心实现示例
+
+### 6.1 ProcessorChannel (同进程对称连接)
 
 ```python
-@dataclass
-class Message:
-    type: str       # 消息类型
-    payload: Any    # 消息内容
-    timestamp: float = field(default_factory=time.time)
-```
-
-### 消息类型
-
-| 方向 | type | payload | 说明 |
-|------|------|---------|------|
-| Client→Agent | `task` | `{text}` | 任务请求 |
-| Client→Agent | `message` | `{text}` | 运行时补充 |
-| Client→Agent | `authorize.response` | `{approved}` | 授权响应 |
-| Client→Agent | `interrupt` | `{}` | 中断信号 |
-| Agent→Client | `thinking` | `{content}` | LLM 思考 |
-| Agent→Client | `response` | `{content}` | LLM 响应 |
-| Agent→Client | `tool.start` | `{id, params}` | 工具开始 |
-| Agent→Client | `tool.result` | `{id, result}` | 工具结果 |
-| Agent→Client | `authorize.request` | `{id, summary}` | 请求授权 |
-| Agent→Client | `complete` | `{success}` | 任务完成 |
-
-> **注：** Tool 事件可通过 `ToolHookTransport` 从 Hook 系统桥接发送。
-
----
-
-## 4. 架构
-
-### 4.1 角色
-
-```
-┌─────────────────┐                           ┌─────────────────┐
-│ ClientTransport │                           │ AgentTransport  │
-├─────────────────┤                           ├─────────────────┤
-│ context         │                           │ context         │
-│ handler         │                           │ handler         │
-│ _output ────────┼───┐                   ┌───┼──────── _output │
-│ on_message() ◄──┼─┐ │                   │ ┌─┼─► on_message()  │
-└─────────────────┘ │ │                   │ │ │ recv()          │
-                    │ │ ┌───────────────┐ │ │ └─────────────────┘
-                    │ └►│IInputOutput   │◄┘ │
-                    │   │   Channel     │   │
-                    │   ├───────────────┤   │
-                    │   │_client ───────┼───┘
-                    └───┼─────── _agent │
-                        │register_client│
-                        │register_agent │
-                        └───────────────┘
-                                │
-              ┌─────────────────┴─────────────────┐
-              ▼                                   ▼
-    ┌─────────────────┐                 ┌─────────────────┐
-    │ProcessorChannel │                 │WebSocketChannel │
-    │  (同进程直连)    │                 │  (远程连接)      │
-    └─────────────────┘                 └─────────────────┘
-```
-
-### 4.2 职责划分
-
-| 角色 | 职责 |
-|------|------|
-| **IInputOutputChannel** | 双向通道接口：`register_client()`/`register_agent()` 注册两端 |
-| **ProcessorChannel** | 同进程实现：直接转发消息 |
-| **WebSocketChannel** | 远程实现：通过 WebSocket 传输消息 |
-| **ClientTransport** | 组合 Channel，调用 `handler` 处理消息，管理 `context` |
-| **AgentTransport** | 组合 Channel，提供 `recv()` 阻塞等待，可中断任务管理 |
-| **TransportContext** | 基础：消息缓冲 (`put`/`poll`) |
-| **AgentTransportContext** | 扩展：阻塞等待 (`get`) + 任务管理 |
-
----
-
-## 5. 实现
-
-### 5.1 ProcessorChannel（同进程直连）
-
-```python
-class ProcessorChannel(IInputOutputChannel):
-    """同进程直连通道：直接调用对端的 on_message()"""
-    
+class ProcessorChannel(IChannel):
+    """内存级双向管道容器"""
     def __init__(self):
-        self._client: IInputTransport | None = None
-        self._agent: IInputTransport | None = None
+        self._pipeline = DefaultPipeline()
+        self._output = _ChannelOutput(self) # 内部类持有对本通道的引用
     
-    def register_client(self, client: IInputTransport) -> IOutputTransport:
-        self._client = client
-        return _ChannelSender(target=lambda: self._agent)
-    
-    def register_agent(self, agent: IInputTransport) -> IOutputTransport:
-        self._agent = agent
-        return _ChannelSender(target=lambda: self._client)
+    @staticmethod
+    def pair() -> tuple["ProcessorChannel", "ProcessorChannel"]:
+        """创建一个相互连接的对等管道对"""
+        a, b = ProcessorChannel(), ProcessorChannel()
+        a.connect_peer(b)
+        b.connect_peer(a)
+        return a, b
 
+    def connect_peer(self, peer: "ProcessorChannel"):
+        # 建立物理连接逻辑（内部实现）
+        self._output.set_peer(peer)
 
-class _ChannelSender(IOutputTransport):
-    def __init__(self, target: Callable[[], IInputTransport | None]):
-        self._get_target = target
-    
-    async def send(self, msg: Message) -> None:
-        target = self._get_target()
-        if target:
-            await target.on_message(msg)
+    # IInputTransport 实现：对端调用
+    async def on_message(self, msg: Message):
+        await self._pipeline.fire_channel_read(msg)
+
+    # IOutputTransport 实现：供 Pipeline 尾部调用输出
+    async def send(self, msg: Message):
+        await self._output.send(msg)
+
+class _ChannelOutput(IOutputTransport):
+    """内部输出类：负责跨通道的消息接力"""
+    def __init__(self, owner: ProcessorChannel):
+        self._owner = owner
+        self._peer: ProcessorChannel | None = None
+        
+    def set_peer(self, peer: ProcessorChannel):
+        self._peer = peer
+        
+    async def send(self, msg: Message):
+        if self._peer:
+            # 物理上调用对端的入站接口
+            await self._peer.on_message(msg)
 ```
 
-### 5.2 StdioChannel（标准输入输出）
+### 6.2 Agent 集成：Context 与 Handler 分离
 
 ```python
-class StdioChannel(IInputOutputChannel):
-    """Stdio 通道：映射到 stdin/stdout"""
-    
+class AgentTransportContext(IAgentTransportContext):
+    """业务状态持有者：处理 Queue 的读写与中断映射"""
+    def __init__(self, max_buffer=100):
+        self._queue = asyncio.Queue(maxsize=max_buffer)
+        self._interrupt_cb: Callable | None = None
+        self._pipeline_ctx: IHandlerContext | None = None
+
+    # 由 AgentExecuteHandler 调用
+    async def push_message(self, msg: Message):
+        await self._queue.put(msg)
+        
+    def trigger_interrupt(self):
+        if self._interrupt_cb: self._interrupt_cb()
+
+    def set_pipeline_ctx(self, ctx: IHandlerContext):
+        self._pipeline_ctx = ctx
+
+    # IAgentTransportContext (业务接口) 实现
+    async def poll(self) -> Message:
+        return await self._queue.get()
+
+    async def send(self, msg: Message):
+        if self._pipeline_ctx:
+            await self._pipeline_ctx.write(msg)
+
+    def set_interrupt_handler(self, callback: Callable):
+        self._interrupt_cb = callback
+
+class AgentExecuteHandler(IMessageHandler):
+    """执行器处理器：仅负责将入站消息分发给关联的 Context"""
+    def __init__(self, context: AgentTransportContext):
+        self._context = context
+
+    async def handle_inbound(self, ctx: IHandlerContext, msg: Message):
+        # 建立 Context 与 Pipeline 的回传通道
+        self._context.set_pipeline_ctx(ctx)
+        # 存入业务层队列
+        await self._context.push_message(msg)
+
+    async def user_event_triggered(self, ctx: IHandlerContext, event: Any):
+        if isinstance(event, InterruptEvent):
+            # 触发业务层定义的回调
+            self._context.trigger_interrupt()
+
+class BaseAgent:
+    """业务 Agent 基类"""
+    def __init__(self, context: IAgentTransportContext):
+        self.context = context # 业务逻辑通过 Context 消费
+
+    async def run(self):
+        while True:
+            msg = await self.context.poll() # 从 Context 拉取
+            await self.process(msg)
+```
+
+### 6.3 StdioClientTransport (终端桥接实现)
+```python
+class StdioClientTransport(IChannel):
+    """Stdio 传输层：包装终端流并持有 Pipeline"""
     def __init__(self):
-        self._client: IInputTransport | None = None
-        self._agent: IInputTransport | None = None
-    
-    def register_client(self, client: IInputTransport) -> IOutputTransport:
-        self._client = client
-        return _StdioClientSender()
-    
-    def register_agent(self, agent: IInputTransport) -> IOutputTransport:
-        self._agent = agent
-        return _StdioAgentSender()
+        self._pipeline = DefaultPipeline()
+        # Stdio 本身就是物理端点，没有对端引用
 
+    # IInputTransport 实现：外部输入触发
+    async def on_message(self, msg: Message):
+        # 此处 msg 可能是从 stdin 解析出来的
+        await self._pipeline.fire_channel_read(msg)
 
-class _StdioClientSender(IOutputTransport):
-    """Client 发送消息到 stdout (Agent 会从 stdin 读)"""
-    async def send(self, msg: Message) -> None:
+    # IOutputTransport 实现：逻辑层发送到物理层
+    async def send(self, msg: Message):
+        # 序列化并输出到 stdout
         print(serialize(msg), flush=True)
 
-class _StdioAgentSender(IOutputTransport):
-    """Agent 发送消息到 stdout (Client 会从 stdin 读)"""
-    async def send(self, msg: Message) -> None:
-        print(serialize(msg), flush=True)
-```
-
-### 5.3 ClientTransport
+### 6.4 ClientTransport (业务层包装)
 
 ```python
-class ClientTransport(IClientTransport):
-    """Client 侧：组合 Channel，管理 context 和 handler"""
-    
-    def __init__(self, channel: IInputOutputChannel, handler: IMessageHandler):
-        self._handler = handler
-        self._context = TransportContext()
-        self._output = channel.register_client(self)
-    
-    @property
-    def context(self) -> TransportContext:
-        return self._context
-    
-    async def send(self, msg: Message) -> None:
-        await self._output.send(msg)
-    
-    async def on_message(self, msg: Message) -> None:
-        await self._handler.handle(self._context, msg)
-```
+class ClientTransport:
+    """客户端业务包装器：持有 Channel 并提供便捷接口"""
+    def __init__(self, channel: IChannel):
+        self.channel = channel
+        self.pipeline = channel.pipeline
 
-### 5.4 AgentTransport
+    async def send(self, msg: Message):
+        """发送消息（异步）"""
+        # 可以内部做一些协议转换或同步等待逻辑
+        await self.channel.send(msg)
 
-```python
-class AgentTransport(IAgentTransport):
-    """Agent 侧：组合 Channel，提供 recv() 和可中断任务"""
-    
-    def __init__(self, channel: IInputOutputChannel, handler: IMessageHandler | None = None):
-        self._context = AgentTransportContext()
-        self._handler = handler or AgentMessageHandler()
-        self._output = channel.register_agent(self)
-    
-    @property
-    def context(self) -> AgentTransportContext:
-        return self._context
-    
-    async def send(self, msg: Message) -> None:
-        await self._output.send(msg)
-    
-    async def on_message(self, msg: Message) -> None:
-        await self._handler.handle(self._context, msg)
-    
-    async def recv(self, msg_type: str | None = None) -> Message:
-        return await self._context.get(msg_type)
-    
-    def run_interruptible(self, coro) -> asyncio.Task:
-        task = asyncio.create_task(coro)
-        self._context.register_task(task)
-        return task
-
-
-class AgentMessageHandler(IMessageHandler):
-    async def handle(self, context: IAgentTransportContext, msg: Message) -> None:
-        if msg.type == "interrupt":
-            context.cancel_all_tasks()
-        else:
-            await context.put(msg)
-```
-
-### 5.5 TransportContext（基础）
-
-```python
-class TransportContext(ITransportContext):
-    """基础上下文：消息缓冲（Client/Agent 共用）"""
-    
-    def __init__(self):
-        self._queue: deque[Message] = deque()
-    
-    async def put(self, msg: Message) -> None:
-        self._queue.append(msg)
-    
-    def poll(self, msg_type: str | None = None) -> Message | None:
-        """非阻塞获取消息，无匹配返回 None"""
-        for i, msg in enumerate(self._queue):
-            if msg_type is None or msg.type == msg_type:
-                del self._queue[i]
-                return msg
-        return None
-```
-
-### 5.6 AgentTransportContext（扩展）
-
-```python
-class AgentTransportContext(TransportContext, IAgentTransportContext):
-    """Agent 侧扩展：阻塞等待 + 任务管理"""
-    
-    def __init__(self):
-        super().__init__()
-        self._event = asyncio.Event()
-        self._tasks: dict[str, asyncio.Task] = {}
-    
-    async def put(self, msg: Message) -> None:
-        await super().put(msg)
-        self._event.set()  # 通知有新消息
-    
-    async def get(self, msg_type: str | None = None) -> Message:
-        """阻塞等待匹配消息"""
-        while True:
-            msg = self.poll(msg_type)
-            if msg:
-                return msg
-            self._event.clear()
-            await self._event.wait()
-    
-    def register_task(self, task: asyncio.Task) -> None:
-        key = str(id(task))
-        self._tasks[key] = task
-        task.add_done_callback(lambda _: self._tasks.pop(key, None))
-    
-    def cancel_all_tasks(self) -> None:
-        for t in self._tasks.values():
-            t.cancel()
-        self._tasks.clear()
-```
-
-
-
-## 6. Client 扩展指南
-
-### 用户需要做什么
-
-1. **实现 `IMessageHandler`**：处理从 Agent 收到的消息
-2. **通过 `transport.send()` 发送消息**：向 Agent 发送任务/授权/中断等
-
-### 示例：Stdio Client
-
-```python
-class StdioClient(ClientTransport):
-    def __init__(self, channel: IInputOutputChannel):
-        handler = CLIHandler(lambda: self)
-        super().__init__(channel, handler)
-    
-    async def run(self):
-        """主循环：从 stdin 持续读取并分发到 on_message"""
-        while True:
-            line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
-            if not line: break
-            msg = deserialize(line)
-            await self.on_message(msg)
-
-class CLIHandler(IMessageHandler):
-    def __init__(self, get_client: Callable[[], StdioClient]):
-        self._get_client = get_client
-    
-    async def handle(self, context: TransportContext, msg: Message) -> None:
-        match msg.type:
-            case "response":
-                print(f"Agent: {msg.payload['content']}")
-            case "authorize.request":
-                # ... 处理授权 ...
-                pass
-
-# 初始化
-channel = StdioChannel()
-client = StdioClient(channel)
-await client.run()
+    def add_handler(self, handler: IMessageHandler):
+        """允许用户注册自定义拦截器"""
+        self.pipeline.add_last(handler)
 ```
 
 ---
 
-## 7. Agent 集成
+## 7. 集成与使用 (Bootstrap)
 
-### 编排中使用
-
+### 7.1 本地同进程集成
 ```python
-class FiveLayerAgent:
-    def __init__(self, endpoint: IAgentTransport):
-        self.client_endpoint = endpoint  # 编排层通过此端点与外部通信
-    
-    async def run(self):
-        # 模拟：等待初始任务
-        task_msg = await self.client_endpoint.recv(msg_type="task")
-        
-        # 发送思考中
-        await self.client_endpoint.send(Message(type="thinking", ...))
-        
-        # 可中断的模型调用
-        task = self.client_endpoint.run_interruptible(
-            self._model.generate(task_msg.payload["text"])
-        )
-        response = await task
-        
-        # 发送最终响应
-        await self.client_endpoint.send(Message(type="response", ...))
+# 1. 创建物理通道对（对称初始化）
+agent_ch, client_ch = ProcessorChannel.pair()
+
+# 2. Agent 侧逻辑装配
+context = AgentTransportContext()
+agent_ch.pipeline.add_last(MessageDecoder())
+agent_ch.pipeline.add_last(AgentExecuteHandler(context))
+
+agent = MyAgent(context) # Agent 通过 Context 交互
+
+# 3. Client 侧逻辑装配
+client = ClientTransport(client_ch)
+client.add_handler(LoggingHandler()) # 客户端也可以有自己的 Pipeline
+
+# 4. 启动业务循环
+await asyncio.gather(agent.run(), ...)
 ```
-
-## 8. 启动与初始化 (Bootstrap)
-
-无论是同进程还是 Stdio 模式，最终都需要一个启动入口。
-
-### 示例：Stdio 模式启动
-
-```python
-async def main():
-    # 1. 创建通道
-    channel = StdioChannel()
-    
-    # 2. 创建端点
-    # Client 包装 channel
-    client = StdioClient(channel)
-    
-    # Agent 包装 channel 并注入到业务类
-    agent_endpoint = AgentTransport(channel)
-    agent = FiveLayerAgent(agent_endpoint)
-    
-    # 3. 并发运行
-    await asyncio.gather(
-        agent.run(),
-        client.run()
-    )
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
----
-
-## 9. Hook 桥接（可选）
-
-```python
-class ToolHookTransport:
-    """将 Hook 事件桥接到 Transport"""
-    
-    def __init__(self, endpoint: IAgentTransport):
-        self._endpoint = endpoint
-    
-    async def on_tool_start(self, tool_id: str, params: dict):
-        await self._endpoint.send(Message(type="tool.start", payload={...}))
-    
-    async def on_tool_result(self, tool_id: str, result: Any):
-        await self._endpoint.send(Message(type="tool.result", payload={...}))
-```
-
----
-
-## 10. 未来扩展
-
-| 场景 | 替换组件 |
-|------|----------|
-| 跨进程通信 | 实现 `WebSocketChannel` 替代 `ProcessorChannel` |
-| 多 Client | Channel 内部支持多个 Client/Agent 注册 |
-| 消息持久化 | 在 `IInputOutputChannel.send()` 链条中添加日志层 |
