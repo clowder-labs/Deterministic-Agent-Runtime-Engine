@@ -9,7 +9,7 @@ from dare_framework.plan.types import RunResult, Task
 
 
 if TYPE_CHECKING:
-    from dare_framework.agent._internal.builder import DareAgentBuilder, SimpleChatAgentBuilder
+    from dare_framework.agent._internal.builder import DareAgentBuilder, ReactAgentBuilder, SimpleChatAgentBuilder
 
 
 class BaseAgent(ABC):
@@ -63,6 +63,13 @@ class BaseAgent(ABC):
         from dare_framework.agent._internal.builder import SimpleChatAgentBuilder
 
         return SimpleChatAgentBuilder(name)
+
+    @staticmethod
+    def react_agent_builder(name: str) -> ReactAgentBuilder:
+        """Return a builder for ReactAgent (ReAct tool loop)."""
+        from dare_framework.agent._internal.builder import ReactAgentBuilder
+
+        return ReactAgentBuilder(name)
 
     @staticmethod
     def five_layer_agent_builder(name: str) -> DareAgentBuilder:

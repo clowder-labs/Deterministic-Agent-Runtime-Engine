@@ -16,10 +16,18 @@ python main.py
 
 ## 代码要点
 
+本示例使用 **ReactAgent**（`react_agent_builder`），会执行模型的 tool_call 并循环直到模型返回最终文字；若用 `simple_chat_agent_builder` 则不会执行工具。
+
+- 使用 `with_run_context_factory()` 设置 `workspace_roots`，工具只能读写该目录下的路径。
+
 ```python
+def run_context_factory():
+    return RunContext(config={"workspace_roots": [str(workspace)]}, ...)
+
 agent = (
-    BaseAgent.simple_chat_agent_builder("tool-agent")
+    BaseAgent.react_agent_builder("tool-agent")
     .with_model(model_adapter)
+    .with_run_context_factory(run_context_factory)
     .add_tools(ReadFileTool(), WriteFileTool(), SearchCodeTool())
     .build()
 )

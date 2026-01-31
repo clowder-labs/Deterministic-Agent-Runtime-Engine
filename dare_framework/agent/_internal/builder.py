@@ -1,7 +1,8 @@
 """Agent builders for composing agents deterministically.
 
-This module provides two public builders:
-- SimpleChatAgentBuilder: builds SimpleChatAgent (simple chat mode)
+This module provides three public builders:
+- SimpleChatAgentBuilder: builds SimpleChatAgent (simple chat, no tool execution)
+- ReactAgentBuilder: builds ReactAgent (ReAct tool loop: execute tool_calls and re-call model)
 - DareAgentBuilder: builds DareAgent (five-layer orchestration)
 
 All builder variants share the same precedence rules:
@@ -15,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Callable, TypeVar
 
 from dare_framework.agent._internal.five_layer import DareAgent
+from dare_framework.agent._internal.react_agent import ReactAgent
 from dare_framework.agent._internal.simple_chat import SimpleChatAgent
 from dare_framework.config.types import Config
 from dare_framework.context import Budget, Context
@@ -336,6 +338,48 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
         )
 
 
+class ReactAgentBuilder(_BaseAgentBuilder):
+    """Builder for ReactAgent (ReAct tool loop)."""
+
+    def build(self) -> ReactAgent:
+        model = self._resolved_model()
+        sys_prompt = self._resolve_sys_prompt(model)
+
+        tools = self._resolved_tools()
+        manager = self._ensure_tool_manager(tools)
+        self._register_tools_with_manager(manager, tools)
+        self._ensure_tool_gateway(tools)
+        tool_provider = self._ensure_tool_provider(manager, tools)
+
+        if self._context is None:
+            context = Context(
+                id=f"context_{self._name}",
+                short_term_memory=self._short_term_memory,
+                long_term_memory=self._long_term_memory,
+                knowledge=self._knowledge,
+                budget=self._budget or Budget(),
+            )
+            if tool_provider is not None:
+                context._tool_provider = tool_provider
+            context._sys_prompt = sys_prompt
+            return ReactAgent(
+                name=self._name,
+                model=model,
+                context=context,
+            )
+
+        self._apply_context_overrides(self._context)
+        if tool_provider is not None:
+            setattr(self._context, "_tool_provider", tool_provider)
+        setattr(self._context, "_sys_prompt", sys_prompt)
+
+        return ReactAgent(
+            name=self._name,
+            model=model,
+            context=self._context,
+        )
+
+
 class DareAgentBuilder(_BaseAgentBuilder):
     """Builder for DareAgent (five-layer orchestration)."""
 
@@ -479,7 +523,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
         )
 
 
-__all__ = ["DareAgentBuilder", "SimpleChatAgentBuilder"]
+__all__ = ["DareAgentBuilder", "ReactAgentBuilder", "SimpleChatAgentBuilder"]
 
 
 class _ConfiguredToolProvider(IToolProvider):

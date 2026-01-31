@@ -1,7 +1,7 @@
-"""Agent with tools example using SimpleChatAgentBuilder.
+"""Agent with tools example using ReactAgentBuilder.
 
 This example shows how to add tools to an agent for file operations.
-The agent uses ReAct mode: reason → act → observe loop.
+The agent uses ReAct mode: reason → act → observe loop (ReactAgent executes tool_calls).
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dare_framework.agent import BaseAgent
 from dare_framework.model import OpenRouterModelAdapter
-from dare_framework.tool import ReadFileTool, WriteFileTool, SearchCodeTool
+from dare_framework.tool import ReadFileTool, RunContext, WriteFileTool, SearchCodeTool
 
 
 async def main() -> None:
@@ -47,10 +47,21 @@ async def main() -> None:
     write_tool = WriteFileTool()
     search_tool = SearchCodeTool()
 
-    # Build agent with tools
+    # Run context for tools: 可执行空间 = 本示例 workspace + D:\Agent\tests
+    def run_context_factory():
+        return RunContext(
+            config={
+                "workspace_roots": [str(workspace)],
+            },
+            deps=None,
+            metadata={"agent": "tool-agent"},
+        )
+
+    # Build agent with tools (ReactAgent executes tool_calls in a ReAct loop)
     agent = (
-        BaseAgent.simple_chat_agent_builder("tool-agent")
+        BaseAgent.react_agent_builder("tool-agent")
         .with_model(model_adapter)
+        .with_run_context_factory(run_context_factory)
         .add_tools(read_tool, write_tool, search_tool)
         .build()
     )
