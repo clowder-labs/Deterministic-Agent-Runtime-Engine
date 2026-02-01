@@ -51,13 +51,13 @@ async def main() -> None:
     providers = create_default_telemetry_providers(config, service_name="dare-observability-demo")
     providers.append(telemetry_provider)
 
-    agent = (
+    builder = (
         DareAgentBuilder("observability-demo")
         .with_config(config)
         .with_model(model_adapter)
         .add_telemetry_providers(*providers)
-        .build()
     )
+    agent = await builder.build()
 
     result = await agent.run("Summarize the DARE framework in one sentence.")
     print(f"\nAssistant: {result.output}\n")

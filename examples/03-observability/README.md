@@ -1,11 +1,11 @@
-# 04-observability
+# 03-observability
 
 演示基于 OpenTelemetry 的可观测性接入，并用内存 TelemetryProvider 输出 span/metrics 结果。
 
 ## 运行
 
 ```bash
-cd examples/04-observability
+cd examples/03-observability
 export OPENROUTER_API_KEY="your-api-key"
 # 可选：指定模型
 export OPENROUTER_MODEL="z-ai/glm-4.7"
@@ -28,13 +28,13 @@ telemetry_provider = InMemoryTelemetryProvider(config=observability)
 providers = create_default_telemetry_providers(config, service_name="dare-observability-demo")
 providers.append(telemetry_provider)
 
-agent = (
+builder = (
     DareAgentBuilder("observability-demo")
     .with_config(config)
     .with_model(model_adapter)
     .add_telemetry_providers(*providers)
-    .build()
 )
+agent = await builder.build()
 ```
 
 ## 输出示例
