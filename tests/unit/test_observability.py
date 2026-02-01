@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Generator
 
 import pytest
 
 from dare_framework.agent import DareAgent
-from dare_framework.config.types import ObservabilityConfig, RedactionConfig
-from dare_framework.observability._internal.in_memory_provider import InMemoryTelemetryProvider
-from dare_framework.observability.types import TelemetryMetricNames, TelemetrySpanNames
-from dare_framework.hook.types import HookPhase
+from dare_framework.observability._internal.tracing_hook import ObservabilityHook
+from dare_framework.observability.kernel import ITelemetryProvider
+from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput, ModelResponse
 
 
@@ -43,32 +43,98 @@ class MockValidator:
         return VerifyResult(success=True, errors=[])
 
 
+class RecordingSpan:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.attributes: dict[str, Any] = {}
+        self.events: list[tuple[str, dict[str, Any]]] = []
+        self.status: tuple[str, str | None] | None = None
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.attributes[key] = value
+
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        self.events.append((name, attributes or {}))
+
+    def set_status(self, status: str, description: str | None = None) -> None:
+        self.status = (status, description)
+
+    def end(self) -> None:
+        return None
+
+
+class RecordingTelemetryProvider(ITelemetryProvider):
+    def __init__(self) -> None:
+        self.spans: list[RecordingSpan] = []
+        self.metrics: list[dict[str, Any]] = []
+
+    @property
+    def name(self) -> str:
+        return "recording"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.HOOK
+
+    @contextmanager
+    def start_span(
+        self,
+        name: str,
+        *,
+        kind: str = "internal",
+        attributes: dict[str, Any] | None = None,
+    ) -> Generator[RecordingSpan | None, None, None]:
+        span = RecordingSpan(name)
+        if attributes:
+            for key, value in attributes.items():
+                span.set_attribute(key, value)
+        self.spans.append(span)
+        yield span
+
+    def record_metric(
+        self,
+        name: str,
+        value: float,
+        *,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        self.metrics.append({"name": name, "value": value, "attributes": attributes or {}})
+
+    def record_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        return None
+
+    def shutdown(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_telemetry_span_structure_for_five_layer_run() -> None:
-    provider = InMemoryTelemetryProvider()
+    provider = RecordingTelemetryProvider()
+    hook = ObservabilityHook(provider)
     model = MockModelAdapter()
     agent = DareAgent(
         name="telemetry-agent",
         model=model,
         planner=MockPlanner(),
         validator=MockValidator(),
-        telemetry_providers=[provider],
+        telemetry=provider,
+        hooks=[hook],
     )
 
     await agent.run("test task")
 
-    span_names = [span["name"] for span in provider.spans]
-    assert TelemetrySpanNames.RUN in span_names
-    assert TelemetrySpanNames.SESSION in span_names
-    assert TelemetrySpanNames.MILESTONE in span_names
-    assert TelemetrySpanNames.PLAN in span_names
-    assert TelemetrySpanNames.EXECUTE in span_names
-    assert TelemetrySpanNames.MODEL in span_names
+    span_names = [span.name for span in provider.spans]
+    assert "dare.session" in span_names
+    assert "dare.milestone" in span_names
+    assert "dare.plan" in span_names
+    assert "dare.execute" in span_names
+    assert "llm.chat" in span_names
 
 
 @pytest.mark.asyncio
 async def test_metrics_emitted_for_context_and_tokens() -> None:
-    provider = InMemoryTelemetryProvider()
+    provider = RecordingTelemetryProvider()
+    hook = ObservabilityHook(provider)
     response = ModelResponse(
         content="ok",
         tool_calls=[],
@@ -78,27 +144,12 @@ async def test_metrics_emitted_for_context_and_tokens() -> None:
     agent = DareAgent(
         name="metrics-agent",
         model=model,
-        telemetry_providers=[provider],
+        telemetry=provider,
+        hooks=[hook],
     )
 
     await agent.run("metrics task")
 
     metric_names = {metric["name"] for metric in provider.metrics}
-    assert TelemetryMetricNames.CONTEXT_MESSAGES_COUNT in metric_names
-    assert TelemetryMetricNames.CONTEXT_TOKENS_ESTIMATE in metric_names
-    assert TelemetryMetricNames.MODEL_TOKENS_INPUT in metric_names
-    assert TelemetryMetricNames.MODEL_TOKENS_OUTPUT in metric_names
-    assert TelemetryMetricNames.MODEL_TOKENS_TOTAL in metric_names
-
-
-@pytest.mark.asyncio
-async def test_redaction_applied_by_default() -> None:
-    redaction = RedactionConfig(mode="denylist", keys=["prompt"], replacement="[REDACTED]")
-    config = ObservabilityConfig(enabled=True, capture_content=False, redaction=redaction)
-    provider = InMemoryTelemetryProvider(config=config)
-
-    await provider.invoke(HookPhase.BEFORE_MODEL, payload={"prompt": "secret", "safe": "ok"})
-
-    _, payload = provider.hook_events[-1]
-    assert payload["prompt"] == "[REDACTED]"
-    assert payload["safe"] == "ok"
+    assert "gen_ai.client.token.usage" in metric_names
+    assert "dare.context.length" in metric_names

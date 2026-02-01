@@ -1,6 +1,6 @@
 # 03-observability
 
-演示基于 OpenTelemetry 的可观测性接入，并用内存 TelemetryProvider 输出 span/metrics 结果。
+演示基于 OpenTelemetry 的可观测性接入。
 
 ## 运行
 
@@ -16,32 +16,33 @@ python main.py
 
 ## 代码要点
 
-- 通过 `ObservabilityConfig` 启用 telemetry。
-- 用 `add_telemetry_providers()` 注入 TelemetryProvider（示例中为 InMemory）。
-- 如果本地安装了 OpenTelemetry SDK，并设置 `exporter: console`，控制台会打印 trace。
+- 使用 `TelemetryConfig` 初始化 `OTelTelemetryProvider`。
+- 通过 `with_telemetry()` 注入 TelemetryProvider，并显式加入 `ObservabilityHook`。
+- 示例内置 `RecordingTelemetryProvider`，运行结束后打印 spans/metrics 汇总。
+- 如果本地安装了 OpenTelemetry SDK，并设置 `exporter_type=console`，控制台会打印 trace/metrics。
 
 ```python
-observability = ObservabilityConfig(enabled=True, exporter="console")
-config = Config(observability=observability)
-
-telemetry_provider = InMemoryTelemetryProvider(config=observability)
-providers = create_default_telemetry_providers(config, service_name="dare-observability-demo")
-providers.append(telemetry_provider)
+telemetry_config = TelemetryConfig(
+    service_name="dare-observability-demo",
+    exporter_type="console",
+)
+telemetry = OTelTelemetryProvider(telemetry_config)
+hook = ObservabilityHook(telemetry)
 
 builder = (
     DareAgentBuilder("observability-demo")
-    .with_config(config)
     .with_model(model_adapter)
-    .add_telemetry_providers(*providers)
+    .with_telemetry(telemetry)
+    .add_hooks(hook)
 )
 agent = await builder.build()
 ```
 
 ## 输出示例
 
-执行后会打印：
-- spans 列表（如 `dare.run`, `dare.execute`, `dare.model`）
-- metrics 列表（如 `context.tokens.estimate`, `model.tokens.total`）
+执行后可看到两类输出：
+- Recorder 汇总（spans/metrics）
+- OpenTelemetry console exporter 输出（如启用）
 
 ## 适用场景
 

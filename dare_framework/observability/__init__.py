@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
-from dare_framework.observability.kernel import ITelemetryProvider
-from dare_framework.observability.types import TelemetryContext, TelemetryMetricNames, TelemetrySpanNames
-from dare_framework.observability.factory import create_default_telemetry_providers
+from dare_framework.observability.kernel import ITelemetryProvider, ISpan
+from dare_framework.observability.types import (
+    GenAIOperation,
+    RunMetrics,
+    SpanContext,
+    SpanKind,
+    SpanStatus,
+    TelemetryConfig,
+    TokenUsage,
+)
 
 __all__ = [
     "ITelemetryProvider",
-    "TelemetryContext",
-    "TelemetryMetricNames",
-    "TelemetrySpanNames",
-    "create_default_telemetry_providers",
+    "ISpan",
+    "GenAIOperation",
+    "RunMetrics",
+    "SpanContext",
+    "SpanKind",
+    "SpanStatus",
+    "TelemetryConfig",
+    "TokenUsage",
 ]

@@ -16,6 +16,7 @@
 - event: `doc/design/modules/event/README.md`
 - hook: `doc/design/modules/hook/README.md`
 - config: `doc/design/modules/config/README.md`
+- observability: `doc/design/modules/observability/README.md`
 - memory / knowledge: `doc/design/modules/memory_knowledge/README.md`
 - skill: `doc/design/modules/skill/README.md`
 - embedding: `doc/design/modules/embedding/README.md`

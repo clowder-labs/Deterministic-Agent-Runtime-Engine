@@ -1,15 +1,13 @@
-"""Observability example using DareAgentBuilder + TelemetryProvider.
-
-This example emits telemetry via an in-memory provider and optionally via
-OpenTelemetry (if the SDK is installed and exporter is configured).
-"""
+"""Observability example using DareAgentBuilder + OpenTelemetry."""
 
 from __future__ import annotations
 
 import asyncio
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Generator
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -17,10 +15,56 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import DareAgentBuilder
-from dare_framework.config import Config, ObservabilityConfig, RedactionConfig
 from dare_framework.model import OpenRouterModelAdapter
-from dare_framework.observability import create_default_telemetry_providers
-from dare_framework.observability._internal.in_memory_provider import InMemoryTelemetryProvider
+from dare_framework.observability._internal.otel_provider import (
+    OTEL_AVAILABLE,
+    OTelTelemetryProvider,
+)
+from dare_framework.observability._internal.tracing_hook import ObservabilityHook
+from dare_framework.observability.kernel import ITelemetryProvider
+from dare_framework.observability.types import TelemetryConfig
+from dare_framework.infra.component import ComponentType
+
+
+class RecordingTelemetryProvider(ITelemetryProvider):
+    def __init__(self) -> None:
+        self.spans: list[dict[str, Any]] = []
+        self.metrics: list[dict[str, Any]] = []
+
+    @property
+    def name(self) -> str:
+        return "recording"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.HOOK
+
+    @contextmanager
+    def start_span(
+        self,
+        name: str,
+        *,
+        kind: str = "internal",
+        attributes: dict[str, Any] | None = None,
+    ) -> Generator[dict[str, Any] | None, None, None]:
+        span = {"name": name, "attributes": attributes or {}, "kind": kind}
+        self.spans.append(span)
+        yield span
+
+    def record_metric(
+        self,
+        name: str,
+        value: float,
+        *,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        self.metrics.append({"name": name, "value": value, "attributes": attributes or {}})
+
+    def record_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        return
+
+    def shutdown(self) -> None:
+        return
 
 
 async def main() -> None:
@@ -33,53 +77,56 @@ async def main() -> None:
     model_name = os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.5-air:free")
     max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", "2048"))
 
-    observability = ObservabilityConfig(
-        enabled=True,
-        exporter="console",  # console | otlp | none
-        capture_content=False,
-        redaction=RedactionConfig(mode="denylist", keys=["prompt", "content", "arguments"]),
-    )
-    config = Config(observability=observability)
-
     model_adapter = OpenRouterModelAdapter(
         model=model_name,
         api_key=api_key,
         extra={"max_tokens": max_tokens},
     )
 
-    telemetry_provider = InMemoryTelemetryProvider(config=observability)
-    providers = create_default_telemetry_providers(config, service_name="dare-observability-demo")
-    providers.append(telemetry_provider)
+    telemetry_config = TelemetryConfig(
+        service_name="dare-observability-demo",
+        service_version="1.0.0",
+        deployment_environment=os.getenv("DARE_ENV", "development"),
+        enabled=True,
+        exporter_type=os.getenv("DARE_OTEL_EXPORTER", "console"),
+        otlp_endpoint=os.getenv("DARE_OTEL_OTLP_ENDPOINT"),
+    )
+    telemetry = OTelTelemetryProvider(telemetry_config)
+    hook = ObservabilityHook(telemetry)
+    recorder = RecordingTelemetryProvider()
 
     builder = (
         DareAgentBuilder("observability-demo")
-        .with_config(config)
         .with_model(model_adapter)
-        .add_telemetry_providers(*providers)
+        .with_telemetry(telemetry)
+        .add_hooks(hook, ObservabilityHook(recorder))
     )
     agent = await builder.build()
 
     result = await agent.run("Summarize the DARE framework in one sentence.")
     print(f"\nAssistant: {result.output}\n")
+    if not OTEL_AVAILABLE:
+        print("OpenTelemetry SDK not available; telemetry disabled")
+    else:
+        print("Telemetry enabled. Check console exporter output for spans/metrics.")
 
-    span_names = [span["name"] for span in telemetry_provider.spans]
-    metric_names = sorted({metric["name"] for metric in telemetry_provider.metrics})
+    span_names = [span["name"] for span in recorder.spans]
+    metric_names = sorted({metric["name"] for metric in recorder.metrics})
 
-    print("Collected spans (names):")
+    print("\nCollected spans (names):")
     print("  " + ", ".join(span_names))
     print("\nCollected spans (data):")
-    for span in telemetry_provider.spans:
+    for span in recorder.spans:
         print(
             f"  - name={span.get('name')}, "
-            f"parent={span.get('parent')}, "
             f"attrs={span.get('attributes')}"
         )
 
     print("\nCollected metrics (names):")
     print("  " + ", ".join(metric_names))
     print("\nCollected metrics (data):")
-    for metric in telemetry_provider.metrics:
-        print(f"  - {metric.get('name')}: {metric.get('value')}")
+    for metric in recorder.metrics:
+        print(f"  - {metric.get('name')}: {metric.get('value')} ({metric.get('attributes')})")
     
 
 
