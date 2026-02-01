@@ -1,0 +1,5 @@
+# Demo flow: preview plan then execute
+/mode plan
+Create snake_game.py in Python that prints a startup message.
+/approve
+/quit
