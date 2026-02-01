@@ -30,7 +30,11 @@ from dare_framework.event.kernel import IEventLog
 from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IHook
 from dare_framework.infra.component import ComponentType
-from dare_framework.knowledge import IKnowledge
+from dare_framework.knowledge import IKnowledge, create_knowledge
+from dare_framework.knowledge._internal.knowledge_tools import (
+    KnowledgeAddTool,
+    KnowledgeGetTool,
+)
 from dare_framework.memory import ILongTermMemory, IShortTermMemory
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
@@ -78,6 +82,8 @@ class _BaseAgentBuilder:
         self._short_term_memory: IShortTermMemory | None = None
         self._long_term_memory: ILongTermMemory | None = None
         self._knowledge: IKnowledge | None = None
+        self._embedding_adapter: Any = None
+        """Optional; used with config.knowledge to create vector knowledge from config."""
         self._prompt_store: IPromptStore | None = None
         self._prompt_override: Prompt | None = None
         self._prompt_id_override: str | None = None
@@ -171,6 +177,15 @@ class _BaseAgentBuilder:
         self._knowledge = knowledge
         return self
 
+    def with_embedding_adapter(self: TBuilder, adapter: Any) -> TBuilder:
+        """Inject embedding adapter for config-driven vector knowledge.
+
+        When config.knowledge is set and type is \"vector\", create_knowledge uses
+        this adapter. Ignored if with_knowledge() was already called.
+        """
+        self._embedding_adapter = adapter
+        return self
+
     def add_tools(self: TBuilder, *tools: ITool) -> TBuilder:
         self._tools.extend(tools)
         return self
@@ -214,8 +229,18 @@ class _BaseAgentBuilder:
             context.short_term_memory = self._short_term_memory
         if self._long_term_memory is not None:
             context.long_term_memory = self._long_term_memory
+        knowledge = self._resolved_knowledge()
+        if knowledge is not None:
+            context.knowledge = knowledge
+
+    def _resolved_knowledge(self) -> IKnowledge | None:
+        """Knowledge from explicit with_knowledge() or from config.knowledge + embedding_adapter."""
         if self._knowledge is not None:
-            context.knowledge = self._knowledge
+            return self._knowledge
+        config = self._effective_config()
+        if not config.knowledge:
+            return None
+        return create_knowledge(config.knowledge, self._embedding_adapter)
 
     def _default_run_context(self) -> RunContext[Any]:
         """Create a default run context for tool invocation."""
@@ -269,10 +294,14 @@ class _BaseAgentBuilder:
         if manager is not None:
             if self._config is None:
                 return manager
+            explicit_names = {tool.name for tool in explicit_tools}
+            # Include knowledge tool names so they are always listed when knowledge is set.
+            if self._resolved_knowledge() is not None:
+                explicit_names = explicit_names | {"knowledge_get", "knowledge_add"}
             return _ConfiguredToolProvider(
                 manager=manager,
                 config=self._config,
-                explicit_names={tool.name for tool in explicit_tools},
+                explicit_names=explicit_names,
             )
         if isinstance(self._tool_gateway, IToolProvider):
             return self._tool_gateway
@@ -293,6 +322,11 @@ class _BaseAgentBuilder:
             return
         for tool in tools:
             manager.register_tool(tool)
+        # Register knowledge_get / knowledge_add when knowledge is set so agent can call them as tools.
+        knowledge = self._resolved_knowledge()
+        if knowledge is not None:
+            manager.register_tool(KnowledgeGetTool(knowledge))
+            manager.register_tool(KnowledgeAddTool(knowledge))
 
     def _resolved_model(self) -> IModelAdapter:
         if self._model is not None:
@@ -382,7 +416,7 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
                 long_term_memory=self._long_term_memory,
-                knowledge=self._knowledge,
+                knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
             if tool_provider is not None:
@@ -426,7 +460,7 @@ class ReactAgentBuilder(_BaseAgentBuilder):
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
                 long_term_memory=self._long_term_memory,
-                knowledge=self._knowledge,
+                knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
             if tool_provider is not None:
@@ -553,7 +587,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
                 long_term_memory=self._long_term_memory,
-                knowledge=self._knowledge,
+                knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
             if tool_provider is not None:

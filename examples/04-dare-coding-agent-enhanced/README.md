@@ -1,6 +1,6 @@
 # 04-dare-coding-agent-enhanced
 
-使用 `DareAgentBuilder` 演示完整五层循环，并提供可演示的交互式 CLI。本示例同时集成**本地 MCP 服务**作为 tool，Agent 可调用 MCP 工具（如 `local_math:add` 两数相加）。服务由本仓库自带的 Python 脚本实现，无需 Node/npx。
+使用 `DareAgentBuilder` 演示完整五层循环，并提供可演示的交互式 CLI。本示例同时集成**本地 MCP 服务**作为 tool，以及 **Knowledge（rawdata 内存存储）**：Agent 可调用 MCP 工具（如 `local_math:add`）和知识库工具 `knowledge_get` / `knowledge_add`。MCP 服务由本仓库自带的 Python 脚本实现，无需 Node/npx。
 
 ## 快速开始
 
@@ -56,9 +56,13 @@ python demo.py
 ## 核心代码（简化）
 
 ```python
+from dare_framework.knowledge import RawDataKnowledge, InMemoryRawDataStorage
+
+knowledge = RawDataKnowledge(storage=InMemoryRawDataStorage())
 agent = (
     DareAgentBuilder("dare-coding-agent")
     .with_model(OpenRouterModelAdapter(...))
+    .with_knowledge(knowledge)
     .add_tools(ReadFileTool(), WriteFileTool(), SearchCodeTool(), RunCommandTool())
     .with_planner(DefaultPlanner(model))
     .add_validators(FileExistsValidator(workspace))
@@ -97,6 +101,17 @@ my_skill/
 
 系统提示由框架 Prompt Store 管理（默认 `base.system`），并自动合并 skill 内容。
 如需覆盖，使用 `.dare/_prompts.json` 配置。
+
+## Knowledge（本示例）
+
+本示例使用 **rawdata 知识库 + 内存存储**（`RawDataKnowledge(storage=InMemoryRawDataStorage())`），Agent 可通过工具调用知识库：
+
+| 工具名 | 说明 |
+|--------|------|
+| `knowledge_get` | 按查询字符串检索知识，参数 `query`（必填）、`top_k`（可选，默认 5），返回匹配的文档列表。 |
+| `knowledge_add` | 向知识库添加内容，参数 `content`（必填）、`metadata`（可选）。 |
+
+知识库与本地工具、MCP 工具一起注册到工具列表，可在任务中直接让 Agent 调用（例如：「把这句话记到知识库」或「从知识库查一下和 Python 相关的内容」）。
 
 ## 工具命名规则
 

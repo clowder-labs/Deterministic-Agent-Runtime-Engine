@@ -9,3 +9,6 @@ httpx>=0.27.0
 # Optional dependencies:
 # mcp              # Official MCP Python SDK (for advanced usage)
 # pyyaml           # For YAML config file support
+
+# Vector knowledge (ChromaDB store):
+chromadb>=0.4.0

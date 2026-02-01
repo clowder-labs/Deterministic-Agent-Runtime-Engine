@@ -6,6 +6,9 @@ import math
 from typing import TYPE_CHECKING
 
 from dare_framework.knowledge._internal.vector_knowledge.document import Document
+from dare_framework.knowledge._internal.vector_knowledge.vector_store.interfaces import (
+    IVectorStore,
+)
 
 if TYPE_CHECKING:
     pass
@@ -34,7 +37,7 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     return dot_product / (magnitude1 * magnitude2)
 
 
-class InMemoryVectorStore:
+class InMemoryVectorStore(IVectorStore):
     """In-memory vector store for document storage and retrieval.
 
     Stores documents with their embeddings and supports similarity search.

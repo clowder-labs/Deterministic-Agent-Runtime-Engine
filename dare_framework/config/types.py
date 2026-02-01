@@ -169,6 +169,8 @@ class Config:
     allowtools: list[str] = field(default_factory=list)
     allowmcps: list[str] = field(default_factory=list)
     components: dict[str, ComponentConfig] = field(default_factory=dict)
+    knowledge: dict[str, Any] = field(default_factory=dict)
+    """Knowledge backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
     workspace_dir: str = field(default_factory=_default_workspace_dir)
     user_dir: str = field(default_factory=_default_user_dir)
     prompt_store_path_pattern: str = ".dare/_prompts.json"
@@ -196,6 +198,7 @@ class Config:
             for key, value in components_raw.items()
             if isinstance(value, dict)
         }
+        knowledge = data.get("knowledge") if isinstance(data.get("knowledge"), dict) else {}
         prompt_store_path_pattern = data.get("prompt_store_path_pattern")
         if not isinstance(prompt_store_path_pattern, str) or not prompt_store_path_pattern:
             prompt_store_path_pattern = ".dare/_prompts.json"
@@ -223,6 +226,7 @@ class Config:
             allowtools=allowtools,
             allowmcps=allowmcps,
             components=components,
+            knowledge=knowledge,
             workspace_dir=workspace_dir,
             user_dir=user_dir,
             prompt_store_path_pattern=prompt_store_path_pattern,
@@ -269,6 +273,7 @@ class Config:
             "allowtools": list(self.allowtools),
             "allowmcps": list(self.allowmcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
+            "knowledge": dict(self.knowledge),
             "workspace_dir": self.workspace_dir,
             "user_dir": self.user_dir,
             "prompt_store_path_pattern": self.prompt_store_path_pattern,

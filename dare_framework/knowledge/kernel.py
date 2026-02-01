@@ -6,7 +6,7 @@ IKnowledge inherits from IRetrievalContext (defined in context domain).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from dare_framework.context import IRetrievalContext
 
@@ -26,10 +26,10 @@ class IKnowledge(IRetrievalContext, Protocol):
     - Local: File-based index, local vector store
     - MCP: Model Context Protocol (planned, not yet implemented)
 
-    Inherits IRetrievalContext.get().
+    Inherits IRetrievalContext.get(); adds add() for ingesting content.
     """
 
-    def get(self, query: str, **kwargs) -> list["Message"]:
+    def get(self, query: str, **kwargs: Any) -> list["Message"]:
         """Retrieve relevant knowledge based on query.
 
         Args:
@@ -38,6 +38,18 @@ class IKnowledge(IRetrievalContext, Protocol):
 
         Returns:
             List of relevant messages/documents from knowledge base.
+        """
+        ...
+
+    def add(self, content: str, **kwargs: Any) -> None:
+        """Add content to the knowledge base.
+
+        Implementation-defined: may index a single document, upsert by ID, etc.
+        Callers can pass optional metadata via **kwargs (e.g. metadata={}, auto_embed=True).
+
+        Args:
+            content: Text content to add (e.g. one document or one chunk).
+            **kwargs: Implementation-specific options (e.g. metadata, auto_embed).
         """
         ...
 
