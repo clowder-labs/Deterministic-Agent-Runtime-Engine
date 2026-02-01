@@ -19,6 +19,7 @@ class ComponentType(Enum):
     MCP = "mcp"
     HOOK = "hook"
     PROMPT = "prompt"
+    TELEMETRY = "telemetry"
 
 
 @runtime_checkable
@@ -41,4 +42,3 @@ class IComponent(Protocol):
 
 
 __all__ = ["ComponentType", "IComponent"]
-

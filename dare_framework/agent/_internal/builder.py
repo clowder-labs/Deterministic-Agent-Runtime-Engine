@@ -43,6 +43,8 @@ from dare_framework.model.factories import (
     create_default_model_adapter_manager,
     create_default_prompt_store,
 )
+from dare_framework.observability.factory import create_default_telemetry_providers
+from dare_framework.observability.kernel import ITelemetryProvider
 from dare_framework.plan._internal.composite_validator import CompositeValidator
 from dare_framework.plan.interfaces import (
     IPlanner,
@@ -499,6 +501,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
         self._event_log: IEventLog | None = None
         self._execution_control: IExecutionControl | None = None
         self._hooks: list[IHook] = []
+        self._telemetry_providers: list[ITelemetryProvider] = []
         self._verbose: bool = False
 
     def with_planner(self, planner: IPlanner) -> DareAgentBuilder:
@@ -523,6 +526,10 @@ class DareAgentBuilder(_BaseAgentBuilder):
 
     def add_hooks(self, *hooks: IHook) -> DareAgentBuilder:
         self._hooks.extend(hooks)
+        return self
+
+    def add_telemetry_providers(self, *providers: ITelemetryProvider) -> DareAgentBuilder:
+        self._telemetry_providers.extend(providers)
         return self
 
     def with_verbose(self, verbose: bool = True) -> DareAgentBuilder:
@@ -582,6 +589,19 @@ class DareAgentBuilder(_BaseAgentBuilder):
 
         hooks = resolved_hooks or None
 
+        telemetry_providers = list(self._telemetry_providers)
+        if not telemetry_providers and self._config is not None:
+            telemetry_providers = create_default_telemetry_providers(
+                self._config,
+                service_name=f"dare-agent-{self._name}",
+            )
+        if self._config is not None:
+            telemetry_providers = [
+                provider
+                for provider in telemetry_providers
+                if self._config.is_component_enabled(provider)
+            ]
+
         if self._context is None:
             context = Context(
                 id=f"context_{self._name}",
@@ -606,6 +626,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
                 remediator=remediator,
                 event_log=self._event_log,
                 hooks=hooks,
+                telemetry_providers=telemetry_providers or None,
                 verbose=self._verbose,
             )
 
@@ -627,6 +648,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
             remediator=remediator,
             event_log=self._event_log,
             hooks=hooks,
+            telemetry_providers=telemetry_providers or None,
             verbose=self._verbose,
         )
 

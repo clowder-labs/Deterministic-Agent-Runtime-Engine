@@ -14,6 +14,7 @@ when not provided, the agent degrades gracefully to a ReAct-style loop.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -21,7 +22,11 @@ from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
 from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.context import AssembledContext, Context, Message
+from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
+from dare_framework.hook.types import HookPhase
 from dare_framework.model import IModelAdapter, ModelInput
+from dare_framework.observability._internal.context import current_ids
+from dare_framework.observability.utils import summarize_messages
 from dare_framework.plan.types import (
     DonePredicate,
     Envelope,
@@ -49,6 +54,7 @@ if TYPE_CHECKING:
     from dare_framework.context.kernel import IContext
     from dare_framework.event.kernel import IEventLog
     from dare_framework.hook.kernel import IHook
+    from dare_framework.observability.kernel import ITelemetryProvider
     from dare_framework.memory import ILongTermMemory, IShortTermMemory
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
     from dare_framework.tool import IToolProvider
@@ -109,6 +115,7 @@ class DareAgent(BaseAgent):
         # Observability components (optional)
         event_log: IEventLog | None = None,
         hooks: list[IHook] | None = None,
+        telemetry_providers: list[ITelemetryProvider] | None = None,
         # Configuration
         budget: Budget | None = None,
         max_milestone_attempts: int = 3,
@@ -132,6 +139,7 @@ class DareAgent(BaseAgent):
             remediator: Failure remediator (optional).
             event_log: Event log for audit (optional).
             hooks: Hook implementations invoked at lifecycle phases (optional).
+            telemetry_providers: Telemetry providers consuming hooks/EventLog (optional).
             budget: Resource budget (optional).
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
@@ -166,7 +174,13 @@ class DareAgent(BaseAgent):
 
         # Observability
         self._event_log = event_log
+        self._telemetry_providers = list(telemetry_providers) if telemetry_providers is not None else []
         self._hooks = list(hooks) if hooks is not None else []
+        if self._telemetry_providers:
+            for provider in self._telemetry_providers:
+                if provider not in self._hooks:
+                    self._hooks.append(provider)
+        self._extension_point = HookExtensionPoint(self._hooks) if self._hooks else None
 
         # Configuration
         self._max_milestone_attempts = max_milestone_attempts
@@ -231,16 +245,35 @@ class DareAgent(BaseAgent):
         Returns:
             RunResult with execution outcome.
         """
-        # Full five-layer mode: has planner or task has explicit milestones
-        if self.is_full_five_layer_mode or task.milestones:
-            return await self._run_session_loop(task)
+        start_time = time.perf_counter()
+        await self._emit_hook(HookPhase.BEFORE_RUN, {"task_description": task.description[:200]})
+        result: RunResult | None = None
+        error: Exception | None = None
 
-        # ReAct mode: no planner but has tools
-        if self.is_react_mode:
-            return await self._run_react_loop(task)
-
-        # Simple mode: no planner, no tools → just model generation
-        return await self._run_simple_loop(task)
+        try:
+            # Full five-layer mode: has planner or task has explicit milestones
+            if self.is_full_five_layer_mode or task.milestones:
+                result = await self._run_session_loop(task)
+            # ReAct mode: no planner but has tools
+            elif self.is_react_mode:
+                result = await self._run_react_loop(task)
+            # Simple mode: no planner, no tools → just model generation
+            else:
+                result = await self._run_simple_loop(task)
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            payload = {
+                "success": result.success if result is not None else False,
+                "duration_ms": duration_ms,
+                "budget_stats": self._budget_stats(),
+            }
+            if error is not None:
+                payload["error"] = str(error)
+            await self._emit_hook(HookPhase.AFTER_RUN, payload)
 
     # =========================================================================
     # IAgent.run() Override
@@ -328,6 +361,8 @@ class DareAgent(BaseAgent):
         await self._log_event("simple.start", {
             "task_description": task.description[:100],
         })
+        execute_start = time.perf_counter()
+        await self._emit_hook(HookPhase.BEFORE_EXECUTE, {"mode": "simple"})
 
         # Add user message to STM
         user_message = Message(role="user", content=task.description)
@@ -337,11 +372,17 @@ class DareAgent(BaseAgent):
         self._context.budget_check()
 
         # Assemble context
+        await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
         assembled = self._context.assemble()
+        assembled_messages = self._assemble_messages(assembled)
+        await self._emit_hook(HookPhase.AFTER_CONTEXT_ASSEMBLE, {
+            "context_stats": summarize_messages(assembled_messages),
+            "budget_stats": self._budget_stats(),
+        })
 
         # Create model input
         model_input = ModelInput(
-            messages=self._assemble_messages(assembled),
+            messages=assembled_messages,
             tools=[],  # No tools in simple mode
             metadata=assembled.metadata,
         )
@@ -349,7 +390,12 @@ class DareAgent(BaseAgent):
         # Generate model response
         for idx, m in enumerate(model_input.messages):
             print(f"\n--- [{idx}] {m.role} ---\n{m.content}\n", flush=True)
+        await self._emit_hook(HookPhase.BEFORE_MODEL, {
+            "model_name": getattr(self._model, "name", None),
+        })
+        model_start = time.perf_counter()
         response = await self._model.generate(model_input)
+        model_latency_ms = (time.perf_counter() - model_start) * 1000.0
 
         # Add response to STM
         assistant_message = Message(role="assistant", content=response.content)
@@ -361,8 +407,19 @@ class DareAgent(BaseAgent):
             if tokens:
                 self._context.budget_use("tokens", tokens)
 
+        await self._emit_hook(HookPhase.AFTER_MODEL, {
+            "model_usage": response.usage or {},
+            "duration_ms": model_latency_ms,
+            "budget_stats": self._budget_stats(),
+        })
+
         await self._log_event("simple.complete", {
             "success": True,
+        })
+        await self._emit_hook(HookPhase.AFTER_EXECUTE, {
+            "success": True,
+            "duration_ms": (time.perf_counter() - execute_start) * 1000.0,
+            "budget_stats": self._budget_stats(),
         })
 
         return RunResult(
@@ -381,6 +438,11 @@ class DareAgent(BaseAgent):
         self._session_state = SessionState(
             task_id=task.task_id or uuid4().hex[:8],
         )
+        session_start = time.perf_counter()
+        await self._emit_hook(HookPhase.BEFORE_SESSION, {
+            "task_id": self._session_state.task_id,
+            "run_id": self._session_state.run_id,
+        })
 
         # Log session start
         await self._log_event("session.start", {
@@ -431,6 +493,11 @@ class DareAgent(BaseAgent):
             "run_id": self._session_state.run_id,
             "success": success,
         })
+        await self._emit_hook(HookPhase.AFTER_SESSION, {
+            "success": success,
+            "duration_ms": (time.perf_counter() - session_start) * 1000.0,
+            "budget_stats": self._budget_stats(),
+        })
 
         # Get output from last milestone
         output = None
@@ -451,6 +518,10 @@ class DareAgent(BaseAgent):
 
     async def _run_milestone_loop(self, milestone: Milestone) -> MilestoneResult:
         """Run the milestone loop - sub-goal tracking."""
+        milestone_start = time.perf_counter()
+        await self._emit_hook(HookPhase.BEFORE_MILESTONE, {
+            "milestone_id": milestone.milestone_id,
+        })
         await self._log_event("milestone.start", {
             "milestone_id": milestone.milestone_id,
         })
@@ -483,6 +554,13 @@ class DareAgent(BaseAgent):
                     "milestone_id": milestone.milestone_id,
                     "attempts": attempt + 1,
                 })
+                await self._emit_hook(HookPhase.AFTER_MILESTONE, {
+                    "milestone_id": milestone.milestone_id,
+                    "success": True,
+                    "attempts": attempt + 1,
+                    "duration_ms": (time.perf_counter() - milestone_start) * 1000.0,
+                    "budget_stats": self._budget_stats(),
+                })
                 return MilestoneResult(
                     success=True,
                     outputs=execute_result.get("outputs", []),
@@ -501,6 +579,13 @@ class DareAgent(BaseAgent):
         # All attempts exhausted
         await self._log_event("milestone.failed", {
             "milestone_id": milestone.milestone_id,
+        })
+        await self._emit_hook(HookPhase.AFTER_MILESTONE, {
+            "milestone_id": milestone.milestone_id,
+            "success": False,
+            "attempts": self._max_milestone_attempts,
+            "duration_ms": (time.perf_counter() - milestone_start) * 1000.0,
+            "budget_stats": self._budget_stats(),
         })
         return MilestoneResult(
             success=False,
@@ -525,8 +610,20 @@ class DareAgent(BaseAgent):
         self._context.budget_check()
 
         for attempt in range(self._max_plan_attempts):
+            plan_start = time.perf_counter()
+            await self._emit_hook(HookPhase.BEFORE_PLAN, {
+                "milestone_id": milestone.milestone_id,
+                "attempt": attempt + 1,
+            })
+
             # Assemble context for planning
+            await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
             assembled = self._context.assemble()
+            assembled_messages = self._assemble_messages(assembled)
+            await self._emit_hook(HookPhase.AFTER_CONTEXT_ASSEMBLE, {
+                "context_stats": summarize_messages(assembled_messages),
+                "budget_stats": self._budget_stats(),
+            })
 
             # Generate plan
             proposed = await self._planner.plan(self._context)
@@ -539,6 +636,13 @@ class DareAgent(BaseAgent):
             # Validate plan (if validator available)
             if self._validator is None:
                 # No validator: treat proposed as validated
+                await self._emit_hook(HookPhase.AFTER_PLAN, {
+                    "milestone_id": milestone.milestone_id,
+                    "attempt": attempt + 1,
+                    "success": True,
+                    "duration_ms": (time.perf_counter() - plan_start) * 1000.0,
+                    "budget_stats": self._budget_stats(),
+                })
                 return ValidatedPlan(
                     success=True,
                     plan_description=proposed.plan_description,
@@ -551,12 +655,27 @@ class DareAgent(BaseAgent):
                 await self._log_event("plan.validated", {
                     "milestone_id": milestone.milestone_id,
                 })
+                await self._emit_hook(HookPhase.AFTER_PLAN, {
+                    "milestone_id": milestone.milestone_id,
+                    "attempt": attempt + 1,
+                    "success": True,
+                    "duration_ms": (time.perf_counter() - plan_start) * 1000.0,
+                    "budget_stats": self._budget_stats(),
+                })
                 return validated
 
             # Plan failed validation
             await self._log_event("plan.invalid", {
                 "milestone_id": milestone.milestone_id,
                 "errors": validated.errors,
+            })
+            await self._emit_hook(HookPhase.AFTER_PLAN, {
+                "milestone_id": milestone.milestone_id,
+                "attempt": attempt + 1,
+                "success": False,
+                "errors": list(validated.errors),
+                "duration_ms": (time.perf_counter() - plan_start) * 1000.0,
+                "budget_stats": self._budget_stats(),
             })
 
             milestone_state = self._session_state.current_milestone_state
@@ -581,15 +700,25 @@ class DareAgent(BaseAgent):
     async def _run_execute_loop(self, plan: ValidatedPlan | None) -> dict[str, Any]:
         """Run the execute loop - model-driven execution."""
         self._log("Starting execute loop")
+        execute_start = time.perf_counter()
+        await self._emit_hook(HookPhase.BEFORE_EXECUTE, {
+            "plan_present": plan is not None,
+        })
         # Budget check
         self._context.budget_check()
 
         # Assemble context for execution
+        await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
         assembled = self._context.assemble()
+        assembled_messages = self._assemble_messages(assembled)
+        await self._emit_hook(HookPhase.AFTER_CONTEXT_ASSEMBLE, {
+            "context_stats": summarize_messages(assembled_messages),
+            "budget_stats": self._budget_stats(),
+        })
 
         # Create prompt
         model_input = ModelInput(
-            messages=self._assemble_messages(assembled),
+            messages=assembled_messages,
             tools=assembled.tools,
             metadata=assembled.metadata,
         )
@@ -609,7 +738,13 @@ class DareAgent(BaseAgent):
             self._log(f"Execute iteration {iteration + 1}/{self._max_tool_iterations}")
             for idx, m in enumerate(model_input.messages):
                 print(f"\n--- [{idx}] {m.role} ---\n{m.content}\n", flush=True)
+            await self._emit_hook(HookPhase.BEFORE_MODEL, {
+                "iteration": iteration + 1,
+                "model_name": getattr(self._model, "name", None),
+            })
+            model_start = time.perf_counter()
             response = await self._model.generate(model_input)
+            model_latency_ms = (time.perf_counter() - model_start) * 1000.0
 
             # Log model response
             if response.content:
@@ -620,6 +755,13 @@ class DareAgent(BaseAgent):
             await self._log_event("model.response", {
                 "iteration": iteration + 1,
                 "has_tool_calls": bool(response.tool_calls),
+            })
+            await self._emit_hook(HookPhase.AFTER_MODEL, {
+                "iteration": iteration + 1,
+                "has_tool_calls": bool(response.tool_calls),
+                "model_usage": response.usage or {},
+                "duration_ms": model_latency_ms,
+                "budget_stats": self._budget_stats(),
             })
 
             # No tool calls: we're done
@@ -635,11 +777,11 @@ class DareAgent(BaseAgent):
                         self._context.budget_use("tokens", tokens)
 
                 outputs.append({"content": response.content})
-                return {
+                return await self._finalize_execute(execute_start, {
                     "success": True,
                     "outputs": outputs,
                     "errors": errors,
-                }
+                })
 
             # Process tool calls
             capability_index = await self._capability_index() if response.tool_calls else {}
@@ -661,13 +803,13 @@ class DareAgent(BaseAgent):
 
                 # Check for plan tool (registry kind preferred, prefix supported)
                 if self._is_plan_tool_call(name, descriptor):
-                    return {
+                    return await self._finalize_execute(execute_start, {
                         "success": False,
                         "outputs": outputs,
                         "errors": errors,
                         "encountered_plan_tool": True,
                         "plan_tool_name": name,
-                    }
+                    })
 
                 # Run tool loop
                 # Get actual tool name for logging (not internal ID)
@@ -722,20 +864,26 @@ class DareAgent(BaseAgent):
                     errors.append(result_error or "tool failed")
 
             # Reassemble context with new messages for next iteration
+            await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
             assembled = self._context.assemble()
+            assembled_messages = self._assemble_messages(assembled)
+            await self._emit_hook(HookPhase.AFTER_CONTEXT_ASSEMBLE, {
+                "context_stats": summarize_messages(assembled_messages),
+                "budget_stats": self._budget_stats(),
+            })
             model_input = ModelInput(
-                messages=self._assemble_messages(assembled),
+                messages=assembled_messages,
                 tools=assembled.tools,
                 metadata=assembled.metadata,
             )
 
         # Max iterations reached
         errors.append("max tool iterations reached")
-        return {
+        return await self._finalize_execute(execute_start, {
             "success": False,
             "outputs": outputs,
             "errors": errors,
-        }
+        })
 
     # =========================================================================
     # Tool Loop (Layer 5)
@@ -762,6 +910,11 @@ class DareAgent(BaseAgent):
             self._context.budget_check()
             self._context.budget_use("tool_calls", 1)
 
+            tool_start = time.perf_counter()
+            await self._emit_hook(HookPhase.BEFORE_TOOL, {
+                "capability_id": request.capability_id,
+                "attempt": attempts,
+            })
             await self._log_event("tool.invoke", {
                 "capability_id": request.capability_id,
                 "attempt": attempts,
@@ -780,7 +933,20 @@ class DareAgent(BaseAgent):
                     "attempt": attempts,
                 })
 
+                tool_success = True
                 if hasattr(result, "success") and not result.success:
+                    tool_success = False
+                await self._emit_hook(HookPhase.AFTER_TOOL, {
+                    "capability_id": request.capability_id,
+                    "attempt": attempts,
+                    "tool_stats": {
+                        "success": tool_success,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                    },
+                    "budget_stats": self._budget_stats(),
+                })
+
+                if not tool_success:
                     return {
                         "success": False,
                         "error": result.error or "tool failed",
@@ -816,6 +982,16 @@ class DareAgent(BaseAgent):
                     "error": str(e),
                     "attempt": attempts,
                 })
+                await self._emit_hook(HookPhase.AFTER_TOOL, {
+                    "capability_id": request.capability_id,
+                    "attempt": attempts,
+                    "tool_stats": {
+                        "success": False,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                    },
+                    "error": str(e),
+                    "budget_stats": self._budget_stats(),
+                })
                 return {
                     "success": False,
                     "error": str(e),
@@ -839,6 +1015,10 @@ class DareAgent(BaseAgent):
         if self._validator is None:
             return VerifyResult(success=True)
 
+        await self._emit_hook(HookPhase.BEFORE_VERIFY, {})
+
+        # TODO: Need to convert execute_result to proper type
+        # For now, create a minimal RunResult
         from dare_framework.plan.types import RunResult as PlanRunResult
 
         run_result = PlanRunResult(
@@ -847,9 +1027,16 @@ class DareAgent(BaseAgent):
             errors=execute_result.get("errors", []),
         )
 
-        return await self._validator.verify_milestone(
-            run_result, self._context, plan=validated_plan
+        verify_result = await self._validator.verify_milestone(
+            run_result,
+            self._context,
+            plan=validated_plan,
         )
+        await self._emit_hook(HookPhase.AFTER_VERIFY, {
+            "success": verify_result.success,
+            "errors": list(verify_result.errors),
+        })
+        return verify_result
 
     # =========================================================================
     # Helpers
@@ -920,11 +1107,49 @@ class DareAgent(BaseAgent):
             *messages,
         ]
 
-    async def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        """Log an event to the event log (if configured)."""
-        if self._event_log is None:
+    async def _emit_hook(self, phase: HookPhase, payload: dict[str, Any]) -> None:
+        """Emit a hook payload via the extension point (best-effort)."""
+        if self._extension_point is None:
             return
 
+        enriched = dict(payload)
+        enriched.setdefault("phase", phase.value)
+        if self._session_state:
+            enriched.setdefault("task_id", self._session_state.task_id)
+            enriched.setdefault("run_id", self._session_state.run_id)
+        try:
+            await self._extension_point.emit(phase, enriched)
+        except Exception:
+            return
+
+    def _budget_stats(self) -> dict[str, Any]:
+        budget = self._context.budget
+        tokens_remaining = self._context.budget_remaining("tokens")
+        tool_calls_remaining = self._context.budget_remaining("tool_calls")
+        return {
+            "tokens_used": budget.used_tokens,
+            "tokens_remaining": None if tokens_remaining == float("inf") else tokens_remaining,
+            "tool_calls_used": budget.used_tool_calls,
+            "tool_calls_remaining": None
+            if tool_calls_remaining == float("inf")
+            else tool_calls_remaining,
+            "time_used_seconds": budget.used_time_seconds,
+            "time_remaining_seconds": None
+            if budget.max_time_seconds is None
+            else max(0.0, budget.max_time_seconds - budget.used_time_seconds),
+        }
+
+    async def _finalize_execute(self, start_time: float, result: dict[str, Any]) -> dict[str, Any]:
+        await self._emit_hook(HookPhase.AFTER_EXECUTE, {
+            "success": result.get("success", False),
+            "errors": result.get("errors", []),
+            "duration_ms": (time.perf_counter() - start_time) * 1000.0,
+            "budget_stats": self._budget_stats(),
+        })
+        return result
+
+    async def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Log an event to the event log (if configured)."""
         # Add session context
         if self._session_state:
             payload = {
@@ -933,7 +1158,20 @@ class DareAgent(BaseAgent):
                 **payload,
             }
 
-        await self._event_log.append(event_type, payload)
+        ids = current_ids()
+        if ids is not None:
+            payload.setdefault("trace_id", ids.trace_id)
+            payload.setdefault("span_id", ids.span_id)
+
+        if self._event_log is not None:
+            await self._event_log.append(event_type, payload)
+
+        if self._telemetry_providers:
+            for provider in self._telemetry_providers:
+                try:
+                    await provider.on_event(event_type, payload)
+                except Exception:
+                    continue
 
 
 def _format_tool_result(tool_result: dict[str, Any]) -> str:

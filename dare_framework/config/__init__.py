@@ -10,7 +10,9 @@ from dare_framework.config.types import (
     ComponentConfig,
     Config,
     LLMConfig,
+    ObservabilityConfig,
     ProxyConfig,
+    RedactionConfig,
 )
 
 __all__ = [
@@ -19,7 +21,9 @@ __all__ = [
     "Config",
     "IConfigProvider",
     "LLMConfig",
+    "ObservabilityConfig",
     "ProxyConfig",
+    "RedactionConfig",
     "FileConfigProvider",
     "build_config_provider",
 ]

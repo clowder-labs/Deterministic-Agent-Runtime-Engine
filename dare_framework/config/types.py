@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from dare_framework.infra.component import ComponentType
 from dare_framework.infra.component import IComponent
@@ -151,6 +151,123 @@ class ComponentConfig:
         return payload
 
 
+@dataclass(frozen=True)
+class RedactionConfig:
+    """Redaction policy for telemetry payloads."""
+
+    mode: Literal["denylist", "allowlist"] = "denylist"
+    keys: list[str] = field(default_factory=list)
+    replacement: str = "[REDACTED]"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RedactionConfig":
+        mode = data.get("mode", "denylist")
+        if mode not in {"denylist", "allowlist"}:
+            mode = "denylist"
+        keys_raw = data.get("keys", [])
+        keys = [str(item) for item in keys_raw] if isinstance(keys_raw, list) else []
+        replacement = data.get("replacement")
+        if replacement is None:
+            replacement = "[REDACTED]"
+        return cls(mode=mode, keys=keys, replacement=str(replacement))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "keys": list(self.keys),
+            "replacement": self.replacement,
+        }
+
+
+@dataclass(frozen=True)
+class ObservabilityConfig:
+    """Observability configuration for telemetry providers."""
+
+    enabled: bool = False
+    traces_enabled: bool = True
+    metrics_enabled: bool = True
+    logs_enabled: bool = False
+    exporter: Literal["otlp", "console", "none"] = "none"
+    otlp_endpoint: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    insecure: bool = False
+    sampling_ratio: float = 1.0
+    capture_content: bool = False
+    redaction: RedactionConfig = field(default_factory=RedactionConfig)
+    attribute_cardinality_limits: dict[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ObservabilityConfig":
+        enabled = bool(data.get("enabled", False))
+        traces_enabled = bool(data.get("traces_enabled", True))
+        metrics_enabled = bool(data.get("metrics_enabled", True))
+        logs_enabled = bool(data.get("logs_enabled", False))
+        exporter = data.get("exporter", "none")
+        if exporter not in {"otlp", "console", "none"}:
+            exporter = "none"
+        otlp_endpoint = data.get("otlp_endpoint")
+        headers_raw = data.get("headers", {})
+        headers = (
+            {str(key): str(value) for key, value in headers_raw.items()}
+            if isinstance(headers_raw, dict)
+            else {}
+        )
+        insecure = bool(data.get("insecure", False))
+        sampling_ratio_raw = data.get("sampling_ratio", 1.0)
+        try:
+            sampling_ratio = float(sampling_ratio_raw)
+        except (TypeError, ValueError):
+            sampling_ratio = 1.0
+        sampling_ratio = max(0.0, min(1.0, sampling_ratio))
+        capture_content = bool(data.get("capture_content", False))
+        redaction_raw = data.get("redaction")
+        redaction = (
+            RedactionConfig.from_dict(redaction_raw)
+            if isinstance(redaction_raw, dict)
+            else RedactionConfig()
+        )
+        limits_raw = data.get("attribute_cardinality_limits", {})
+        attribute_cardinality_limits = (
+            {str(key): int(value) for key, value in limits_raw.items()}
+            if isinstance(limits_raw, dict)
+            else {}
+        )
+        return cls(
+            enabled=enabled,
+            traces_enabled=traces_enabled,
+            metrics_enabled=metrics_enabled,
+            logs_enabled=logs_enabled,
+            exporter=exporter,
+            otlp_endpoint=otlp_endpoint if otlp_endpoint is not None else None,
+            headers=headers,
+            insecure=insecure,
+            sampling_ratio=sampling_ratio,
+            capture_content=capture_content,
+            redaction=redaction,
+            attribute_cardinality_limits=attribute_cardinality_limits,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "enabled": self.enabled,
+            "traces_enabled": self.traces_enabled,
+            "metrics_enabled": self.metrics_enabled,
+            "logs_enabled": self.logs_enabled,
+            "exporter": self.exporter,
+            "sampling_ratio": self.sampling_ratio,
+            "capture_content": self.capture_content,
+            "redaction": self.redaction.to_dict(),
+            "attribute_cardinality_limits": dict(self.attribute_cardinality_limits),
+        }
+        if self.otlp_endpoint is not None:
+            payload["otlp_endpoint"] = self.otlp_endpoint
+        if self.headers:
+            payload["headers"] = dict(self.headers)
+        if self.insecure:
+            payload["insecure"] = self.insecure
+        return payload
+
+
 def _component_key(component_type: ComponentType | str) -> str:
     """Normalize component type values for lookup."""
     if isinstance(component_type, ComponentType):
@@ -176,6 +293,7 @@ class Config:
     prompt_store_path_pattern: str = ".dare/_prompts.json"
     default_prompt_id: str | None = None
     initial_skill_path: str | None = None
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Config":
@@ -218,6 +336,12 @@ class Config:
                 workspace_dir = _default_workspace_dir()
         user_dir_raw = data.get("user_dir")
         user_dir = user_dir_raw if isinstance(user_dir_raw, str) else _default_user_dir()
+        observability_raw = data.get("observability")
+        observability = (
+            ObservabilityConfig.from_dict(observability_raw)
+            if isinstance(observability_raw, dict)
+            else ObservabilityConfig()
+        )
         return cls(
             llm=llm,
             mcp=mcp,
@@ -232,6 +356,7 @@ class Config:
             prompt_store_path_pattern=prompt_store_path_pattern,
             default_prompt_id=default_prompt_id,
             initial_skill_path=initial_skill_path,
+            observability=observability,
         )
 
     def component_settings(self, component_type: ComponentType | str) -> ComponentConfig:
@@ -279,5 +404,14 @@ class Config:
             "prompt_store_path_pattern": self.prompt_store_path_pattern,
             "default_prompt_id": self.default_prompt_id,
             "initial_skill_path": self.initial_skill_path,
+            "observability": self.observability.to_dict(),
         }
-__all__ = ["ComponentType", "ProxyConfig", "LLMConfig", "ComponentConfig", "Config"]
+__all__ = [
+    "ComponentType",
+    "ProxyConfig",
+    "LLMConfig",
+    "ComponentConfig",
+    "RedactionConfig",
+    "ObservabilityConfig",
+    "Config",
+]
