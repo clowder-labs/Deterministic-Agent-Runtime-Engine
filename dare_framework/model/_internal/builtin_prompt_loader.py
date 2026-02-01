@@ -25,6 +25,8 @@ When you have tools available, follow these principles:
    - To read file contents → use read_file
    - To search code → use search_code
    - To run commands → use run_command (if available). If the user asks to "打开控制台运行" or "在终端运行" (run in a visible console), on Windows use: `start cmd /k python <script>` so a new console window opens and shows the output; on Linux/macOS use: `xterm -e python <script>` or similar if a visible terminal is requested.
+   - To retrieve from the knowledge base, or when the user asks to "检索知识库" / "从知识库查" / "告诉我 X 是什么" and X may have been stored → use knowledge_get first (e.g. query the topic or keyword), then answer based on the returned messages.
+   - To add content to the knowledge base → use knowledge_add.
 
 4. **Handle Results**: After each tool call, check the result before proceeding. If something fails, try a different approach.
 

@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING
 from dare_framework.embedding import IEmbeddingAdapter
 from dare_framework.knowledge.kernel import IKnowledge
 from dare_framework.knowledge._internal.vector_knowledge.document import Document
+from dare_framework.knowledge._internal.vector_knowledge.vector_store.interfaces import (
+    IVectorStore,
+)
 from dare_framework.knowledge._internal.vector_knowledge.vector_store.in_memory_store import (
     InMemoryVectorStore,
 )
@@ -36,16 +39,32 @@ class VectorKnowledge(IKnowledge):
     def __init__(
         self,
         embedding_adapter: IEmbeddingAdapter,
-        vector_store: InMemoryVectorStore | None = None,
+        vector_store: IVectorStore | None = None,
     ) -> None:
         """Initialize vector knowledge retrieval.
 
         Args:
             embedding_adapter: Embedding adapter for generating vectors.
-            vector_store: Vector store for document storage (creates new one if None).
+            vector_store: Vector store implementing IVectorStore (e.g. InMemoryVectorStore,
+                ChromaDBVectorStore, or custom). Creates a new InMemoryVectorStore if None.
         """
         self._embedding_adapter = embedding_adapter
         self._vector_store = vector_store or InMemoryVectorStore()
+
+    def add(self, content: str, **kwargs: object) -> None:
+        """Add content to the knowledge base (IKnowledge.add).
+
+        Wraps content in a Document and delegates to add_document.
+        **kwargs: metadata (dict), auto_embed (bool, default True).
+        """
+        metadata = kwargs.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        auto_embed = kwargs.get("auto_embed", True)
+        if not isinstance(auto_embed, bool):
+            auto_embed = True
+        doc = Document(content=content, metadata=metadata)
+        self.add_document(doc, auto_embed=auto_embed)
 
     def get(self, query: str, **kwargs) -> list["Message"]:
         """Retrieve relevant knowledge based on query.
