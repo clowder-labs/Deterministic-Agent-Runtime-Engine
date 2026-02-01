@@ -79,7 +79,13 @@ class RegistryPlanValidator(IValidator):
             errors=[],
         )
 
-    async def verify_milestone(self, result: RunResult, ctx: Any) -> VerifyResult:
+    async def verify_milestone(
+        self,
+        result: RunResult,
+        ctx: Any,
+        *,
+        plan: ValidatedPlan | None = None,
+    ) -> VerifyResult:
         if result.success:
             return VerifyResult(success=True, errors=[], metadata={})
         return VerifyResult(success=False, errors=list(result.errors), metadata={})

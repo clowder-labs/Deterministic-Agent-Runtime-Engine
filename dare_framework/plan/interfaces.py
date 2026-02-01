@@ -7,7 +7,12 @@ from typing import Literal, Protocol
 from dare_framework.config.types import Config
 from dare_framework.context.kernel import IContext
 from dare_framework.infra.component import ComponentType, IComponent
-from dare_framework.plan.types import ProposedPlan, RunResult, ValidatedPlan, VerifyResult
+from dare_framework.plan.types import (
+    ProposedPlan,
+    RunResult,
+    ValidatedPlan,
+    VerifyResult,
+)
 
 
 class IPlanner(IComponent, Protocol):
@@ -33,7 +38,13 @@ class IValidator(IComponent, Protocol):
 
     async def validate_plan(self, plan: ProposedPlan, ctx: IContext) -> ValidatedPlan: ...
 
-    async def verify_milestone(self, result: RunResult, ctx: IContext) -> VerifyResult: ...
+    async def verify_milestone(
+        self,
+        result: RunResult,
+        ctx: IContext,
+        *,
+        plan: ValidatedPlan | None = None,
+    ) -> VerifyResult: ...
 
 
 class IRemediator(IComponent, Protocol):

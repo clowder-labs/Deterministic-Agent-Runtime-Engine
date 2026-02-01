@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 .idea/
 .worktrees/
+examples/**/workspace/
 
 # Environment variables and secrets
 .env

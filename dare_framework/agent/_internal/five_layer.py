@@ -347,6 +347,8 @@ class DareAgent(BaseAgent):
         )
 
         # Generate model response
+        for idx, m in enumerate(model_input.messages):
+            print(f"\n--- [{idx}] {m.role} ---\n{m.content}\n", flush=True)
         response = await self._model.generate(model_input)
 
         # Add response to STM
@@ -473,8 +475,8 @@ class DareAgent(BaseAgent):
                     )
                 continue
 
-            # Verify milestone (if validator available)
-            verify_result = await self._verify_milestone(execute_result)
+            # Verify milestone (if validator available); pass plan so validator can use step criteria (e.g. expected_files)
+            verify_result = await self._verify_milestone(execute_result, validated_plan)
 
             if verify_result.success:
                 await self._log_event("milestone.success", {
@@ -605,6 +607,8 @@ class DareAgent(BaseAgent):
 
             # Generate model response
             self._log(f"Execute iteration {iteration + 1}/{self._max_tool_iterations}")
+            for idx, m in enumerate(model_input.messages):
+                print(f"\n--- [{idx}] {m.role} ---\n{m.content}\n", flush=True)
             response = await self._model.generate(model_input)
 
             # Log model response
@@ -772,7 +776,7 @@ class DareAgent(BaseAgent):
 
                 await self._log_event("tool.result", {
                     "capability_id": request.capability_id,
-                    "success": True,
+                    "success": getattr(result, "success", True),
                     "attempt": attempts,
                 })
 
@@ -780,6 +784,7 @@ class DareAgent(BaseAgent):
                     return {
                         "success": False,
                         "error": result.error or "tool failed",
+                        "output": getattr(result, "output", {}),
                         "result": result,
                     }
 
@@ -792,6 +797,8 @@ class DareAgent(BaseAgent):
                 if done_predicate is None or _done_predicate_satisfied(done_predicate, result):
                     return {
                         "success": True,
+                        "output": getattr(result, "output", {}),
+                        "error": getattr(result, "error", None),
                         "result": result,
                     }
 
@@ -799,6 +806,7 @@ class DareAgent(BaseAgent):
                     return {
                         "success": False,
                         "error": "done predicate not satisfied before budget exhausted",
+                        "output": getattr(result, "output", {}),
                         "result": result,
                     }
 
@@ -811,20 +819,26 @@ class DareAgent(BaseAgent):
                 return {
                     "success": False,
                     "error": str(e),
+                    "output": {},
                 }
 
     # =========================================================================
     # Verify
     # =========================================================================
 
-    async def _verify_milestone(self, execute_result: dict[str, Any]) -> VerifyResult:
-        """Verify that a milestone has been completed."""
+    async def _verify_milestone(
+        self,
+        execute_result: dict[str, Any],
+        validated_plan: ValidatedPlan | None = None,
+    ) -> VerifyResult:
+        """Verify that a milestone has been completed.
+
+        Passes validated_plan to the validator so it can use step criteria
+        (e.g. expected_files from code_creation_evidence) for verification.
+        """
         if self._validator is None:
-            # No validator: assume success
             return VerifyResult(success=True)
 
-        # TODO: Need to convert execute_result to proper type
-        # For now, create a minimal RunResult
         from dare_framework.plan.types import RunResult as PlanRunResult
 
         run_result = PlanRunResult(
@@ -833,7 +847,9 @@ class DareAgent(BaseAgent):
             errors=execute_result.get("errors", []),
         )
 
-        return await self._validator.verify_milestone(run_result, self._context)
+        return await self._validator.verify_milestone(
+            run_result, self._context, plan=validated_plan
+        )
 
     # =========================================================================
     # Helpers

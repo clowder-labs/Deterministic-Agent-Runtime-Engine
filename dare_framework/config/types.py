@@ -164,6 +164,7 @@ class Config:
 
     llm: LLMConfig = field(default_factory=LLMConfig)
     mcp: dict[str, dict[str, Any]] = field(default_factory=dict)
+    mcp_paths: list[str] = field(default_factory=list)
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     allowtools: list[str] = field(default_factory=list)
     allowmcps: list[str] = field(default_factory=list)
@@ -172,6 +173,7 @@ class Config:
     user_dir: str = field(default_factory=_default_user_dir)
     prompt_store_path_pattern: str = ".dare/_prompts.json"
     default_prompt_id: str | None = None
+    initial_skill_path: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Config":
@@ -179,6 +181,12 @@ class Config:
         llm_data = data.get("llm")
         llm = LLMConfig.from_dict(llm_data) if isinstance(llm_data, dict) else LLMConfig()
         mcp = data.get("mcp") if isinstance(data.get("mcp"), dict) else {}
+        mcp_paths_raw = data.get("mcp_paths")
+        mcp_paths = (
+            [str(p) for p in mcp_paths_raw]
+            if isinstance(mcp_paths_raw, list)
+            else []
+        )
         tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
         allowtools = data.get("allowtools") if isinstance(data.get("allowtools"), list) else []
         allowmcps = data.get("allowmcps") if isinstance(data.get("allowmcps"), list) else []
@@ -194,6 +202,8 @@ class Config:
         default_prompt_id = data.get("default_prompt_id")
         if default_prompt_id is not None:
             default_prompt_id = str(default_prompt_id)
+        initial_skill_path_raw = data.get("initial_skill_path")
+        initial_skill_path = str(initial_skill_path_raw) if initial_skill_path_raw else None
         workspace_dir_raw = data.get("workspace_dir")
         if isinstance(workspace_dir_raw, str):
             workspace_dir = workspace_dir_raw
@@ -208,6 +218,7 @@ class Config:
         return cls(
             llm=llm,
             mcp=mcp,
+            mcp_paths=mcp_paths,
             tools=tools,
             allowtools=allowtools,
             allowmcps=allowmcps,
@@ -216,6 +227,7 @@ class Config:
             user_dir=user_dir,
             prompt_store_path_pattern=prompt_store_path_pattern,
             default_prompt_id=default_prompt_id,
+            initial_skill_path=initial_skill_path,
         )
 
     def component_settings(self, component_type: ComponentType | str) -> ComponentConfig:
@@ -252,6 +264,7 @@ class Config:
         return {
             "llm": self.llm.to_dict(),
             "mcp": dict(self.mcp),
+            "mcp_paths": list(self.mcp_paths),
             "tools": dict(self.tools),
             "allowtools": list(self.allowtools),
             "allowmcps": list(self.allowmcps),
@@ -260,5 +273,6 @@ class Config:
             "user_dir": self.user_dir,
             "prompt_store_path_pattern": self.prompt_store_path_pattern,
             "default_prompt_id": self.default_prompt_id,
+            "initial_skill_path": self.initial_skill_path,
         }
 __all__ = ["ComponentType", "ProxyConfig", "LLMConfig", "ComponentConfig", "Config"]

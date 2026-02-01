@@ -26,10 +26,12 @@ class CompositeValidator(IValidator):
                 return current
         return current
 
-    async def verify_milestone(self, result: Any, ctx: Any) -> Any:
+    async def verify_milestone(
+        self, result: Any, ctx: Any, *, plan: Any = None
+    ) -> Any:
         last = None
         for validator in self._validators:
-            last = await validator.verify_milestone(result, ctx)
+            last = await validator.verify_milestone(result, ctx, plan=plan)
             if not getattr(last, "success", True):
                 return last
         return last

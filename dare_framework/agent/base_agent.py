@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dare_framework.plan.types import RunResult, Task
 
-
 if TYPE_CHECKING:
     from dare_framework.agent._internal.builder import DareAgentBuilder, ReactAgentBuilder, SimpleChatAgentBuilder
+    from dare_framework.skill.types import Skill
 
 
 class BaseAgent(ABC):
@@ -30,6 +30,25 @@ class BaseAgent(ABC):
     def name(self) -> str:
         """Agent name."""
         return self._name
+
+    def set_skill(self, skill: "Skill | None") -> None:
+        """Mount or replace current skill. None clears. Delegates to context."""
+        ctx = getattr(self, "_context", None)
+        if ctx is not None and hasattr(ctx, "set_skill"):
+            ctx.set_skill(skill)
+
+    def clear_skill(self) -> None:
+        """Unmount current skill. Delegates to context."""
+        ctx = getattr(self, "_context", None)
+        if ctx is not None and hasattr(ctx, "clear_skill"):
+            ctx.clear_skill()
+
+    def current_skill(self) -> "Skill | None":
+        """Get current skill, if any. Delegates to context."""
+        ctx = getattr(self, "_context", None)
+        if ctx is not None and hasattr(ctx, "current_skill"):
+            return ctx.current_skill()
+        return None
 
     async def run(self, task: str | Task, deps: Any | None = None) -> RunResult:
         """Run a task and return a structured RunResult.

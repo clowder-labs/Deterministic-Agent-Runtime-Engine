@@ -8,6 +8,7 @@ import uuid
 
 if TYPE_CHECKING:
     from dare_framework.model.types import Prompt
+    from dare_framework.skill.types import Skill
     from dare_framework.tool.interfaces import IToolProvider
     from dare_framework.tool.kernel import IToolManager
 
@@ -48,6 +49,9 @@ class Context(IContext):
 
     # System prompt definition (internal, for context assembly)
     _sys_prompt: "Prompt | None" = field(default=None, repr=False)
+
+    # Current skill (one at a time; injected at assemble time)
+    _current_skill: "Skill | None" = field(default=None, repr=False)
 
     # Cached tool list
     toollist: list[dict[str, Any]] | None = None
@@ -138,15 +142,34 @@ class Context(IContext):
                     self.toollist = []
         return self.toollist or []
 
+    # ========== Skill Methods (dynamic mount/unmount) ==========
+
+    def set_skill(self, skill: "Skill | None") -> None:
+        """Mount or replace current skill. None clears."""
+        self._current_skill = skill
+
+    def clear_skill(self) -> None:
+        """Unmount current skill."""
+        self._current_skill = None
+
+    def current_skill(self) -> "Skill | None":
+        """Get current skill, if any."""
+        return self._current_skill
+
     # ========== Assembly Methods (Core) ==========
 
     def assemble(self, **options) -> AssembledContext:
         """Assemble context for LLM call. Can be overridden by subclasses."""
         messages = self.stm_get()
         tools = self.listing_tools()
+        sys_prompt = self._sys_prompt
+        if self._current_skill is not None and sys_prompt is not None:
+            from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
+
+            sys_prompt = enrich_prompt_with_skill(sys_prompt, self._current_skill)
         return AssembledContext(
             messages=messages,
-            sys_prompt=self._sys_prompt,
+            sys_prompt=sys_prompt,
             tools=tools,
             metadata={"context_id": self.id},
         )
