@@ -55,6 +55,47 @@ Hook payload 关键字段（均为可选）：
 EventLog payload 会附加：
 - `trace_id`, `span_id`（来自 TelemetryProvider 的上下文）
 
+### 5.1 Span 对照表（实现映射）
+
+| Span | HookPhase（start/end） | 触发位置 | 备注 |
+| --- | --- | --- | --- |
+| `dare.run` | `BEFORE_RUN` / `AFTER_RUN` | `dare_framework/agent/_internal/five_layer.py` | run 生命周期总跨度 |
+| `dare.session` | `BEFORE_SESSION` / `AFTER_SESSION` | `dare_framework/agent/_internal/five_layer.py` | session loop |
+| `dare.milestone` | `BEFORE_MILESTONE` / `AFTER_MILESTONE` | `dare_framework/agent/_internal/five_layer.py` | milestone loop |
+| `dare.plan` | `BEFORE_PLAN` / `AFTER_PLAN` | `dare_framework/agent/_internal/five_layer.py` | plan attempt |
+| `dare.execute` | `BEFORE_EXECUTE` / `AFTER_EXECUTE` | `dare_framework/agent/_internal/five_layer.py` | execute loop |
+| `dare.context` | `BEFORE_CONTEXT_ASSEMBLE` / `AFTER_CONTEXT_ASSEMBLE` | `dare_framework/agent/_internal/five_layer.py` | assemble 过程 |
+| `dare.model` | `BEFORE_MODEL` / `AFTER_MODEL` | `dare_framework/agent/_internal/five_layer.py` | model call |
+| `dare.tool` | `BEFORE_TOOL` / `AFTER_TOOL` | `dare_framework/agent/_internal/five_layer.py` | tool invoke |
+
+Span 映射由 TelemetryProvider 负责：
+- `OpenTelemetryProvider` / `InMemoryTelemetryProvider` 使用 HookPhase → span name 规则（`dare_framework/observability/_internal/*_provider.py`）。
+
+### 5.2 Metric 对照表（实现映射）
+
+| Metric | 来源 payload | 触发位置 | 备注 |
+| --- | --- | --- | --- |
+| `context.messages.count` | `context_stats.messages_count` | `AFTER_CONTEXT_ASSEMBLE` | 组装消息数 |
+| `context.tokens.estimate` | `context_stats.tokens_estimate` | `AFTER_CONTEXT_ASSEMBLE` | 估算 token |
+| `context.length.chars` | `context_stats.length_chars` | `AFTER_CONTEXT_ASSEMBLE` | 字符长度 |
+| `context.length.bytes` | `context_stats.length_bytes` | `AFTER_CONTEXT_ASSEMBLE` | 字节长度 |
+| `model.tokens.input` | `model_usage.prompt_tokens` | `AFTER_MODEL` | 模型输入 |
+| `model.tokens.output` | `model_usage.completion_tokens` | `AFTER_MODEL` | 模型输出 |
+| `model.tokens.total` | `model_usage.total_tokens` | `AFTER_MODEL` | 模型总计 |
+| `model.latency.ms` | `duration_ms` | `AFTER_MODEL` | 模型耗时 |
+| `tool.calls.total` | `tool_stats` | `AFTER_TOOL` | 失败也计数 |
+| `tool.duration.ms` | `tool_stats.duration_ms` | `AFTER_TOOL` | 工具耗时 |
+| `tool.errors.total` | `tool_stats.success == False` | `AFTER_TOOL` | 失败计数 |
+| `run.duration.ms` | `duration_ms` | `AFTER_RUN` | 总运行耗时 |
+| `session.duration.ms` | `duration_ms` | `AFTER_SESSION` | session 耗时 |
+| `milestone.duration.ms` | `duration_ms` | `AFTER_MILESTONE` | milestone 耗时 |
+| `plan.duration.ms` | `duration_ms` | `AFTER_PLAN` | plan 尝试耗时 |
+| `execute.duration.ms` | `duration_ms` | `AFTER_EXECUTE` | execute 耗时 |
+| `budget.tokens.used` | `budget_stats.tokens_used` | `AFTER_*` | 运行期多处 |
+| `budget.tokens.remaining` | `budget_stats.tokens_remaining` | `AFTER_*` | 运行期多处 |
+| `budget.tool_calls.used` | `budget_stats.tool_calls_used` | `AFTER_*` | 运行期多处 |
+| `budget.tool_calls.remaining` | `budget_stats.tool_calls_remaining` | `AFTER_*` | 运行期多处 |
+
 ## 6. 配置
 
 `Config.observability` 对应 `ObservabilityConfig`：
