@@ -7,7 +7,11 @@ from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent._internal.five_layer import DareAgent
 from dare_framework.agent._internal.react_agent import ReactAgent
 from dare_framework.agent._internal.simple_chat import SimpleChatAgent
-from dare_framework.agent._internal.builder import DareAgentBuilder, ReactAgentBuilder, SimpleChatAgentBuilder
+from dare_framework.agent._internal.builder import (
+    DareAgentBuilder,
+    ReactAgentBuilder,
+    SimpleChatAgentBuilder,
+)
 
 __all__ = [
     "AgentDeps",

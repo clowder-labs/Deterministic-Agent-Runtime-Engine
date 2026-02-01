@@ -164,6 +164,7 @@ class Config:
 
     llm: LLMConfig = field(default_factory=LLMConfig)
     mcp: dict[str, dict[str, Any]] = field(default_factory=dict)
+    mcp_paths: list[str] = field(default_factory=list)
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     allowtools: list[str] = field(default_factory=list)
     allowmcps: list[str] = field(default_factory=list)
@@ -180,6 +181,12 @@ class Config:
         llm_data = data.get("llm")
         llm = LLMConfig.from_dict(llm_data) if isinstance(llm_data, dict) else LLMConfig()
         mcp = data.get("mcp") if isinstance(data.get("mcp"), dict) else {}
+        mcp_paths_raw = data.get("mcp_paths")
+        mcp_paths = (
+            [str(p) for p in mcp_paths_raw]
+            if isinstance(mcp_paths_raw, list)
+            else []
+        )
         tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
         allowtools = data.get("allowtools") if isinstance(data.get("allowtools"), list) else []
         allowmcps = data.get("allowmcps") if isinstance(data.get("allowmcps"), list) else []
@@ -211,6 +218,7 @@ class Config:
         return cls(
             llm=llm,
             mcp=mcp,
+            mcp_paths=mcp_paths,
             tools=tools,
             allowtools=allowtools,
             allowmcps=allowmcps,
@@ -256,6 +264,7 @@ class Config:
         return {
             "llm": self.llm.to_dict(),
             "mcp": dict(self.mcp),
+            "mcp_paths": list(self.mcp_paths),
             "tools": dict(self.tools),
             "allowtools": list(self.allowtools),
             "allowmcps": list(self.allowmcps),

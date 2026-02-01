@@ -9,10 +9,15 @@ All builder variants share the same precedence rules:
 1) Explicit builder injection wins (highest precedence).
 2) Missing components may be resolved via injected domain managers + Config.
 3) Multi-load component categories use extend semantics.
+
+MCP Integration:
+- Call build() (async) with with_config(config); when config.mcp_paths is set,
+  MCP is loaded inside build() before assembling the agent.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -47,6 +52,8 @@ from dare_framework.tool._internal.managers.tool_manager import ToolManager
 from dare_framework.tool.interfaces import ITool, IToolProvider, RunContext
 from dare_framework.tool.kernel import IExecutionControl, IToolGateway, IToolManager
 
+logger = logging.getLogger(__name__)
+
 TBuilder = TypeVar("TBuilder", bound="_BaseAgentBuilder")
 
 
@@ -80,6 +87,9 @@ class _BaseAgentBuilder:
         self._tool_gateway: IToolGateway | None = None
         self._tool_provider: IToolProvider | None = None
         self._run_context_factory: Callable[[], RunContext[Any]] = self._default_run_context
+
+        # MCP toolkit (optional, provides MCP-backed tools).
+        self._mcp_toolkit: IToolProvider | None = None
 
         # Initial skill path (None = not set; single path for one skill).
         self._initial_skill_path: str | None = None
@@ -182,6 +192,16 @@ class _BaseAgentBuilder:
         self._initial_skill_path = str(path)
         return self
 
+    async def build(self) -> Any:
+        """Build the agent. When with_config() was used and config.mcp_paths is set, loads MCP inside build()."""
+        if self._config is not None and getattr(self._config, "mcp_paths", None):
+            self._mcp_toolkit = await load_mcp_toolkit(self._config)
+        return self._build_impl()
+
+    def _build_impl(self) -> Any:
+        """Override in subclasses to perform the actual build. Called by build() after MCP load."""
+        raise NotImplementedError
+
     # ---------------------------------------------------------------------
     # Shared helper utilities
     # ---------------------------------------------------------------------
@@ -268,6 +288,7 @@ class _BaseAgentBuilder:
         return gateway if isinstance(gateway, IToolManager) else None
 
     def _register_tools_with_manager(self, manager: IToolManager | None, tools: list[ITool]) -> None:
+        """将合并后的工具列表（含本地 + MCP）全部注册进 ToolManager，供 invoke 按 name 查找。"""
         if manager is None:
             return
         for tool in tools:
@@ -299,12 +320,38 @@ class _BaseAgentBuilder:
             context.set_skill(skills[0])
 
     def _resolved_tools(self) -> list[ITool]:
+        """Resolve and merge all tools: 本地(explicit) + MCP(mcp_toolkit.list_tools) + manager-discovered.
+
+        MCP 工具在此处与本地 add_tools() 注入的 tool 合并为同一 list，
+        随后由 _register_tools_with_manager() 统一注册进 ToolManager。
+        """
         explicit = list(self._tools)
         explicit_names = {tool.name for tool in explicit}
 
+        # MCP: 从 mcp_toolkit 拉取工具列表，与 explicit 合并（按 allowmcps 过滤、去重）
+        mcp_tools: list[ITool] = []
+        if self._mcp_toolkit is not None:
+            config = self._effective_config()
+            allowmcps = set(config.allowmcps) if config.allowmcps else None
+
+            for tool in self._mcp_toolkit.list_tools():
+                # Extract MCP server name from tool name (format: "server:tool")
+                if allowmcps is not None:
+                    server_name = tool.name.split(":")[0] if ":" in tool.name else tool.name
+                    if server_name not in allowmcps:
+                        continue
+
+                if tool.name not in explicit_names:
+                    mcp_tools.append(tool)
+                    explicit_names.add(tool.name)
+
+            if mcp_tools:
+                logger.debug(f"Loaded {len(mcp_tools)} MCP tools")
+
+        # Add manager-discovered tools
         manager = self._tool_gateway if isinstance(self._tool_gateway, IToolManager) else None
         if manager is None:
-            return explicit
+            return [*explicit, *mcp_tools]
 
         discovered = manager.load_tools(config=self._manager_config())
         manager_tools = [
@@ -313,13 +360,13 @@ class _BaseAgentBuilder:
             if tool.name not in explicit_names
             and (self._config is None or self._config.is_component_enabled(tool))
         ]
-        return [*explicit, *manager_tools]
+        return [*explicit, *mcp_tools, *manager_tools]
 
 
 class SimpleChatAgentBuilder(_BaseAgentBuilder):
     """Builder for SimpleChatAgent."""
 
-    def build(self) -> SimpleChatAgent:
+    def _build_impl(self) -> SimpleChatAgent:
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
@@ -364,7 +411,7 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
 class ReactAgentBuilder(_BaseAgentBuilder):
     """Builder for ReactAgent (ReAct tool loop)."""
 
-    def build(self) -> ReactAgent:
+    def _build_impl(self) -> ReactAgent:
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
@@ -448,7 +495,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
         self._verbose = verbose
         return self
 
-    def build(self) -> DareAgent:
+    def _build_impl(self) -> DareAgent:
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
@@ -551,6 +598,79 @@ class DareAgentBuilder(_BaseAgentBuilder):
 
 
 __all__ = ["DareAgentBuilder", "ReactAgentBuilder", "SimpleChatAgentBuilder"]
+
+
+async def load_mcp_toolkit(
+    config: Config | None = None,
+    *,
+    paths: list[str | Path] | None = None,
+) -> IToolProvider:
+    """Load and initialize an MCP toolkit from configuration.
+
+    Scans configured directories for MCP server definitions, creates clients,
+    connects to servers, and returns an initialized MCPToolkit.
+
+    Args:
+        config: Configuration with mcp_paths and allowmcps settings.
+                If None, uses default Config.
+        paths: Explicit list of paths to scan. Overrides config.mcp_paths.
+
+    Returns:
+        Initialized MCPToolkit (implements IToolProvider).
+
+    Example (called internally by builder.build() when config.mcp_paths is set):
+        config = Config(mcp_paths=[".dare/mcp"], ...)
+        builder = DareAgentBuilder("my_agent").with_config(config)
+        agent = await builder.build()
+
+    Note:
+        Remember to close the toolkit when done to disconnect MCP clients:
+            await toolkit.close()
+    """
+    from dare_framework.mcp.factory import create_mcp_clients
+    from dare_framework.mcp.loader import load_mcp_configs
+    from dare_framework.tool._internal.toolkits.mcp_toolkit import MCPToolkit
+
+    if config is None:
+        config = Config()
+
+    # Determine scan paths
+    if paths is None:
+        paths = config.mcp_paths if config.mcp_paths else None
+
+    # Load MCP server configurations
+    mcp_configs = load_mcp_configs(
+        paths=paths,
+        workspace_dir=config.workspace_dir,
+        user_dir=config.user_dir,
+    )
+
+    if not mcp_configs:
+        logger.debug("No MCP configurations found")
+        return MCPToolkit([])
+
+    # Filter by allowmcps if specified
+    if config.allowmcps:
+        allowed = set(config.allowmcps)
+        mcp_configs = [c for c in mcp_configs if c.name in allowed]
+
+    if not mcp_configs:
+        logger.debug("No MCP configurations matched allowmcps filter")
+        return MCPToolkit([])
+
+    # Create and connect clients
+    clients = await create_mcp_clients(mcp_configs, connect=True, skip_errors=True)
+
+    # Wrap in toolkit and initialize (list tools from each server)
+    toolkit = MCPToolkit(clients)
+    await toolkit.initialize()
+
+    logger.info(
+        f"MCP toolkit loaded: {len(clients)} servers, "
+        f"{len(toolkit.list_tools())} tools"
+    )
+
+    return toolkit
 
 
 class _ConfiguredToolProvider(IToolProvider):

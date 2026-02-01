@@ -776,7 +776,7 @@ class DareAgent(BaseAgent):
 
                 await self._log_event("tool.result", {
                     "capability_id": request.capability_id,
-                    "success": True,
+                    "success": getattr(result, "success", True),
                     "attempt": attempts,
                 })
 
@@ -784,6 +784,7 @@ class DareAgent(BaseAgent):
                     return {
                         "success": False,
                         "error": result.error or "tool failed",
+                        "output": getattr(result, "output", {}),
                         "result": result,
                     }
 
@@ -796,6 +797,8 @@ class DareAgent(BaseAgent):
                 if done_predicate is None or _done_predicate_satisfied(done_predicate, result):
                     return {
                         "success": True,
+                        "output": getattr(result, "output", {}),
+                        "error": getattr(result, "error", None),
                         "result": result,
                     }
 
@@ -803,6 +806,7 @@ class DareAgent(BaseAgent):
                     return {
                         "success": False,
                         "error": "done predicate not satisfied before budget exhausted",
+                        "output": getattr(result, "output", {}),
                         "result": result,
                     }
 
@@ -815,6 +819,7 @@ class DareAgent(BaseAgent):
                 return {
                     "success": False,
                     "error": str(e),
+                    "output": {},
                 }
 
     # =========================================================================

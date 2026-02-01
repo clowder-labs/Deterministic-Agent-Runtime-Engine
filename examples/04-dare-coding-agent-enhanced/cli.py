@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import DareAgentBuilder
+from dare_framework.config.types import Config
 from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
@@ -130,6 +131,23 @@ class CLIDisplay:
     def show_mode(self, mode: ExecutionMode) -> None:
         self.info(f"mode={mode.value}")
 
+    def show_tool_lists(self, agent: Any) -> None:
+        """打印 MCP 工具列表与本地工具列表。"""
+        provider = getattr(getattr(agent, "context", None), "_tool_provider", None)
+        if provider is None:
+            self.info("tools: (none)")
+            return
+        try:
+            tools = provider.list_tools()
+        except Exception:
+            self.info("tools: (unable to list)")
+            return
+        mcp = [t for t in tools if ":" in getattr(t, "name", "")]
+        local = [t for t in tools if ":" not in getattr(t, "name", "")]
+        names = lambda lst: [getattr(t, "name", str(t)) for t in lst]
+        self.info(f"MCP tools ({len(mcp)}): {names(mcp) if mcp else []}")
+        self.info(f"Local tools ({len(local)}): {names(local) if local else []}")
+
     def show_plan(self, plan: Any) -> None:
         self.header("PLAN PREVIEW")
         print(f"Goal: {plan.plan_description}\n", flush=True)
@@ -156,18 +174,22 @@ class CLIDisplay:
             self.info(f"model response (iter={iteration}, tool_calls={has_tools})")
             return
         if event_type == "tool.invoke":
-            name = payload.get("capability_id")
+            name = payload.get("capability_id") or payload.get("tool") or "?"
             attempt = payload.get("attempt")
-            self.info(f"tool invoke: {name} (attempt {attempt})")
+            self.info(f">>> selected tool: [{name}] (attempt {attempt})")
             return
         if event_type == "tool.result":
-            name = payload.get("capability_id")
-            self.ok(f"tool result: {name}")
+            name = payload.get("capability_id") or payload.get("tool") or "?"
+            success = payload.get("success", True)
+            if success:
+                self.ok(f">>> tool result [{name}]: ok")
+            else:
+                self.warn(f">>> tool result [{name}]: failed")
             return
         if event_type == "tool.error":
-            name = payload.get("capability_id")
+            name = payload.get("capability_id") or payload.get("tool") or "?"
             err = payload.get("error")
-            self.error(f"tool error: {name} ({err})")
+            self.error(f">>> tool error [{name}]: {err}")
             return
         if event_type == "milestone.success":
             self.ok("milestone success")
@@ -207,7 +229,7 @@ def _match_filter(event: Event, filter: dict[str, Any]) -> bool:
     return True
 
 
-def build_agent(
+def _create_builder(
     workspace: Path,
     model_name: str,
     api_key: str,
@@ -216,7 +238,9 @@ def build_agent(
     display: CLIDisplay,
     *,
     initial_skill_path: Path | str | None = None,
-) -> Any:
+    config: Config | None = None,
+) -> DareAgentBuilder:
+    """创建 DareAgentBuilder；MCP 由 builder.build() 内部根据 config.mcp_paths 加载。"""
     model = OpenRouterModelAdapter(
         model=model_name,
         api_key=api_key,
@@ -224,13 +248,11 @@ def build_agent(
         http_client_options={"timeout": timeout_seconds},
     )
     tools = [ReadFileTool(), WriteFileTool(), SearchCodeTool(), RunCommandTool()]
-    # expected_files=[]：不强制检查某文件，仅按执行是否成功验证，避免“创建 helloworld.py”等任务因缺少 snake_game.py 而一直重试
     validator = FileExistsValidator(
         workspace=workspace,
         expected_files=[],
         verbose=False,
     )
-
     event_log = StreamingEventLog(display.show_event)
 
     builder = (
@@ -248,10 +270,11 @@ def build_agent(
         .with_remediator(DefaultRemediator(model, verbose=False))
         .with_event_log(event_log)
     )
+    if config is not None:
+        builder = builder.with_config(config)
     if initial_skill_path:
         builder = builder.with_skill(initial_skill_path)
-
-    return builder.build()
+    return builder
 
 
 async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: CLIDisplay) -> Any:
@@ -386,16 +409,36 @@ async def main(argv: list[str] | None = None) -> None:
     display.info(f"max_tokens={max_tokens}")
     display.info(f"timeout={timeout_seconds}s")
 
+    example_dir = Path(__file__).parent
+    mcp_dir = example_dir / ".dare" / "mcp"
+    config = None
+    if mcp_dir.exists():
+        config = Config(
+            mcp_paths=[str(mcp_dir)],
+            workspace_dir=str(example_dir),
+            user_dir=str(Path.home()),
+        )
+        display.info("MCP config found. Start local_mcp_server.py in another terminal if using local_math.")
+
+    initial_skill_path = Path(args.skill) if args.skill else None
+    builder = _create_builder(
+        workspace,
+        model_name,
+        api_key,
+        max_tokens,
+        timeout_seconds,
+        display,
+        initial_skill_path=initial_skill_path,
+        config=config,
+    )
+    agent = await builder.build()
+    display.show_tool_lists(agent)
+
     model = OpenRouterModelAdapter(
         model=model_name,
         api_key=api_key,
         extra={"max_tokens": max_tokens},
         http_client_options={"timeout": timeout_seconds},
-    )
-    initial_skill_path = Path(args.skill) if args.skill else None
-    agent = build_agent(
-        workspace, model_name, api_key, max_tokens, timeout_seconds, display,
-        initial_skill_path=initial_skill_path,
     )
 
     if args.demo:
