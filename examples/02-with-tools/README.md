@@ -1,6 +1,6 @@
 # 02-with-tools
 
-带工具的 Agent 示例，展示如何使用 `add_tools()` 添加文件操作能力。
+在 01 的基础上加入工具调用与 ReAct 循环，演示 `add_tools()` 与工作区限制。
 
 ## 运行
 
@@ -33,17 +33,24 @@ agent = (
 )
 ```
 
+## 进阶点
+
+- 相对 01，新增 ReAct 模式（Reason → Act → Observe），模型 tool_call 会被执行
+- `with_run_context_factory()` 限定 `workspace_roots`，工具只能读写该目录下的路径
+- 工具 `name` 为唯一 capability id，自定义工具需保证名称唯一
+
 ## Prompt 管理
 
 系统提示由框架 Prompt Store 管理（默认 `base.system`），无需在示例中手写系统提示。
+如需覆盖，使用 `.dare/_prompts.json` 配置。
 
-## 工具命名规则
+## 文件结构
 
-工具 `name` 是唯一主键（capability id）。自定义工具时必须保证名称唯一。
-
-## 执行模式
-
-ReAct 模式：Reason → Act → Observe 循环
+```
+02-with-tools/
+├── main.py
+└── README.md
+```
 
 ## 适用场景
 
