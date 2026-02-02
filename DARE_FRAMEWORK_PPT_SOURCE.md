@@ -154,7 +154,85 @@ my_skill/
 
 **内置工具**（tool/_internal/tools/）：read_file、write_file、search_code、run_command、edit_line、echo、noop 等。
 
-## 2.5 其他可挂载
+## 2.5 Hook（扩展点）
+
+**挂载方式**：
+- **DareAgent**：DareAgentBuilder.add_hooks(*hooks)，每个 hook 需实现 IHook
+- 或通过 with_managers(hook_manager=...) 注入 IHookManager，Builder 在 build 时从 manager.load_hooks(config) 解析并与显式 add_hooks 合并
+- 仅 DareAgent 支持 hooks；ReactAgent / SimpleChatAgent 无 HookExtensionPoint
+
+**接口**（源码 hook/kernel.py, types.py）：
+- **IHook**：`async def invoke(phase: HookPhase, *args, **kwargs) -> Any`；best-effort，失败不中断主流程
+- **HookPhase**：BEFORE_RUN, AFTER_RUN, BEFORE_SESSION, AFTER_SESSION, BEFORE_MILESTONE, AFTER_MILESTONE, BEFORE_PLAN, AFTER_PLAN, BEFORE_EXECUTE, AFTER_EXECUTE, BEFORE_CONTEXT_ASSEMBLE, AFTER_CONTEXT_ASSEMBLE, BEFORE_MODEL, AFTER_MODEL, BEFORE_TOOL, AFTER_TOOL, BEFORE_VERIFY, AFTER_VERIFY
+- **IExtensionPoint**：register_hook(phase, callback: HookFn)、async emit(phase, payload)
+
+**工作逻辑图**：
+
+```
+DareAgent 构造
+    hooks = 显式 add_hooks + hook_manager.load_hooks(config) 合并
+    _extension_point = HookExtensionPoint(hooks) if hooks else None
+
+运行时 _emit_hook(phase, payload)
+    IF _extension_point is None: return
+    enriched = {**payload, "phase": phase.value, ...}  // 可选注入 run_id 等
+    await _extension_point.emit(phase, enriched)
+        │
+        ├─► FOR each callback in _callbacks.get(phase, []): callback(payload)  // 同步，异常仅 log
+        └─► FOR each hook in _hooks: await hook.invoke(phase, payload=payload)    // 异步，异常仅 log
+```
+
+**要点说明**：
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | add_hooks(*hooks: IHook)；invoke(phase, payload) 的 payload 由 Agent 在各阶段传入（如 task_id, run_id, iteration, model_usage, budget_stats, milestone_id）。 |
+| **输出** | 无返回值要求；best-effort，单 hook 异常仅打 log，不中断 execute。 |
+| **关键步骤** | Builder 将显式 hooks 与 hook_manager 解析结果合并，DareAgent 持有一个 HookExtensionPoint(hooks)。运行时在 Session/Milestone/Plan/Execute/Model/Tool/Verify 前后调用 _emit_hook(phase, payload)；emit 先执行 register_hook 的 callbacks，再顺序执行各 IHook.invoke。 |
+| **与上下游** | 上游：DareAgentBuilder.add_hooks() 或 with_managers(hook_manager)；Config.components 可控制启用。下游：ObservabilityHook 向 ITelemetryProvider 上报；自定义 Hook 可做审计、审批、指标、日志。 |
+| **可扩展点** | 实现 IHook.invoke(phase, *args, **kwargs)；或 register_hook(phase, callback) 注册同步函数；HookPhase 覆盖全生命周期，payload 结构按阶段扩展。 |
+
+## 2.6 模型（Model）
+
+**挂载方式**：
+- **显式**：Builder.with_model(model)，model 需实现 IModelAdapter
+- **Config 驱动**：with_managers(model_adapter_manager=...) 注入 IModelAdapterManager，Builder 在 _resolved_model() 时若未显式 with_model 则调用 manager.load_model_adapter(config)
+
+**接口**（源码 model/kernel.py）：
+- **IModelAdapter**：`async def generate(model_input: ModelInput, *, options: GenerateOptions | None) -> ModelResponse`
+- **ModelInput**：messages, tools?, metadata
+- **ModelResponse**：content, tool_calls?, usage?, metadata
+
+**内置实现**（源码 model/_internal/）：
+- **OpenRouterModelAdapter**：OpenRouter API（OpenAI 兼容），base_url、api_key、model、extra 可配
+- **OpenAIModelAdapter**：OpenAI API 直连
+
+**工作逻辑图**：
+
+```
+Builder._resolved_model()
+    IF _model is not None: return _model
+    manager = _model_adapter_manager or create_default_model_adapter_manager(_manager_config())
+    return manager.load_model_adapter(config=...)  // 单例，仅一个 Model 生效
+
+运行时（Plan / Execute / Simple）
+    assembled = context.assemble()
+    model_input = ModelInput(messages=assembled_messages, tools=assembled.tools, metadata=assembled.metadata)
+    response = await model.generate(model_input, options?)
+    // 使用 response.content、response.tool_calls、response.usage 写 STM、跑工具、计 budget
+```
+
+**要点说明**：
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | with_model(IModelAdapter) 或由 IModelAdapterManager.load_model_adapter(config) 返回。generate(model_input, options?)：ModelInput(messages, tools?, metadata)；options 含 temperature, max_tokens, top_p, stop。 |
+| **输出** | ModelResponse(content, tool_calls, usage, metadata)。Agent 用 content 写 assistant_message 入 STM；tool_calls 驱动 _run_tool_loop；usage 用于 budget_use("tokens") 与观测。 |
+| **关键步骤** | 显式 with_model 优先；否则从 model_adapter_manager 按 config 加载。调用链：context.assemble() → ModelInput → model.generate() → 解析 content/tool_calls/usage。OpenRouterModelAdapter 内部 _ensure_client() 懒建 AsyncOpenAI(api_key, base_url)，_serialize_messages 转 API 格式。 |
+| **与上下游** | 上游：Builder with_model() 或 with_managers(model_adapter_manager)；Config 可驱动默认模型。下游：Planner/Remediator 用同一 model 做 plan/reflect；Execute/Simple 用 model 做对话与 tool_calls。 |
+| **可扩展点** | 实现 IModelAdapter.generate(model_input, options?)；可替换 base_url、extra 或继承覆写 _build_client/_serialize_messages；IModelAdapterManager 支持从配置/环境解析不同后端。 |
+
+## 2.7 其他可挂载
 
 | 类型 | 挂载方式 | 说明 |
 |------|----------|------|
@@ -162,7 +240,8 @@ my_skill/
 | Validator | add_validators() | 实现 IValidator，可多个 |
 | Remediator | with_remediator() | 实现 IRemediator |
 | EventLog | with_event_log() | 实现 IEventLog |
-| Hooks | add_hooks() | 实现 IHook |
+| Hooks | add_hooks() | 实现 IHook，**见 2.5 Hook** |
+| 模型 | with_model() | 实现 IModelAdapter，**见 2.6 模型** |
 | ExecutionControl | with_execution_control() | 实现 IExecutionControl（HITL） |
 | Prompt | with_prompt() / with_prompt_id() | 覆盖默认 base.system |
 
@@ -382,6 +461,64 @@ build() [async]
 | **Skill 挂载** | _load_initial_skill_and_mount(context)：从 initial_skill_path 或 config.initial_skill_path 用 FileSystemSkillLoader 加载，取第一个 skill 调用 context.set_skill(skills[0])。 |
 | **与上下游** | 上游：Config、IModelAdapter、ITool、IKnowledge、IPlanner、IValidator、IRemediator、IEventLog、IHook。下游：Context、ToolManager、DareAgent/ReactAgent/SimpleChatAgent。 |
 | **可扩展点** | 继承 _BaseAgentBuilder 实现 _build_impl()；with_managers() 注入各 Manager 实现 Config 驱动解析；with_prompt/store 覆盖默认 Prompt。 |
+
+## 4.5 ReactAgent 编排流程图
+
+```
+_execute(task)
+    │
+    ├─► user_message = Message(role="user", content=task)
+    ├─► context.stm_add(user_message)
+    ├─► gateway = context._tool_provider; has_invoke = gateway 有 invoke 方法
+    │
+    └─► FOR round in range(max_tool_rounds):  // 默认 10 轮
+            │
+            ├─► assembled = context.assemble()
+            │   messages = [sys_prompt_message, *assembled.messages] if sys_prompt else assembled.messages
+            ├─► model_input = ModelInput(messages=messages, tools=assembled.tools, metadata=assembled.metadata)
+            ├─► response = await model.generate(model_input)
+            ├─► IF response.usage: budget_use("tokens", total_tokens); budget_check()
+            │
+            ├─► IF not response.tool_calls:
+            │       assistant_message = Message(role="assistant", content=response.content)
+            │       context.stm_add(assistant_message)
+            │       return response.content  // 完成，返回最终回复
+            │
+            ├─► IF not has_invoke:
+            │       assistant_message = Message(role="assistant", content="(Tool calls returned but no tool gateway...)")
+            │       context.stm_add(assistant_message)
+            │       return response.content or "(Tool calls not executed.)"
+            │
+            ├─► assistant_msg = Message(role="assistant", content=response.content, metadata={"tool_calls": tool_calls})
+            ├─► context.stm_add(assistant_msg)
+            │
+            └─► FOR each tool_call in response.tool_calls:
+                    name = tool_call.get("name"); tool_call_id = tool_call.get("id"); args = tool_call.get("arguments")
+                    IF args is str: args = json.loads(args) or {}
+                    params = args if dict else {}
+                    TRY:
+                        result = await gateway.invoke(name, params, envelope=Envelope())
+                    EXCEPT Exception as exc:
+                        result = mock_result(success=False, error=str(exc))
+                    success, output, error = getattr(result, "success", False), getattr(result, "output", {}), getattr(result, "error", "")
+                    tool_content = json.dumps({"success": success, "output": output, "error": error} if not success else {"success": True, "output": output})
+                    tool_msg = Message(role="tool", name=tool_call_id or name, content=tool_content)
+                    context.stm_add(tool_msg)
+                // 下一轮 reassemble → model.generate
+    
+    return "(Reached max tool rounds without final reply.)"
+```
+
+### 4.5.1 ReactAgent 要点说明
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | task: str；构造时需 model: IModelAdapter、context?: Context、tools?: IToolProvider、max_tool_rounds=10。 |
+| **输出** | str：最终 response.content 或 "(Reached max tool rounds...)" 或 "(Tool calls not executed.)"。 |
+| **关键步骤** | ① user_message→STM；② 循环最多 max_tool_rounds 次：assemble → ModelInput → model.generate；③ 无 tool_calls 则 assistant_message→STM 并返回；④ 有 tool_calls 则 assistant_msg（含 metadata）→STM，逐条 gateway.invoke(name, params, envelope) → tool_msg→STM；⑤ 下一轮 reassemble。 |
+| **与 DareAgent 差异** | 无 Session/Milestone/Plan/Verify 循环；无 planner/validator/remediator；无 event_log/hooks；直接 Execute→Tool 循环（ReAct 模式）；envelope 为空 Envelope()，无 allowed_capability_ids 等限制。 |
+| **与上下游** | 上游：ReactAgentBuilder 注入 model、context、tools（作为 _tool_provider）；无需 planner/validator。下游：Context（STM、assemble）、Model（generate）、IToolProvider（invoke，通常为 ToolManager）。 |
+| **可扩展点** | 继承 ReactAgent 覆写 _execute；调整 max_tool_rounds；替换 gateway（IToolProvider 或 IToolGateway）；可选注入 knowledge 供 context 使用。 |
 
 ---
 
