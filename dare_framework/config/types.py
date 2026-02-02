@@ -288,6 +288,8 @@ class Config:
     components: dict[str, ComponentConfig] = field(default_factory=dict)
     knowledge: dict[str, Any] = field(default_factory=dict)
     """Knowledge backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
+    long_term_memory: dict[str, Any] = field(default_factory=dict)
+    """Long-term memory backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
     workspace_dir: str = field(default_factory=_default_workspace_dir)
     user_dir: str = field(default_factory=_default_user_dir)
     prompt_store_path_pattern: str = ".dare/_prompts.json"
@@ -317,6 +319,7 @@ class Config:
             if isinstance(value, dict)
         }
         knowledge = data.get("knowledge") if isinstance(data.get("knowledge"), dict) else {}
+        long_term_memory = data.get("long_term_memory") if isinstance(data.get("long_term_memory"), dict) else {}
         prompt_store_path_pattern = data.get("prompt_store_path_pattern")
         if not isinstance(prompt_store_path_pattern, str) or not prompt_store_path_pattern:
             prompt_store_path_pattern = ".dare/_prompts.json"
@@ -351,6 +354,7 @@ class Config:
             allowmcps=allowmcps,
             components=components,
             knowledge=knowledge,
+            long_term_memory=long_term_memory,
             workspace_dir=workspace_dir,
             user_dir=user_dir,
             prompt_store_path_pattern=prompt_store_path_pattern,
@@ -399,6 +403,7 @@ class Config:
             "allowmcps": list(self.allowmcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
             "knowledge": dict(self.knowledge),
+            "long_term_memory": dict(self.long_term_memory),
             "workspace_dir": self.workspace_dir,
             "user_dir": self.user_dir,
             "prompt_store_path_pattern": self.prompt_store_path_pattern,

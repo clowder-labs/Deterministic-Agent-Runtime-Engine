@@ -35,7 +35,7 @@ from dare_framework.knowledge._internal.knowledge_tools import (
     KnowledgeAddTool,
     KnowledgeGetTool,
 )
-from dare_framework.memory import ILongTermMemory, IShortTermMemory
+from dare_framework.memory import ILongTermMemory, IShortTermMemory, create_long_term_memory
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
 from dare_framework.model.types import Prompt
@@ -228,11 +228,21 @@ class _BaseAgentBuilder:
             context.budget = self._budget
         if self._short_term_memory is not None:
             context.short_term_memory = self._short_term_memory
-        if self._long_term_memory is not None:
-            context.long_term_memory = self._long_term_memory
+        ltm = self._resolved_long_term_memory()
+        if ltm is not None:
+            context.long_term_memory = ltm
         knowledge = self._resolved_knowledge()
         if knowledge is not None:
             context.knowledge = knowledge
+
+    def _resolved_long_term_memory(self) -> ILongTermMemory | None:
+        """LTM from explicit with_long_term_memory() or from config.long_term_memory + embedding_adapter."""
+        if self._long_term_memory is not None:
+            return self._long_term_memory
+        config = self._effective_config()
+        if not config.long_term_memory:
+            return None
+        return create_long_term_memory(config.long_term_memory, self._embedding_adapter)
 
     def _resolved_knowledge(self) -> IKnowledge | None:
         """Knowledge from explicit with_knowledge() or from config.knowledge + embedding_adapter."""
@@ -416,7 +426,7 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
             context = Context(
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
-                long_term_memory=self._long_term_memory,
+                long_term_memory=self._resolved_long_term_memory(),
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
@@ -460,7 +470,7 @@ class ReactAgentBuilder(_BaseAgentBuilder):
             context = Context(
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
-                long_term_memory=self._long_term_memory,
+                long_term_memory=self._resolved_long_term_memory(),
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
@@ -594,7 +604,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
             context = Context(
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
-                long_term_memory=self._long_term_memory,
+                long_term_memory=self._resolved_long_term_memory(),
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
