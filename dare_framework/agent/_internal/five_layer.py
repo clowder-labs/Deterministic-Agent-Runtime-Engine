@@ -13,7 +13,7 @@ when not provided, the agent degrades gracefully to a ReAct-style loop.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -250,8 +250,9 @@ class DareAgent(BaseAgent):
             RunResult with execution outcome.
         """
         start_time = time.perf_counter()
+        # Task is frozen; create a new instance with task_id if missing
         if task.task_id is None:
-            task.task_id = uuid4().hex[:8]
+            task = replace(task, task_id=uuid4().hex[:8])
         self._session_state = SessionState(task_id=task.task_id)
         self._token_usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
         if self.is_full_five_layer_mode or task.milestones:
@@ -845,7 +846,7 @@ class DareAgent(BaseAgent):
             self._context.stm_add(assistant_msg)
 
             for tool_call in response.tool_calls:
-                name = tool_call.get("name", "")
+                name = tool_call.get("name") or ""
                 tool_call_id = tool_call.get("id") or f"{capability_id}_{iteration + 1}_{uuid4().hex[:6]}"
                 capability_id = tool_call.get("capability_id") or name
                 descriptor = capability_index.get(capability_id) or capability_index.get(name)
@@ -1157,8 +1158,10 @@ class DareAgent(BaseAgent):
             index.setdefault(capability.name, capability)
         return index
 
-    def _is_plan_tool_call(self, name: str, descriptor: Any | None) -> bool:
+    def _is_plan_tool_call(self, name: str | None, descriptor: Any | None) -> bool:
         """Return True if the tool call should trigger a re-plan."""
+        if not name:
+            return False
         if name.startswith("plan:"):
             return True
         if descriptor is None or descriptor.metadata is None:
