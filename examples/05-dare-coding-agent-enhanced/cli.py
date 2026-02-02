@@ -291,11 +291,32 @@ async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: C
     return plan
 
 
+def _format_result_output(output: Any) -> str | None:
+    """Extract displayable text from RunResult.output (may be dict with 'content' or raw)."""
+    if output is None:
+        return None
+    if isinstance(output, str):
+        return output.strip() or None
+    if isinstance(output, dict) and "content" in output:
+        text = output["content"]
+        if text is None:
+            return None
+        s = (text.strip() if isinstance(text, str) else str(text)).strip()
+        return s or None
+    return str(output).strip() or None
+
+
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
     result = await agent.run(Task(description=task_text))
     if result.success:
         display.ok("task completed")
+        # Show model reply when no tool calls (e.g. 运势、问答类)
+        reply = _format_result_output(result.output)
+        if reply:
+            print("\n--- result ---\n", flush=True)
+            print(reply, flush=True)
+            print(flush=True)
     else:
         display.error("task failed")
         if result.errors:
