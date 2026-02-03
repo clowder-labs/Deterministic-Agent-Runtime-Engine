@@ -2,7 +2,7 @@
 
 from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.agent.kernel import IAgent
-from dare_framework.agent.types import AgentDeps
+from dare_framework.agent.types import AgentDeps, ISessionSummaryStore
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent._internal.five_layer import DareAgent
 from dare_framework.agent._internal.react_agent import ReactAgent
@@ -15,6 +15,7 @@ from dare_framework.agent._internal.builder import (
 
 __all__ = [
     "AgentDeps",
+    "ISessionSummaryStore",
     "IAgent",
     "IAgentOrchestration",
     "BaseAgent",
@@ -25,4 +26,3 @@ __all__ = [
     "ReactAgentBuilder",
     "SimpleChatAgentBuilder",
 ]
-

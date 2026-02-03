@@ -14,12 +14,17 @@ when not provided, the agent degrades gracefully to a ReAct-style loop.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import hashlib
+import inspect
+import json
 import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from dare_framework.agent.base_agent import BaseAgent
-from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
+from dare_framework.agent._internal.orchestration import MilestoneState, SessionContext, SessionState
+from dare_framework.agent.types import ISessionSummaryStore
+from dare_framework.config.kernel import IConfigProvider
 from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.context import AssembledContext, Context, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
@@ -36,6 +41,8 @@ from dare_framework.plan.types import (
     DonePredicate,
     Envelope,
     Evidence,
+    MilestoneSummary,
+    SessionSummary,
     Milestone,
     RunResult,
     StepResult,
@@ -71,6 +78,7 @@ if TYPE_CHECKING:
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
     from dare_framework.tool import IToolProvider
     from dare_framework.tool.kernel import IExecutionControl, IToolGateway
+    from dare_framework.config.types import Config
 
 
 class DareAgent(BaseAgent):
@@ -133,6 +141,9 @@ class DareAgent(BaseAgent):
         step_executor: IStepExecutor | None = None,
         evidence_collector: IEvidenceCollector | None = None,
         # Configuration
+        config_provider: IConfigProvider | None = None,
+        session_summary_store: ISessionSummaryStore | None = None,
+        # Runtime limits
         budget: Budget | None = None,
         execution_mode: str = "model_driven",  # "model_driven" or "step_driven"
         max_milestone_attempts: int = 3,
@@ -157,6 +168,8 @@ class DareAgent(BaseAgent):
             event_log: Event log for audit (optional).
             hooks: Hook implementations invoked at lifecycle phases (optional).
             telemetry: Telemetry provider for traces/metrics/logs (optional).
+            config_provider: Provides effective Config snapshot for the session (optional).
+            session_summary_store: Optional persistence hook for SessionSummary.
             budget: Resource budget (optional).
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
@@ -214,6 +227,8 @@ class DareAgent(BaseAgent):
         self._extension_point = HookExtensionPoint(self._hooks) if self._hooks else None
 
         # Configuration
+        self._config_provider = config_provider
+        self._session_summary_store = session_summary_store
         self._max_milestone_attempts = max_milestone_attempts
         self._max_plan_attempts = max_plan_attempts
         self._max_tool_iterations = max_tool_iterations
@@ -410,6 +425,7 @@ class DareAgent(BaseAgent):
             success=execute_result.get("success", False),
             output=execute_result.get("outputs", [])[-1] if execute_result.get("outputs") else None,
             errors=execute_result.get("errors", []),
+            session_id=self._session_state.run_id if self._session_state else None,
         )
 
     # =========================================================================
@@ -494,6 +510,7 @@ class DareAgent(BaseAgent):
             success=True,
             output={"content": response.content},
             errors=[],
+            session_id=self._session_state.run_id if self._session_state else None,
         )
 
     # =========================================================================
@@ -508,16 +525,38 @@ class DareAgent(BaseAgent):
                 task_id=task.task_id or uuid4().hex[:8],
             )
         session_start = time.perf_counter()
+        session_started_at = time.time()
+        config_snapshot, config_hash = self._resolve_config_snapshot()
+        self._session_state.session_context = SessionContext(
+            session_id=self._session_state.run_id,
+            task_id=self._session_state.task_id,
+            config=config_snapshot,
+            config_hash=config_hash,
+            previous_session_summary=task.previous_session_summary,
+            started_at=session_started_at,
+        )
+        if config_snapshot is not None:
+            self._context.config_update(config_snapshot.to_dict())
         await self._emit_hook(HookPhase.BEFORE_SESSION, {
             "task_id": self._session_state.task_id,
             "run_id": self._session_state.run_id,
+            "config_hash": config_hash,
         })
 
         # Log session start
         await self._log_event("session.start", {
             "task_id": self._session_state.task_id,
             "run_id": self._session_state.run_id,
+            "config_hash": config_hash,
+            "has_previous_summary": task.previous_session_summary is not None,
         })
+
+        if task.previous_session_summary is not None:
+            summary_message = Message(
+                role="system",
+                content=self._format_previous_summary(task.previous_session_summary),
+            )
+            self._context.stm_add(summary_message)
 
         # Add user message to STM
         user_message = Message(role="user", content=task.description)
@@ -597,10 +636,59 @@ class DareAgent(BaseAgent):
             if last_result.outputs:
                 output = last_result.outputs[-1]
 
+        milestone_summaries: list[MilestoneSummary] = []
+        for idx, milestone in enumerate(milestones):
+            state = self._session_state.milestone_states[idx] if self._session_state else None
+            result = milestone_results[idx] if idx < len(milestone_results) else None
+            summary = MilestoneSummary(
+                milestone_id=milestone.milestone_id,
+                description=milestone.description,
+                attempts=state.attempts if state else 0,
+                success=result.success if result else False,
+                outputs=list(result.outputs) if result else [],
+                errors=list(result.errors) if result else ["not executed"],
+                evidence_count=len(state.evidence_collected) if state else 0,
+                reflections_count=len(state.reflections) if state else 0,
+            )
+            milestone_summaries.append(summary)
+
+        session_context = self._session_state.session_context if self._session_state else None
+        if session_context is not None:
+            session_context.milestone_summaries = milestone_summaries
+
+        session_ended_at = time.time()
+        duration_ms = (time.perf_counter() - session_start) * 1000.0
+        session_summary = SessionSummary(
+            session_id=self._session_state.run_id,
+            task_id=self._session_state.task_id,
+            success=success,
+            started_at=session_started_at,
+            ended_at=session_ended_at,
+            duration_ms=duration_ms,
+            milestones=milestone_summaries,
+            final_output=output,
+            errors=list(errors),
+            metadata={"config_hash": config_hash} if config_hash else {},
+        )
+
+        await self._log_event("session.summary", {
+            "summary": self._summary_payload(session_summary),
+            "config_hash": config_hash,
+        })
+        if self._session_summary_store is not None:
+            try:
+                await self._session_summary_store.save(session_summary)
+            except Exception as exc:
+                await self._log_event("session.summary.persist_failed", {
+                    "error": str(exc),
+                })
+
         return RunResult(
             success=success,
             output=output,
             errors=errors,
+            session_id=self._session_state.run_id if self._session_state else None,
+            session_summary=session_summary,
         )
 
     # =========================================================================
@@ -621,6 +709,8 @@ class DareAgent(BaseAgent):
         milestone_state = self._session_state.current_milestone_state
 
         for attempt in range(self._max_milestone_attempts):
+            if milestone_state is not None:
+                milestone_state.attempts = attempt + 1
             print(f"[DEBUG] Milestone attempt {attempt + 1}/{self._max_milestone_attempts}", flush=True)
             # Budget check
             self._context.budget_check()
@@ -1204,21 +1294,14 @@ class DareAgent(BaseAgent):
             errors=execute_result.get("errors", []),
         )
 
-        # Call verify_milestone with plan if supported, otherwise without
-        import inspect
-        sig = inspect.signature(self._validator.verify_milestone)
-        if 'plan' in sig.parameters:
-            verify_result = await self._validator.verify_milestone(
-                run_result,
-                self._context,
-                plan=validated_plan,
-            )
-        else:
-            # Backward compatibility: validator doesn't support plan parameter
-            verify_result = await self._validator.verify_milestone(
-                run_result,
-                self._context,
-            )
+        kwargs: dict[str, Any] = {}
+        if validated_plan is not None and self._validator_accepts_plan():
+            kwargs["plan"] = validated_plan
+        verify_result = await self._validator.verify_milestone(
+            run_result,
+            self._context,
+            **kwargs,
+        )
         await self._emit_hook(HookPhase.AFTER_VERIFY, {
             "milestone_id": milestone_id,
             "success": verify_result.success,
@@ -1325,6 +1408,35 @@ class DareAgent(BaseAgent):
             "context_messages_count": len(messages),
             "context_tools_count": tools_count,
         }
+
+    def _resolve_config_snapshot(self) -> tuple["Config | None", str | None]:
+        if self._config_provider is None:
+            return (None, None)
+        config = self._config_provider.current()
+        return (config, self._hash_config_snapshot(config))
+
+    def _hash_config_snapshot(self, config: "Config") -> str:
+        payload = json.dumps(config.to_dict(), sort_keys=True, ensure_ascii=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _format_previous_summary(self, summary: SessionSummary) -> str:
+        payload = json.dumps(summary.to_dict(), sort_keys=True, ensure_ascii=True, default=str)
+        return f"Previous session summary (session_id={summary.session_id}): {payload}"
+
+    def _summary_payload(self, summary: SessionSummary) -> dict[str, Any]:
+        payload = json.dumps(summary.to_dict(), sort_keys=True, ensure_ascii=True, default=str)
+        return json.loads(payload)
+
+    def _validator_accepts_plan(self) -> bool:
+        if self._validator is None:
+            return False
+        try:
+            signature = inspect.signature(self._validator.verify_milestone)
+        except (TypeError, ValueError):
+            return False
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()):
+            return True
+        return "plan" in signature.parameters
 
     async def _emit_hook(self, phase: HookPhase, payload: dict[str, Any]) -> None:
         """Emit a hook payload via the extension point (best-effort)."""

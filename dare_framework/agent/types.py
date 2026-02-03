@@ -6,7 +6,17 @@ agent implementations under `_internal/`.
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any, Protocol, TypeAlias
+
+from dare_framework.plan.types import SessionSummary
 
 AgentDeps: TypeAlias = Any
 
+
+class ISessionSummaryStore(Protocol):
+    """Optional persistence hook for SessionSummary objects."""
+
+    async def save(self, summary: SessionSummary) -> None: ...
+
+
+__all__ = ["AgentDeps", "ISessionSummaryStore"]

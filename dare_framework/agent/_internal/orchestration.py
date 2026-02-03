@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-from dare_framework.plan.types import Milestone
+from dare_framework.config.types import Config
+from dare_framework.plan.types import Milestone, MilestoneSummary, SessionSummary
 
 
 @dataclass
@@ -17,6 +18,7 @@ class MilestoneState:
     """Internal milestone state holder used for plan isolation and verification."""
 
     milestone: Milestone
+    attempts: int = 0
     reflections: list[str] = field(default_factory=list)
     attempted_plans: list[dict[str, Any]] = field(default_factory=list)
     evidence_collected: list[Any] = field(default_factory=list)
@@ -35,6 +37,19 @@ class MilestoneState:
 
 
 @dataclass
+class SessionContext:
+    """Session-level context snapshot used for lifecycle management."""
+
+    session_id: str
+    task_id: str
+    config: Config | None = None
+    config_hash: str | None = None
+    previous_session_summary: SessionSummary | None = None
+    milestone_summaries: list[MilestoneSummary] = field(default_factory=list)
+    started_at: float | None = None
+
+
+@dataclass
 class SessionState:
     """Session-level state holder."""
 
@@ -42,6 +57,7 @@ class SessionState:
     run_id: str = field(default_factory=lambda: uuid4().hex)
     milestone_states: list[MilestoneState] = field(default_factory=list)
     current_milestone_idx: int = 0
+    session_context: SessionContext | None = None
 
     @property
     def current_milestone_state(self) -> MilestoneState | None:
@@ -51,4 +67,4 @@ class SessionState:
         return None
 
 
-__all__ = ["MilestoneState", "SessionState"]
+__all__ = ["MilestoneState", "SessionContext", "SessionState"]

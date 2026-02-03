@@ -23,7 +23,7 @@ from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.model import OpenRouterModelAdapter
-from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
+from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task, SessionSummary
 from dare_framework.tool import ReadFileTool, WriteFileTool, SearchCodeTool, RunCommandTool, RunContext
 
 from validators.file_validator import FileExistsValidator
@@ -63,6 +63,7 @@ class CLISessionState:
     status: SessionStatus = SessionStatus.IDLE
     pending_plan: Any | None = None
     pending_task_description: str | None = None
+    last_session_summary: SessionSummary | None = None
 
     def reset_task(self) -> None:
         self.status = SessionStatus.IDLE
@@ -260,15 +261,33 @@ async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: C
     return plan
 
 
-async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
+async def run_task(
+    agent: Any,
+    task_text: str,
+    display: CLIDisplay,
+    previous_summary: SessionSummary | None = None,
+) -> SessionSummary | None:
     display.header("EXECUTION")
-    result = await agent.run(Task(description=task_text))
+    result = await agent.run(
+        Task(
+            description=task_text,
+            previous_session_summary=previous_summary,
+        )
+    )
     if result.success:
         display.ok("task completed")
     else:
         display.error("task failed")
         if result.errors:
             display.error(f"errors: {result.errors}")
+    if result.output is not None:
+        if isinstance(result.output, dict) and "content" in result.output:
+            display.info(f"reply: {result.output['content']}")
+        else:
+            display.info(f"output: {result.output}")
+    if result.session_summary is not None:
+        display.info(f"session_summary captured: {result.session_summary.session_id}")
+    return result.session_summary
 
 
 async def run_cli_loop(
@@ -318,7 +337,12 @@ async def run_cli_loop(
                     display.warn("no pending plan")
                     continue
                 state.status = SessionStatus.RUNNING
-                await run_task(agent, state.pending_task_description, display)
+                state.last_session_summary = await run_task(
+                    agent,
+                    state.pending_task_description,
+                    display,
+                    previous_summary=state.last_session_summary,
+                )
                 state.reset_task()
                 continue
             if cmd.type == CommandType.REJECT:
@@ -338,7 +362,12 @@ async def run_cli_loop(
             display.info("type /approve to execute or /reject to cancel")
         else:
             state.status = SessionStatus.RUNNING
-            await run_task(agent, task_text, display)
+            state.last_session_summary = await run_task(
+                agent,
+                task_text,
+                display,
+                previous_summary=state.last_session_summary,
+            )
             state.reset_task()
 
     return (state, quit_requested)

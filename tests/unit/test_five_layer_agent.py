@@ -11,6 +11,7 @@ import pytest
 from dare_framework.agent import DareAgent
 from dare_framework.context import Budget, Context, Message
 from dare_framework.model.types import ModelInput, ModelResponse
+from dare_framework.plan.types import SessionSummary, Task
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityKind, CapabilityType
 
 
@@ -105,6 +106,19 @@ class MockEventLog:
 
     async def append(self, event_type: str, payload: dict[str, Any]) -> None:
         self.events.append((event_type, payload))
+
+
+class MockConfigProvider:
+    """Mock config provider for testing."""
+
+    def __init__(self, config: Any) -> None:
+        self._config = config
+
+    def current(self) -> Any:
+        return self._config
+
+    def reload(self) -> Any:
+        return self._config
 
 
 # =============================================================================
@@ -369,6 +383,91 @@ class TestFiveLayerMode:
         state = agent._session_state.current_milestone_state
         assert state is not None
         assert any("plan tool encountered" in text for text in state.reflections)
+
+    @pytest.mark.asyncio
+    async def test_run_result_includes_session_summary(self) -> None:
+        """Session loop returns session_id and session_summary in RunResult."""
+        model = MockModelAdapter()
+        planner = MockPlanner()
+        validator = MockValidator()
+        agent = DareAgent(
+            name="five-layer-agent",
+            model=model,
+            planner=planner,
+            validator=validator,
+        )
+
+        result = await agent.run("Summarize this run")
+
+        assert result.session_id is not None
+        assert result.session_summary is not None
+        assert result.session_summary.session_id == result.session_id
+        assert result.session_summary.task_id is not None
+        assert len(result.session_summary.milestones) == 1
+
+    @pytest.mark.asyncio
+    async def test_previous_session_summary_injected(self) -> None:
+        """Previous session summary is injected into STM before user input."""
+        model = MockModelAdapter()
+        planner = MockPlanner()
+        validator = MockValidator()
+        agent = DareAgent(
+            name="five-layer-agent",
+            model=model,
+            planner=planner,
+            validator=validator,
+        )
+
+        previous_summary = SessionSummary(
+            session_id="session_prev",
+            task_id="task_prev",
+            success=True,
+            started_at=0.0,
+            ended_at=1.0,
+            duration_ms=1000.0,
+            milestones=[],
+            final_output=None,
+            errors=[],
+            metadata={},
+        )
+
+        await agent.run(
+            Task(
+                description="Follow-up task",
+                previous_session_summary=previous_summary,
+            )
+        )
+
+        messages = agent._context.stm_get()
+        assert messages[0].role == "system"
+        assert "Previous session summary" in (messages[0].content or "")
+        assert messages[1].role == "user"
+        assert "Follow-up task" in (messages[1].content or "")
+
+    @pytest.mark.asyncio
+    async def test_session_start_includes_config_hash(self) -> None:
+        """Session start event includes config_hash when ConfigProvider is set."""
+        from dare_framework.config.types import Config
+
+        model = MockModelAdapter()
+        planner = MockPlanner()
+        validator = MockValidator()
+        event_log = MockEventLog()
+        config_provider = MockConfigProvider(Config())
+        agent = DareAgent(
+            name="five-layer-agent",
+            model=model,
+            planner=planner,
+            validator=validator,
+            event_log=event_log,
+            config_provider=config_provider,
+        )
+
+        await agent.run("Task with config")
+
+        session_start = [e for e in event_log.events if e[0] == "session.start"]
+        assert session_start
+        assert session_start[0][1].get("config_hash")
 
 
 if __name__ == "__main__":

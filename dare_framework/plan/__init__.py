@@ -12,9 +12,11 @@ from dare_framework.plan.types import (
     DonePredicate,
     Envelope,
     Milestone,
+    MilestoneSummary,
     ProposedPlan,
     ProposedStep,
     RunResult,
+    SessionSummary,
     Task,
     ToolLoopRequest,
     ValidatedPlan,
@@ -36,9 +38,11 @@ __all__ = [
     "DonePredicate",
     "Envelope",
     "Milestone",
+    "MilestoneSummary",
     "ProposedPlan",
     "ProposedStep",
     "RunResult",
+    "SessionSummary",
     "Task",
     "ToolLoopRequest",
     "ValidatedPlan",
@@ -48,4 +52,3 @@ __all__ = [
     "DefaultPlanner",
     "DefaultRemediator",
 ]
-
