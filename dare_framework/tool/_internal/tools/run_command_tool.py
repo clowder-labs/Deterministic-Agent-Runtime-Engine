@@ -27,15 +27,24 @@ class RunCommandTool(ITool):
 
     @property
     def description(self) -> str:
-        return "Execute a shell command within an allowed workspace root."
+        return (
+            "Run an arbitrary shell command in the workspace (e.g. git, npm, pip, ls). "
+            "Use for general terminal commands. Do NOT use for skill scripts—use run_skill_script(skill_id, script_name) instead."
+        )
 
     @property
     def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "command": {"type": "string"},
-                "cwd": {"type": "string"},
+                "command": {
+                    "type": "string",
+                    "description": "Full shell command to run (e.g. 'git status', 'npm install'). Not for skill scripts—use run_skill_script for those.",
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory; must be inside workspace root.",
+                },
                 "timeout_seconds": {"type": "integer", "minimum": 1},
             },
             "required": ["command"],

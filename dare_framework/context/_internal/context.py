@@ -50,8 +50,11 @@ class Context(IContext):
     # System prompt definition (internal, for context assembly)
     _sys_prompt: "Prompt | None" = field(default=None, repr=False)
 
-    # Current skill (one at a time; injected at assemble time)
+    # Current skill (one at a time; persistent_skill_mode; merged into _sys_prompt at build time)
     _current_skill: "Skill | None" = field(default=None, repr=False)
+
+    # auto_skill_mode: dict of skill full content loaded by search_skill tool execution; assemble() merges into sys_prompt for next LLM input.
+    _loaded_full_skills: list["Skill"] = field(default_factory=list, repr=False)
 
     # Cached tool list
     toollist: list[dict[str, Any]] | None = None
@@ -156,17 +159,27 @@ class Context(IContext):
         """Get current skill, if any."""
         return self._current_skill
 
+    def add_loaded_full_skill(self, skill: "Skill") -> None:
+        """Append skill full content (auto_skill_mode). Called by search_skill tool execution; assemble() merges into sys_prompt."""
+        self._loaded_full_skills.append(skill)
+
+    def get_loaded_full_skills(self) -> list["Skill"]:
+        """Return skills loaded via search_skill (for assemble)."""
+        return list(self._loaded_full_skills)
+
     # ========== Assembly Methods (Core) ==========
 
     def assemble(self, **options) -> AssembledContext:
-        """Assemble context for LLM call. Can be overridden by subclasses."""
+        """Assemble context for LLM call. persistent: _sys_prompt already merged at build. auto: merge _loaded_full_skills (dict) into sys_prompt for next LLM input."""
         messages = self.stm_get()
         tools = self.listing_tools()
         sys_prompt = self._sys_prompt
-        if self._current_skill is not None and sys_prompt is not None:
-            from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
+        # persistent: no merge here (already in _sys_prompt at build). auto: merge dict (loaded full skills) into context for next LLM input.
+        for skill in self.get_loaded_full_skills():
+            if sys_prompt is not None:
+                from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
 
-            sys_prompt = enrich_prompt_with_skill(sys_prompt, self._current_skill)
+                sys_prompt = enrich_prompt_with_skill(sys_prompt, skill)
         return AssembledContext(
             messages=messages,
             sys_prompt=sys_prompt,
