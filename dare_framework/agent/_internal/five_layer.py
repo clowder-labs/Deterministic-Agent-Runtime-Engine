@@ -30,6 +30,7 @@ from dare_framework.context import AssembledContext, Context, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
 from dare_framework.hook.types import HookPhase
 from dare_framework.model import IModelAdapter, ModelInput
+from dare_framework.compression import compress_context
 from dare_framework.observability._internal.event_trace_bridge import make_trace_aware
 from dare_framework.observability._internal.otel_provider import (
     NoOpTelemetryProvider,
@@ -414,6 +415,9 @@ class DareAgent(BaseAgent):
         user_message = Message(role="user", content=task.description)
         self._context.stm_add(user_message)
 
+        # Centralized compression for degraded ReAct mode
+        compress_context(self._context, phase="react")
+
         # Run execute loop directly (no plan, no milestone)
         execute_result = await self._run_execute_loop(None)
 
@@ -447,6 +451,9 @@ class DareAgent(BaseAgent):
         # Add user message to STM
         user_message = Message(role="user", content=task.description)
         self._context.stm_add(user_message)
+
+        # Centralized compression for degraded Simple mode
+        compress_context(self._context, phase="simple_chat")
 
         # Budget check
         self._context.budget_check()
@@ -823,7 +830,9 @@ class DareAgent(BaseAgent):
                 "attempt": attempt + 1,
             })
 
-            # Assemble context for planning
+            # Assemble context for planning (with centralized compression)
+            compress_context(self._context, phase="plan")
+
             await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
             assembled = self._context.assemble()
             assembled_messages = self._assemble_messages(assembled)
@@ -920,7 +929,9 @@ class DareAgent(BaseAgent):
         # Budget check
         self._context.budget_check()
 
-        # Assemble context for execution
+        # Assemble context for execution（压缩策略集中在 compression 模块）
+        compress_context(self._context, phase="execute")
+
         await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
         assembled = self._context.assemble()
         assembled_messages = self._assemble_messages(assembled)
@@ -1083,6 +1094,7 @@ class DareAgent(BaseAgent):
                     errors.append(result_error or "tool failed")
 
             # Reassemble context with new messages for next iteration
+            compress_context(self._context, phase="execute")
             await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
             assembled = self._context.assemble()
             assembled_messages = self._assemble_messages(assembled)

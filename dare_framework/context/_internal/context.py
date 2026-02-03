@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from dare_framework.context.kernel import IContext, IRetrievalContext
 from dare_framework.context.types import AssembledContext, Budget, Message
+from dare_framework.compression import compress_context
 
 # ============================================================
 # Implementation
@@ -188,9 +189,13 @@ class Context(IContext):
         )
     
     def compress(self, **options: Any) -> None:
-        """Compress context to fit within budget; delegates to STM's compress."""
-        if self.short_term_memory is not None:
-            self.short_term_memory.compress(**options)
+        """Compress context to fit within budget.
+
+        NOTE:
+            - 实际压缩策略由 `dare_framework.compression.compress_context` 统一管理；
+            - 这里仅作为向后兼容入口，简单把自身 context 及参数转发过去。
+        """
+        compress_context(self, **options)
 
     # ========== Config Methods ==========
 

@@ -14,6 +14,7 @@ from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import Envelope
 from dare_framework.tool import IToolProvider
+from dare_framework.compression import compress_context
 
 if TYPE_CHECKING:
     from dare_framework.context import Budget
@@ -73,6 +74,9 @@ class ReactAgent(BaseAgent):
         has_invoke = gateway is not None and hasattr(gateway, "invoke")
 
         for _ in range(self._max_tool_rounds):
+            # Compress context centrally before assembling for this ReAct turn
+            compress_context(self._context, phase="react")
+
             assembled = self._context.assemble()
             messages = list(assembled.messages)
             prompt_def = getattr(assembled, "sys_prompt", None)

@@ -12,6 +12,7 @@ from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.tool import IToolProvider
+from dare_framework.compression import compress_context
 
 if TYPE_CHECKING:
     from dare_framework.context import Budget
@@ -103,7 +104,10 @@ class SimpleChatAgent(BaseAgent):
         user_message = Message(role="user", content=task)
         self._context.stm_add(user_message)
 
-        # 2. Assemble context for LLM call
+        # 2. Compress context (lightweight, centralized strategy)
+        compress_context(self._context, phase="simple_chat")
+
+        # 3. Assemble context for LLM call
         assembled = self._context.assemble()
 
         messages = list(assembled.messages)
@@ -119,30 +123,30 @@ class SimpleChatAgent(BaseAgent):
                 *messages,
             ]
 
-        # 3. Convert to ModelInput format
+        # 4. Convert to ModelInput format
         model_input = ModelInput(
             messages=messages,
             tools=assembled.tools,
             metadata=assembled.metadata,
         )
 
-        # 4. Generate model response
+        # 5. Generate model response
         response = await self._model.generate(model_input)
 
-        # 5. Add assistant response to short-term memory
+        # 6. Add assistant response to short-term memory
         assistant_message = Message(role="assistant", content=response.content)
         self._context.stm_add(assistant_message)
 
-        # 6. Record token usage if available
+        # 7. Record token usage if available
         if response.usage:
             tokens = response.usage.get("total_tokens", 0)
             if tokens:
                 self._context.budget_use("tokens", tokens)
 
-        # 7. Check budget
+        # 8. Check budget
         self._context.budget_check()
 
-        # 8. Return model response content directly
+        # 9. Return model response content directly
         return response.content
 
 
