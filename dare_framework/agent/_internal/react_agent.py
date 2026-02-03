@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from dare_framework.context import Budget
     from dare_framework.memory import IShortTermMemory, ILongTermMemory
     from dare_framework.knowledge import IKnowledge
+    from dare_framework.transport.kernel import AgentChannel
 
 
 class ReactAgent(BaseAgent):
@@ -43,8 +44,9 @@ class ReactAgent(BaseAgent):
         tools: IToolProvider | None = None,
         budget: Budget | None = None,
         max_tool_rounds: int = 10,
+        agent_channel: AgentChannel | None = None,
     ) -> None:
-        super().__init__(name)
+        super().__init__(name, agent_channel=agent_channel)
         self._model = model
         self._max_tool_rounds = max_tool_rounds
 

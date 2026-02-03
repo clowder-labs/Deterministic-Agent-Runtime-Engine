@@ -1,22 +1,22 @@
 # Transport Domain 设计文档（MVP）
 
-> 状态：Draft / 待评审  
-> 目标：为 Agent 与 Client（CLI / WebSocket / HTTP / Direct Test）提供一个轻量、可落地的消息交互骨架。  
-> 核心原则：**Message 内容无关**、**编排解耦**、**默认阻塞回压**、**避免栈穿透**、**事件驱动 Bridge 不强制 start**。
+> 状态：Draft / 待评审
+> 目标：为 Agent 与 Client（CLI / WebSocket / HTTP / Direct Test）提供一个轻量、可落地的消息交互骨架。
+> 核心原则：**TransportEnvelope 内容无关**、**编排解耦**、**默认阻塞回压**、**避免栈穿透**、**事件驱动 Protocol 不强制 start**。
 
 ---
 
 ## 目录
 
-1. [目标与非目标](#1-目标与非目标)  
-2. [核心概念与职责](#2-核心概念与职责)  
-3. [Message 约定](#3-message-约定内容无关-envelope)  
-4. [接口定义（MVP）](#4-接口定义mvp)  
-5. [并发模型与泵（Pump）](#5-并发模型与泵pump)  
-6. [数据流与控制流](#6-数据流与控制流)  
-7. [回压策略（MVP：默认阻塞）](#7-回压策略mvp默认阻塞)  
-8. [使用方式](#8-使用方式)  
-9. [参考实现骨架（Python asyncio）](#9-参考实现骨架python-asyncio)  
+1. [目标与非目标](#1-目标与非目标)
+2. [核心概念与职责](#2-核心概念与职责)
+3. [TransportEnvelope 约定](#3-transportenvelope-约定内容无关-envelope)
+4. [接口定义（MVP）](#4-接口定义mvp)
+5. [并发模型与泵（Pump）](#5-并发模型与泵pump)
+6. [数据流与控制流](#6-数据流与控制流)
+7. [回压策略（MVP：默认阻塞）](#7-回压策略mvp默认阻塞)
+8. [使用方式](#8-使用方式)
+9. [参考实现骨架（Python asyncio）](#9-参考实现骨架python-asyncio)
 10. [后续扩展（非 MVP）](#10-后续扩展非-mvp)
 
 ---
@@ -25,8 +25,8 @@
 
 ### 1.1 Goals
 
-1. **编排解耦**：Agent 侧仅依赖一个稳定接口 `AgentTransport`（`poll/send/run_interruptable/interrupt/start`）。
-2. **统一接入**：不同 client 形态通过 `TransportBridge` 接入；Bridge 仅需要提供：
+1. **编排解耦**：Agent 侧仅依赖一个稳定接口 `AgentChannel`（`poll/send/run_interruptible/interrupt/start/stop`）。
+2. **统一接入**：不同 client 形态通过 `ClientChannel` 接入；ClientChannel 仅需要提供：
    - 注入 sender（client→agent）
    - 提供 receiver（agent→client）
 3. **MVP 快速落地**：默认阻塞式回压（队列满则 await）。
@@ -34,54 +34,56 @@
 
 ### 1.2 Non-goals
 
-- 不自研网络协议/编解码/bytes framing（跨进程序列化留给 Bridge 自己实现）。
+- 不自研网络协议/编解码/bytes framing（跨进程序列化留给 ClientChannel 自己实现）。
 - 不实现 Netty 全套事件/flush/handler pipeline。
-- 不在 Transport 内部管理 WebSocket/HTTP server 生命周期（server 属于接入层；每个会话实例化一个 Bridge）。
+- 不在 AgentChannel 内部管理 WebSocket/HTTP server 生命周期（server 属于接入层；每个会话实例化一个 ClientChannel）。
 
 ---
 
 ## 2. 核心概念与职责
 
-本设计只有三个核心角色：`TransportBridge`、`Transport`、`AgentTransport`。
+本设计只有三个核心角色：`ClientChannel`、`AgentChannel`、`TransportEnvelope`。
 
-### 2.1 TransportBridge（Client 接入桥）
+### 2.1 ClientChannel（Client 接入桥）
 
 由 client 侧提供，用于桥接“外部会话世界”和“Agent 消息世界”。
 
 **必需接口：**
 
-1. `attach_agent_message_sender(sender)`  
-   - `Transport.build()` 时注入  
-   - Bridge 保存该 sender，在外部事件到来时调用它，将 client 输入发给 agent
-2. `agent_message_receiver() -> receiver`  
-   - Bridge 返回一个 receiver  
-   - 当 agent 有输出消息时，Transport 内部投递泵会调用 receiver，将消息交付给 client（stdout / ws.send / future resolve 等）
+1. `attach_agent_envelope_sender(sender)`
+   - `AgentChannel.build()` 时注入
+   - ClientChannel 保存该 sender，在外部事件到来时调用它，将 client 输入发给 agent
+2. `agent_envelope_receiver() -> receiver`
+   - ClientChannel 返回一个 receiver
+   - 当 agent 有输出消息时，AgentChannel 内部投递泵会调用 receiver，将消息交付给 client（stdout / ws.send / future resolve 等）
 
-**可选接口（仅需要自跑循环的 Bridge 才实现）：**
+**可选接口（仅需要自跑循环的 ClientChannel 才实现）：**
 
 - `start()`：例如 Stdio 需要持续读 stdin（WebSocket/HTTP 通常不需要）
-- `stop()`：MVP 可不实现，后续扩展
+- `stop()`：可选；用于关闭输入循环（若有）
 
-> WebSocket/HTTP 等事件驱动接入通常不需要 `start()`：输入由框架回调触发，Bridge 只在回调中调用保存的 sender。
+> WebSocket/HTTP 等事件驱动接入通常不需要 `start()`：输入由框架回调触发，ClientChannel 只在回调中调用保存的 sender。
 
 ---
 
-### 2.2 Transport（构建与 wiring）
+### 2.2 AgentChannel.build（构建与 wiring）
 
 框架提供的构建入口：
 
-- `Transport.build(bridge)`  
-  - 创建一个固定实现的 `AgentTransport`  
-  - 从 Bridge 获取 receiver  
-  - 向 Bridge 注入 sender（用于将输入写入 `AgentTransport.inbox`）  
-  - 返回 `AgentTransport` 给 AgentBuilder/Agent 使用
+- `AgentChannel.build(client_channel)`
+  - 创建一个固定实现的 `AgentChannel`
+  - 从 ClientChannel 获取 receiver
+  - 向 ClientChannel 注入 sender（用于将输入写入 `AgentChannel.inbox`）
+  - 返回 `AgentChannel` 给 AgentBuilder/Agent 使用
 
-**对外只返回一个对象：`AgentTransport`**。  
-Transport 内部不暴露 endpoint pair；“输出是另一个的输入”的连接关系通过函数引用注册 + 队列投递完成。
+> MVP 默认实现为 `DefaultAgentChannel.build`，对外以 `AgentChannel.build` 作为构建入口。
+
+**对外只返回一个对象：`AgentChannel`**。
+AgentChannel 内部不暴露 endpoint pair；“输出是另一个的输入”的连接关系通过函数引用注册 + 队列投递完成。
 
 ---
 
-### 2.3 AgentTransport（Agent 稳定交互口，固定实现）
+### 2.3 AgentChannel（Agent 稳定交互口，固定实现）
 
 Agent 持有它，并通过它进行通信与中断控制。
 
@@ -93,18 +95,23 @@ Agent 持有它，并通过它进行通信与中断控制。
 - 默认阻塞回压：
   - `poll()` 阻塞等输入
   - `send()` 若 outbox 满则 await
-  - bridge sender 若 inbox 满则 await
+  - ClientChannel sender 若 inbox 满则 await
 - 在 `start()` 中启动内部 pump：
   - outbox → receiver：把 agent 输出投递给 client
+- `start()` 幂等；重复调用不应启动多个 pump
+- `stop()` 停止投递泵，允许丢弃待发送消息（不保证 flush）
+- receiver/sender 异常记录日志但不中断泵与通道
+- 可选 encoder/decoder 在 AgentChannel 边界做 envelope 变换（例如 schema 适配或脱敏）
+- 若 ClientChannel 需要输入循环（如 stdio），需要由调用方显式启动 `client_channel.start()`
 - 提供中断语义：
-  - `run_interruptable` 保存当前任务
+  - `run_interruptible` 保存当前任务
   - `interrupt()` 取消当前任务（Task.cancel）
 
 ---
 
-## 3. Message 约定（内容无关 Envelope）
+## 3. TransportEnvelope 约定（内容无关 Envelope）
 
-Message payload 可以是：
+TransportEnvelope payload 可以是：
 
 - chunk（流式输出）
 - thinking（思考过程）
@@ -123,23 +130,26 @@ Message payload 可以是：
 - `stream_id: Optional[str]`
 - `seq: Optional[int]`
 
+> `TransportEnvelope` 与 `context.Message` 解耦，transport 层不假设对话语义。
+> 若提供 `stream_id/seq`，要求同一 stream 内 `seq` 单调递增；接收顺序以队列顺序为准，不做重排。
+
 **Interrupt 约定：**
 
 - `kind="control"` 且 `type="interrupt"`
 
-> MVP 阶段 interrupt 消息进入 inbox，由 agent 业务侧识别并调用 `transport.interrupt()`；  
+> MVP 阶段 interrupt 消息进入 inbox，由 agent 业务侧识别并调用 `AgentChannel.interrupt()`；
 > 或后续增强为：sender 收到 interrupt 立即抢占取消（非 MVP 必需）。
 
 ---
 
 ## 4. 接口定义（MVP）
 
-### 4.1 Protocol 形式（Python typing）
+### 4.1 ClientChannel 形式（Python typing）
 
 ```python
 from typing import Protocol, Callable, Awaitable, Optional, Any, Dict
 
-class Message(Protocol):
+class TransportEnvelope(Protocol):
     id: str
     reply_to: Optional[str]
     kind: str
@@ -149,23 +159,31 @@ class Message(Protocol):
     stream_id: Optional[str]
     seq: Optional[int]
 
-Sender   = Callable[[Message], Awaitable[None]]
-Receiver = Callable[[Message], Awaitable[None]]
+Sender   = Callable[[TransportEnvelope], Awaitable[None]]
+Receiver = Callable[[TransportEnvelope], Awaitable[None]]
+Encoder  = Callable[[TransportEnvelope], TransportEnvelope]
+Decoder  = Callable[[TransportEnvelope], TransportEnvelope]
 
-class TransportBridge(Protocol):
-    def attach_agent_message_sender(self, sender: Sender) -> None: ...
-    def agent_message_receiver(self) -> Receiver: ...
+class ClientChannel(Protocol):
+    def attach_agent_envelope_sender(self, sender: Sender) -> None: ...
+    def agent_envelope_receiver(self) -> Receiver: ...
 
-class AgentTransport(Protocol):
+class AgentChannel(Protocol):
     async def start(self) -> None: ...
-    async def poll(self) -> Message: ...
-    async def send(self, msg: Message) -> None: ...
-    async def run_interruptable(self, coro: Awaitable[Any]) -> Any: ...
+    async def stop(self) -> None: ...
+    async def poll(self) -> TransportEnvelope: ...
+    async def send(self, msg: TransportEnvelope) -> None: ...
+    async def run_interruptible(self, coro: Awaitable[Any]) -> Any: ...
     def interrupt(self) -> None: ...
-
-class Transport(Protocol):
     @staticmethod
-    def build(bridge: TransportBridge, *, max_inbox=100, max_outbox=100) -> AgentTransport: ...
+    def build(
+        client_channel: ClientChannel,
+        *,
+        max_inbox=100,
+        max_outbox=100,
+        encoder: Callable[[TransportEnvelope], TransportEnvelope] | None = None,
+        decoder: Callable[[TransportEnvelope], TransportEnvelope] | None = None,
+    ) -> "AgentChannel": ...
 ```
 
 ---
@@ -176,8 +194,8 @@ class Transport(Protocol):
 
 必须避免以下情况：
 
-- Bridge 调用 sender 的调用栈中，直接执行 agent 的业务逻辑（会导致递归/重入/难以回压）
-- Agent 调用 `send()` 的调用栈中，直接执行 bridge receiver（会导致栈穿透、吞吐不稳定、异常边界不清晰）
+- ClientChannel 调用 sender 的调用栈中，直接执行 agent 的业务逻辑（会导致递归/重入/难以回压）
+- Agent 调用 `send()` 的调用栈中，直接执行 ClientChannel receiver（会导致栈穿透、吞吐不稳定、异常边界不清晰）
 
 因此约定：
 
@@ -185,21 +203,24 @@ class Transport(Protocol):
 - `send()` **只入队** `outbox`（可能阻塞回压）
 - receiver 的调用通过 pump task 异步完成
 
-### 5.2 AgentTransport.start() 启动 outbox → receiver 的投递泵
+### 5.2 AgentChannel.start() 启动 outbox → receiver 的投递泵
 
-`AgentTransport.start()` 启动一个后台任务（pump）：
+`AgentChannel.start()` 启动一个后台任务（pump）：
 
 - `msg = await outbox.get()`
 - `await receiver(msg)`
+- receiver 抛异常需记录日志并继续泵送后续消息
 
-这样即使 WebSocket Bridge 没有 `start()`，仍能持续收到 agent 输出。
+这样即使 WebSocket ClientChannel 没有 `start()`，仍能持续收到 agent 输出。
 
 ### 5.3 Agent 的运行模型建议
 
 Agent 侧通常做两件事：
 
-1. `await transport.start()`（启动投递泵）
-2. 业务循环：`msg = await transport.poll()` → `process(msg)` → `await transport.send(output)`
+1. `await channel.start()`（启动投递泵）
+2. 业务循环：`msg = await channel.poll()` → `process(msg)` → `await channel.send(output)`
+
+> Agent 持有 `AgentChannel` 并在编排内部直接调用其方法（无需额外的 loop helper）。
 
 ---
 
@@ -207,22 +228,22 @@ Agent 侧通常做两件事：
 
 ### 6.1 client → agent（输入）
 
-1. 外部事件源（stdin/ws/http callback）构造 Message
-2. Bridge 在事件回调中调用保存的 `sender(msg)`
+1. 外部事件源（stdin/ws/http callback）构造 TransportEnvelope
+2. ClientChannel 在事件回调中调用保存的 `sender(msg)`
 3. sender 将 msg `await inbox.put(msg)`（阻塞回压）
-4. agent 业务循环 `await transport.poll()` 得到 msg 并处理
+4. agent 业务循环 `await channel.poll()` 得到 msg 并处理
 
 ### 6.2 agent → client（输出）
 
-1. agent 调用 `await transport.send(msg)` → `await outbox.put(msg)`
+1. agent 调用 `await channel.send(msg)` → `await outbox.put(msg)`
 2. outbox pump 从 outbox 取 msg 并调用 `await receiver(msg)`
 3. receiver 将消息写到 stdout/ws/http response/resolve future
 
 ### 6.3 interrupt（MVP）
 
-1. Bridge 发送 interrupt 消息：`Message(kind="control", type="interrupt")`（进入 inbox）
-2. agent 侧在处理该消息时调用 `transport.interrupt()`
-3. interrupt 取消当前 `run_interruptable` 任务
+1. ClientChannel 发送 interrupt 消息：`TransportEnvelope(kind="control", type="interrupt")`（进入 inbox）
+2. agent 侧在处理该消息时调用 `channel.interrupt()`
+3. interrupt 取消当前 `run_interruptible` 任务
 
 ---
 
@@ -236,39 +257,41 @@ Agent 侧通常做两件事：
 
 ## 8. 使用方式
 
-### 8.1 WebSocket（事件驱动，无需 bridge.start）
+### 8.1 WebSocket（事件驱动，无需 ClientChannel.start）
 
 ```python
-bridge = WebSocketBridge(ws)       # 实现 sender 注入 + receiver 返回
-transport = Transport.build(bridge)
+client_channel = WebSocketClientChannel(ws)  # 实现 sender 注入 + receiver 返回
+channel = AgentChannel.build(client_channel)
 
-agent = AgentBuilder().with_transport(transport).build()
-await agent.start()                # agent.start 内部会调用 transport.start()
-
-# ws 框架回调：
-# await bridge.handle_ws_message(raw)  # 内部调用保存的 sender(msg)
-```
-
-### 8.2 Stdio（需要输入循环，所以 bridge.start）
-
-```python
-bridge = StdioBridge()
-transport = Transport.build(bridge)
-
-agent = AgentBuilder().with_transport(transport).build()
-await asyncio.gather(agent.start(), bridge.start())
-```
-
-### 8.3 DirectClient（ask）
-
-```python
-bridge = DirectClientBridge()
-transport = Transport.build(bridge)
-
-agent = AgentBuilder().with_transport(transport).build()
+agent = AgentBuilder().with_agent_channel(channel).build()
 await agent.start()
 
-resp = await bridge.ask(req)
+# ws 框架回调：
+# await client_channel.handle_ws_message(raw)  # 内部调用保存的 sender(msg)
+# agent.start() 会启动内部 poll loop，无需额外执行
+```
+
+### 8.2 Stdio（需要输入循环，需要 ClientChannel.start）
+
+```python
+client_channel = StdioClientChannel()
+channel = AgentChannel.build(client_channel)
+
+agent = AgentBuilder().with_agent_channel(channel).build()
+await agent.start()
+await client_channel.start()
+```
+
+### 8.3 DirectClientChannel（ask）
+
+```python
+client_channel = DirectClientChannel()
+channel = AgentChannel.build(client_channel)
+
+agent = AgentBuilder().with_agent_channel(channel).build()
+await agent.start()
+
+resp = await client_channel.ask(req)
 ```
 
 ---
@@ -279,14 +302,16 @@ resp = await bridge.ask(req)
 
 ```python
 import asyncio
+import contextlib
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Optional, Protocol
 
-# ---------- Message ----------
+# ---------- TransportEnvelope ----------
 
 @dataclass
-class Message:
+class TransportEnvelope:
     id: str
     reply_to: Optional[str] = None
     kind: str = "data"       # "data" | "control"
@@ -299,50 +324,84 @@ class Message:
 def new_id() -> str:
     return uuid.uuid4().hex
 
-Sender   = Callable[[Message], Awaitable[None]]
-Receiver = Callable[[Message], Awaitable[None]]
+Sender   = Callable[[TransportEnvelope], Awaitable[None]]
+Receiver = Callable[[TransportEnvelope], Awaitable[None]]
 
-# ---------- Bridge ----------
+# ---------- ClientChannel ----------
 
-class TransportBridge(Protocol):
-    def attach_agent_message_sender(self, sender: Sender) -> None: ...
-    def agent_message_receiver(self) -> Receiver: ...
+class ClientChannel(Protocol):
+    def attach_agent_envelope_sender(self, sender: Sender) -> None: ...
+    def agent_envelope_receiver(self) -> Receiver: ...
 
-# ---------- AgentTransport ----------
+# ---------- AgentChannel ----------
 
-class AgentTransport(Protocol):
+class AgentChannel(Protocol):
     async def start(self) -> None: ...
-    async def poll(self) -> Message: ...
-    async def send(self, msg: Message) -> None: ...
-    async def run_interruptable(self, coro: Awaitable[Any]) -> Any: ...
+    async def stop(self) -> None: ...
+    async def poll(self) -> TransportEnvelope: ...
+    async def send(self, msg: TransportEnvelope) -> None: ...
+    async def run_interruptible(self, coro: Awaitable[Any]) -> Any: ...
     def interrupt(self) -> None: ...
-
-# ---------- Transport (builder) ----------
-
-class Transport:
     @staticmethod
-    def build(bridge: TransportBridge, *, max_inbox=100, max_outbox=100) -> AgentTransport:
-        return DefaultAgentTransport(bridge, max_inbox=max_inbox, max_outbox=max_outbox)
+    def build(
+        client_channel: ClientChannel,
+        *,
+        max_inbox=100,
+        max_outbox=100,
+        encoder: Encoder | None = None,
+        decoder: Decoder | None = None,
+    ) -> "AgentChannel": ...
 
-# ---------- DefaultAgentTransport (固定实现) ----------
+# ---------- DefaultAgentChannel (固定实现；AgentChannel.build 默认实现) ----------
 
-class DefaultAgentTransport(AgentTransport):
-    def __init__(self, bridge: TransportBridge, *, max_inbox: int, max_outbox: int):
-        self._bridge = bridge
-        self._receiver: Receiver = bridge.agent_message_receiver()
+class DefaultAgentChannel(AgentChannel):
+    @staticmethod
+    def build(
+        client_channel: ClientChannel,
+        *,
+        max_inbox=100,
+        max_outbox=100,
+        encoder: Encoder | None = None,
+        decoder: Decoder | None = None,
+    ) -> "AgentChannel":
+        """Factory for the default channel (used by AgentChannel.build)."""
+        return DefaultAgentChannel(
+            client_channel,
+            max_inbox=max_inbox,
+            max_outbox=max_outbox,
+            encoder=encoder,
+            decoder=decoder,
+        )
 
-        self._inbox: asyncio.Queue[Message] = asyncio.Queue(maxsize=max_inbox)
-        self._outbox: asyncio.Queue[Message] = asyncio.Queue(maxsize=max_outbox)
+    def __init__(
+        self,
+        client_channel: ClientChannel,
+        *,
+        max_inbox: int,
+        max_outbox: int,
+        encoder: Encoder | None,
+        decoder: Decoder | None,
+    ):
+        self._client = client_channel
+        self._receiver: Receiver = client_channel.agent_envelope_receiver()
+        self._encoder = encoder or (lambda env: env)
+        self._decoder = decoder or (lambda env: env)
+
+        self._inbox: asyncio.Queue[TransportEnvelope] = asyncio.Queue(maxsize=max_inbox)
+        self._outbox: asyncio.Queue[TransportEnvelope] = asyncio.Queue(maxsize=max_outbox)
 
         self._current_task: Optional[asyncio.Task] = None
         self._started = False
         self._out_pump_task: Optional[asyncio.Task] = None
 
         # 注入 sender：client -> agent（只入队，默认阻塞回压）
-        async def sender(msg: Message) -> None:
-            await self._inbox.put(msg)
+        async def sender(msg: TransportEnvelope) -> None:
+            try:
+                await self._inbox.put(self._decoder(msg))
+            except Exception:
+                logging.exception("agent channel sender failed")
 
-        bridge.attach_agent_message_sender(sender)
+        client_channel.attach_agent_envelope_sender(sender)
 
     async def start(self) -> None:
         if self._started:
@@ -350,17 +409,34 @@ class DefaultAgentTransport(AgentTransport):
         self._started = True
         self._out_pump_task = asyncio.create_task(self._pump_outbox_to_receiver())
 
-    async def poll(self) -> Message:
+    async def stop(self) -> None:
+        if not self._started:
+            return
+        self._started = False
+        if self._out_pump_task:
+            self._out_pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._out_pump_task
+        # Drop pending outgoing messages by draining the queue.
+        while not self._outbox.empty():
+            self._outbox.get_nowait()
+
+    async def poll(self) -> TransportEnvelope:
         return await self._inbox.get()
 
-    async def send(self, msg: Message) -> None:
-        await self._outbox.put(msg)
+    async def send(self, msg: TransportEnvelope) -> None:
+        try:
+            encoded = self._encoder(msg)
+        except Exception:
+            logging.exception("agent channel encoder failed")
+            return
+        await self._outbox.put(encoded)
 
     def interrupt(self) -> None:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
-    async def run_interruptable(self, coro: Awaitable[Any]) -> Any:
+    async def run_interruptible(self, coro: Awaitable[Any]) -> Any:
         self._current_task = asyncio.create_task(coro)
         try:
             return await self._current_task
@@ -370,19 +446,22 @@ class DefaultAgentTransport(AgentTransport):
     async def _pump_outbox_to_receiver(self) -> None:
         while True:
             msg = await self._outbox.get()
-            await self._receiver(msg)
+            try:
+                await self._receiver(msg)
+            except Exception:
+                logging.exception("agent channel receiver failed")
 
-# ---------- Example: StdioBridge ----------
+# ---------- Example: StdioClientChannel ----------
 
-class StdioBridge:
+class StdioClientChannel:
     def __init__(self):
         self._sender: Optional[Sender] = None
 
-    def attach_agent_message_sender(self, sender: Sender) -> None:
+    def attach_agent_envelope_sender(self, sender: Sender) -> None:
         self._sender = sender
 
-    def agent_message_receiver(self) -> Receiver:
-        async def recv(msg: Message) -> None:
+    def agent_envelope_receiver(self) -> Receiver:
+        async def recv(msg: TransportEnvelope) -> None:
             print(f"[agent] {msg.type}: {msg.payload}")
         return recv
 
@@ -393,46 +472,46 @@ class StdioBridge:
             line = line.strip()
             if not line:
                 continue
-            await self._sender(Message(id=new_id(), type="prompt", payload=line))
+            await self._sender(TransportEnvelope(id=new_id(), type="prompt", payload=line))
 
-# ---------- Example: WebSocketBridge (事件驱动，无需 start) ----------
+# ---------- Example: WebSocketClientChannel (事件驱动，无需 start) ----------
 
-class WebSocketBridge:
+class WebSocketClientChannel:
     def __init__(self, ws):
         self.ws = ws
         self._sender: Optional[Sender] = None
 
-    def attach_agent_message_sender(self, sender: Sender) -> None:
+    def attach_agent_envelope_sender(self, sender: Sender) -> None:
         self._sender = sender
 
-    def agent_message_receiver(self) -> Receiver:
-        async def recv(msg: Message) -> None:
+    def agent_envelope_receiver(self) -> Receiver:
+        async def recv(msg: TransportEnvelope) -> None:
             await self.ws.send(str({"type": msg.type, "payload": msg.payload, "reply_to": msg.reply_to}))
         return recv
 
     async def handle_ws_message(self, raw: str) -> None:
         assert self._sender is not None
-        await self._sender(Message(id=new_id(), type="prompt", payload=raw))
+        await self._sender(TransportEnvelope(id=new_id(), type="prompt", payload=raw))
 
-# ---------- Example: DirectClientBridge (ask) ----------
+# ---------- Example: DirectClientChannel (ask) ----------
 
-class DirectClientBridge:
+class DirectClientChannel:
     def __init__(self):
         self._sender: Optional[Sender] = None
         self._pending: Dict[str, asyncio.Future] = {}
 
-    def attach_agent_message_sender(self, sender: Sender) -> None:
+    def attach_agent_envelope_sender(self, sender: Sender) -> None:
         self._sender = sender
 
-    def agent_message_receiver(self) -> Receiver:
-        async def recv(msg: Message) -> None:
+    def agent_envelope_receiver(self) -> Receiver:
+        async def recv(msg: TransportEnvelope) -> None:
             if msg.reply_to and msg.reply_to in self._pending:
                 fut = self._pending[msg.reply_to]
                 if not fut.done():
                     fut.set_result(msg)
         return recv
 
-    async def ask(self, req: Message, timeout: float = 30.0) -> Message:
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
         assert self._sender is not None
         if not req.id:
             req.id = new_id()
@@ -451,6 +530,6 @@ class DirectClientBridge:
 ## 10. 后续扩展（非 MVP）
 
 1. interrupt 抢占：sender 收到 interrupt 是否立即 cancel，而不是等 agent poll
-2. stop/close 语义：transport/agent/bridge 如何优雅退出、取消 pump task、清理 pending
+2. drain/flush 语义：`stop()` 时是否等待 outbox 清空或提供超时策略
 3. outbox 合并/限频：对 chunk/thinking 做合并策略
-4. 错误处理：receiver 抛异常如何处理（是否停泵、是否上报）
+4. 错误策略：重试/退避/指标上报等更细粒度策略

@@ -28,8 +28,6 @@
 
 DARE 是一个 **framework**，用于构建不同类型的 Agent Runtime，而不是交付某个具体 Agent 产品。
 
-目标是：将项目收敛为 `dare_framework/` 下**单一一致**的架构与接口面，然后删除/归档历史迭代目录与冗余文档。
-
 ### 1.2 设计目标（优化方向）
 
 - **可审计/可复验**：关键决策可追溯，支持 query/replay。
@@ -395,7 +393,7 @@ sequenceDiagram
 | memory/knowledge | 统一检索面与跨域组合接口位 | `dare_framework/memory/*`, `dare_framework/knowledge/*` | `doc/design/modules/memory_knowledge/README.md` |
 | skill | Skill 解析与脚本执行能力 | `dare_framework/skill/*` | `doc/design/modules/skill/README.md` |
 | embedding | Embedding 接口与适配器 | `dare_framework/embedding/*` | `doc/design/modules/embedding/README.md` |
-| transport | Client ↔ Agent 交互协议（设计中） | `doc/design/modules/transport/*` | `doc/design/modules/transport/Transport_Domain_Design.md` |
+| transport | Client ↔ Agent 交互协议（设计中） | `doc/design/modules/transport/*` | `doc/design/modules/transport/transport_mvp.md` |
 
 ### 5.2 关键接口签名（节选）
 
@@ -434,7 +432,7 @@ class IToolGateway(Protocol):
 - memory/knowledge: `doc/design/modules/memory_knowledge/README.md`
 - skill: `doc/design/modules/skill/README.md`
 - embedding: `doc/design/modules/embedding/README.md`
-- transport（设计中）：`doc/design/modules/transport/Transport_Domain_Design.md`
+- transport（设计中）：`doc/design/modules/transport/transport_mvp.md`
 
 ---
 

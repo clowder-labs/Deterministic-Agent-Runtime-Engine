@@ -24,13 +24,11 @@ from typing import Any, Callable, TypeVar
 from dare_framework.agent._internal.five_layer import DareAgent
 from dare_framework.agent._internal.react_agent import ReactAgent
 from dare_framework.agent._internal.simple_chat import SimpleChatAgent
-from dare_framework.config.kernel import IConfigProvider
 from dare_framework.config.types import Config
 from dare_framework.context import Budget, Context
 from dare_framework.event.kernel import IEventLog
 from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IHook
-from dare_framework.agent.types import ISessionSummaryStore
 from dare_framework.infra.component import ComponentType
 from dare_framework.knowledge import IKnowledge, create_knowledge
 from dare_framework.knowledge._internal.knowledge_tools import (
@@ -58,6 +56,7 @@ from dare_framework.plan.interfaces import (
 from dare_framework.tool._internal.managers.tool_manager import ToolManager
 from dare_framework.tool.interfaces import ITool, IToolProvider, RunContext
 from dare_framework.tool.kernel import IExecutionControl, IToolGateway, IToolManager
+from dare_framework.transport.kernel import AgentChannel
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +101,9 @@ class _BaseAgentBuilder:
 
         # Initial skill path (None = not set; single path for one skill).
         self._initial_skill_path: str | None = None
+
+        # Optional transport channel (agent-facing).
+        self._agent_channel: AgentChannel | None = None
 
     def _manager_config(self) -> Config | None:
         """Return the Config passed to managers."""
@@ -203,6 +205,11 @@ class _BaseAgentBuilder:
 
     def with_run_context_factory(self: TBuilder, factory: Callable[[], RunContext[Any]]) -> TBuilder:
         self._run_context_factory = factory
+        return self
+
+    def with_agent_channel(self: TBuilder, channel: AgentChannel) -> TBuilder:
+        """Attach an AgentChannel for transport-backed output/hook streaming."""
+        self._agent_channel = channel
         return self
 
     def with_skill(self: TBuilder, path: str | Path) -> TBuilder:
@@ -355,11 +362,8 @@ class _BaseAgentBuilder:
         return candidate
 
     def _load_initial_skill_and_mount(self, context: Context) -> None:
-        """Load skill from initial_skill_path and mount on context (persistent_skill_mode only)."""
-        config = self._effective_config()
-        if getattr(config, "skill_mode", "persistent_skill_mode") != "persistent_skill_mode":
-            return
-        path = self._initial_skill_path if self._initial_skill_path is not None else config.initial_skill_path
+        """Load skill from initial_skill_path and mount on context."""
+        path = self._initial_skill_path if self._initial_skill_path is not None else self._effective_config().initial_skill_path
         if not path:
             return
         from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
@@ -369,46 +373,14 @@ class _BaseAgentBuilder:
         if skills:
             context.set_skill(skills[0])
 
-    def _load_skills_for_auto_mode(self) -> tuple[list[Any], Any | None]:
-        """When skill_mode is auto_skill_mode and skill_paths set, load skills and return (skills, SkillStore); else ([], None)."""
-        config = self._effective_config()
-        if getattr(config, "skill_mode", "persistent_skill_mode") != "auto_skill_mode":
-            return [], None
-        paths = getattr(config, "skill_paths", None) or []
-        if not paths:
-            return [], None
-        from pathlib import Path
+    def _resolved_tools(self) -> list[ITool]:
+        """Resolve and merge all tools: 本地(explicit) + MCP(mcp_toolkit.list_tools) + manager-discovered.
 
-        from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
-        from dare_framework.skill._internal.skill_store import SkillStore
-
-        workspace = Path(config.workspace_dir)
-        resolved = [
-            (workspace / p) if not Path(p).is_absolute() else Path(p)
-            for p in paths
-        ]
-        loader = FileSystemSkillLoader(*resolved)
-        store = SkillStore(loader=loader)
-        store.reload()
-        skills = store.list_skills()
-        return skills, store
-
-    def _resolved_tools(self, context: Context | None = None, skill_store: Any = None) -> list[ITool]:
-        """Resolve and merge all tools: 本地(explicit) + auto_skill(search_skill, run_skill_script) + MCP + manager-discovered.
-
-        When skill_store and context are provided (auto_skill_mode), prepend search_skill and run_skill_script.
+        MCP 工具在此处与本地 add_tools() 注入的 tool 合并为同一 list，
+        随后由 _register_tools_with_manager() 统一注册进 ToolManager。
         """
         explicit = list(self._tools)
         explicit_names = {tool.name for tool in explicit}
-
-        if skill_store is not None and context is not None:
-            from dare_framework.skill._internal.search_skill_tool import SearchSkillTool
-            from dare_framework.skill._internal.skill_script_runner import SkillScriptRunner
-
-            for tool in (SearchSkillTool(skill_store, context), SkillScriptRunner(skill_store)):
-                if tool.name not in explicit_names:
-                    explicit.insert(0, tool)
-                    explicit_names.add(tool.name)
 
         # MCP: 从 mcp_toolkit 拉取工具列表，与 explicit 合并（按 allowmcps 过滤、去重）
         mcp_tools: list[ITool] = []
@@ -452,6 +424,13 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
+        tools = self._resolved_tools()
+        manager = self._ensure_tool_manager(tools)
+        self._register_tools_with_manager(manager, tools)
+        tool_gateway = self._ensure_tool_gateway(tools)
+
+        tool_provider = self._ensure_tool_provider(manager, tools)
+
         if self._context is None:
             context = Context(
                 id=f"context_{self._name}",
@@ -460,37 +439,28 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder):
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
-        else:
-            context = self._context
-            self._apply_context_overrides(context)
-
-        auto_skills, auto_store = self._load_skills_for_auto_mode()
-        if auto_store is not None:
-            from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill_summaries
-
-            sys_prompt = enrich_prompt_with_skill_summaries(sys_prompt, auto_skills)
-            tools = self._resolved_tools(context, auto_store)
-        else:
+            if tool_provider is not None:
+                context._tool_provider = tool_provider
+            context._sys_prompt = sys_prompt
             self._load_initial_skill_and_mount(context)
-            if context.current_skill() is not None and sys_prompt is not None:
-                from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
+            return SimpleChatAgent(
+                name=self._name,
+                model=model,
+                context=context,
+                agent_channel=self._agent_channel,
+            )
 
-                sys_prompt = enrich_prompt_with_skill(sys_prompt, context.current_skill())
-            tools = self._resolved_tools()
-
-        manager = self._ensure_tool_manager(tools)
-        self._register_tools_with_manager(manager, tools)
-        tool_gateway = self._ensure_tool_gateway(tools)
-        tool_provider = self._ensure_tool_provider(manager, tools)
-
+        self._apply_context_overrides(self._context)
         if tool_provider is not None:
-            context._tool_provider = tool_provider
-        context._sys_prompt = sys_prompt
+            setattr(self._context, "_tool_provider", tool_provider)
+        setattr(self._context, "_sys_prompt", sys_prompt)
+        self._load_initial_skill_and_mount(self._context)
 
         return SimpleChatAgent(
             name=self._name,
             model=model,
-            context=context,
+            context=self._context,
+            agent_channel=self._agent_channel,
         )
 
 
@@ -501,6 +471,12 @@ class ReactAgentBuilder(_BaseAgentBuilder):
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
+        tools = self._resolved_tools()
+        manager = self._ensure_tool_manager(tools)
+        self._register_tools_with_manager(manager, tools)
+        self._ensure_tool_gateway(tools)
+        tool_provider = self._ensure_tool_provider(manager, tools)
+
         if self._context is None:
             context = Context(
                 id=f"context_{self._name}",
@@ -509,37 +485,28 @@ class ReactAgentBuilder(_BaseAgentBuilder):
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
-        else:
-            context = self._context
-            self._apply_context_overrides(context)
-
-        auto_skills, auto_store = self._load_skills_for_auto_mode()
-        if auto_store is not None:
-            from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill_summaries
-
-            sys_prompt = enrich_prompt_with_skill_summaries(sys_prompt, auto_skills)
-            tools = self._resolved_tools(context, auto_store)
-        else:
+            if tool_provider is not None:
+                context._tool_provider = tool_provider
+            context._sys_prompt = sys_prompt
             self._load_initial_skill_and_mount(context)
-            if context.current_skill() is not None and sys_prompt is not None:
-                from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
+            return ReactAgent(
+                name=self._name,
+                model=model,
+                context=context,
+                agent_channel=self._agent_channel,
+            )
 
-                sys_prompt = enrich_prompt_with_skill(sys_prompt, context.current_skill())
-            tools = self._resolved_tools()
-
-        manager = self._ensure_tool_manager(tools)
-        self._register_tools_with_manager(manager, tools)
-        self._ensure_tool_gateway(tools)
-        tool_provider = self._ensure_tool_provider(manager, tools)
-
+        self._apply_context_overrides(self._context)
         if tool_provider is not None:
-            context._tool_provider = tool_provider
-        context._sys_prompt = sys_prompt
+            setattr(self._context, "_tool_provider", tool_provider)
+        setattr(self._context, "_sys_prompt", sys_prompt)
+        self._load_initial_skill_and_mount(self._context)
 
         return ReactAgent(
             name=self._name,
             model=model,
-            context=context,
+            context=self._context,
+            agent_channel=self._agent_channel,
         )
 
 
@@ -557,8 +524,6 @@ class DareAgentBuilder(_BaseAgentBuilder):
         self._execution_control: IExecutionControl | None = None
         self._hooks: list[IHook] = []
         self._telemetry: ITelemetryProvider | None = None
-        self._config_provider: IConfigProvider | None = None
-        self._session_summary_store: ISessionSummaryStore | None = None
         self._verbose: bool = False
 
     def with_planner(self, planner: IPlanner) -> DareAgentBuilder:
@@ -575,14 +540,6 @@ class DareAgentBuilder(_BaseAgentBuilder):
 
     def with_event_log(self, event_log: IEventLog) -> DareAgentBuilder:
         self._event_log = event_log
-        return self
-
-    def with_config_provider(self, provider: IConfigProvider) -> DareAgentBuilder:
-        self._config_provider = provider
-        return self
-
-    def with_session_summary_store(self, store: ISessionSummaryStore) -> DareAgentBuilder:
-        self._session_summary_store = store
         return self
 
     def with_execution_control(self, execution_control: IExecutionControl) -> DareAgentBuilder:
@@ -605,32 +562,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
         model = self._resolved_model()
         sys_prompt = self._resolve_sys_prompt(model)
 
-        if self._context is None:
-            context = Context(
-                id=f"context_{self._name}",
-                short_term_memory=self._short_term_memory,
-                long_term_memory=self._resolved_long_term_memory(),
-                knowledge=self._resolved_knowledge(),
-                budget=self._budget or Budget(),
-            )
-        else:
-            context = self._context
-            self._apply_context_overrides(context)
-
-        auto_skills, auto_store = self._load_skills_for_auto_mode()
-        if auto_store is not None:
-            from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill_summaries
-
-            sys_prompt = enrich_prompt_with_skill_summaries(sys_prompt, auto_skills)
-            tools = self._resolved_tools(context, auto_store)
-        else:
-            self._load_initial_skill_and_mount(context)
-            if context.current_skill() is not None and sys_prompt is not None:
-                from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
-
-                sys_prompt = enrich_prompt_with_skill(sys_prompt, context.current_skill())
-            tools = self._resolved_tools()
-
+        tools = self._resolved_tools()
         manager = self._ensure_tool_manager(tools)
         self._register_tools_with_manager(manager, tools)
         tool_gateway = self._ensure_tool_gateway(tools)
@@ -638,16 +570,16 @@ class DareAgentBuilder(_BaseAgentBuilder):
 
         planner = self._planner
         if planner is None:
-            planner_mgr = self._planner_manager
-            if planner_mgr is not None:
-                candidate = planner_mgr.load_planner(config=self._manager_config())
+            manager = self._planner_manager
+            if manager is not None:
+                candidate = manager.load_planner(config=self._manager_config())
                 if candidate is not None:
                     planner = candidate
 
         validators = list(self._validators)
-        validator_mgr = self._validator_manager
-        if validator_mgr is not None:
-            discovered = validator_mgr.load_validators(config=self._manager_config())
+        manager = self._validator_manager
+        if manager is not None:
+            discovered = manager.load_validators(config=self._manager_config())
             validators.extend(
                 [v for v in discovered if self._config is None or self._config.is_component_enabled(v)]
             )
@@ -661,33 +593,65 @@ class DareAgentBuilder(_BaseAgentBuilder):
             validator = CompositeValidator(validators)
 
         remediator = self._remediator
-        remediator_mgr = self._remediator_manager
-        if remediator is None and remediator_mgr is not None:
-            candidate = remediator_mgr.load_remediator(config=self._manager_config())
+        manager = self._remediator_manager
+        if remediator is None and manager is not None:
+            candidate = manager.load_remediator(config=self._manager_config())
             if candidate is not None:
                 remediator = candidate
 
         explicit_hooks = list(self._hooks)
         resolved_hooks = list(explicit_hooks)
 
-        hook_mgr = self._hook_manager
-        if hook_mgr is not None:
-            discovered = hook_mgr.load_hooks(config=self._manager_config())
+        manager = self._hook_manager
+        if manager is not None:
+            discovered = manager.load_hooks(config=self._manager_config())
             resolved_hooks.extend(
                 [hook for hook in discovered if self._config is None or self._config.is_component_enabled(hook)]
             )
 
         hooks = resolved_hooks or None
+
         telemetry = self._telemetry
 
+        if self._context is None:
+            context = Context(
+                id=f"context_{self._name}",
+                short_term_memory=self._short_term_memory,
+                long_term_memory=self._resolved_long_term_memory(),
+                knowledge=self._resolved_knowledge(),
+                budget=self._budget or Budget(),
+            )
+            if tool_provider is not None:
+                context._tool_provider = tool_provider
+            context._sys_prompt = sys_prompt
+            self._load_initial_skill_and_mount(context)
+            return DareAgent(
+                name=self._name,
+                model=model,
+                context=context,
+                tools=tool_provider,
+                tool_gateway=tool_gateway,
+                execution_control=self._execution_control,
+                planner=planner,
+                validator=validator,
+                remediator=remediator,
+                event_log=self._event_log,
+                hooks=hooks,
+                telemetry=telemetry,
+                agent_channel=self._agent_channel,
+                verbose=self._verbose,
+            )
+
+        self._apply_context_overrides(self._context)
         if tool_provider is not None:
-            context._tool_provider = tool_provider
-        context._sys_prompt = sys_prompt
+            setattr(self._context, "_tool_provider", tool_provider)
+        setattr(self._context, "_sys_prompt", sys_prompt)
+        self._load_initial_skill_and_mount(self._context)
 
         return DareAgent(
             name=self._name,
             model=model,
-            context=context,
+            context=self._context,
             tools=tool_provider,
             tool_gateway=tool_gateway,
             execution_control=self._execution_control,
@@ -697,8 +661,7 @@ class DareAgentBuilder(_BaseAgentBuilder):
             event_log=self._event_log,
             hooks=hooks,
             telemetry=telemetry,
-            config_provider=self._config_provider,
-            session_summary_store=self._session_summary_store,
+            agent_channel=self._agent_channel,
             verbose=self._verbose,
         )
 
@@ -740,19 +703,9 @@ async def load_mcp_toolkit(
     if config is None:
         config = Config()
 
-    # Determine scan paths; resolve relative paths against config.workspace_dir
-    # so that config.json can use paths like ".dare/mcp" regardless of cwd.
+    # Determine scan paths
     if paths is None:
         paths = config.mcp_paths if config.mcp_paths else None
-    if paths:
-        workspace_path = Path(config.workspace_dir)
-        resolved: list[Path] = []
-        for p in paths:
-            path = Path(p).expanduser()
-            if not path.is_absolute():
-                path = workspace_path / path
-            resolved.append(path)
-        paths = resolved
 
     # Load MCP server configurations
     mcp_configs = load_mcp_configs(

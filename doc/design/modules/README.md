@@ -20,7 +20,7 @@
 - memory / knowledge: `doc/design/modules/memory_knowledge/README.md`
 - skill: `doc/design/modules/skill/README.md`
 - embedding: `doc/design/modules/embedding/README.md`
-- transport (design-only): `doc/design/modules/transport/Transport_Domain_Design.md`
+- transport (design-only): `doc/design/modules/transport/transport_mvp.md`
 
 ## Related Docs
 - interface map: `doc/design/Interfaces.md`

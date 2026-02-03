@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from dare_framework.skill.types import Skill
 
 
-def _format_scripts_for_run_command(skills: list["Skill"]) -> str:
+def _format_scripts_for_run_command(skills: list[Skill]) -> str:
     """Format skill scripts as a list callable via run_command."""
     lines: list[str] = []
     for skill in skills:
@@ -63,7 +63,7 @@ def enrich_prompt_with_skills(base_prompt: Prompt, skill_paths: list[str] | list
     )
 
 
-def enrich_prompt_with_skill(base_prompt: Prompt, skill: "Skill") -> Prompt:
+def enrich_prompt_with_skill(base_prompt: Prompt, skill: Skill) -> Prompt:
     """Append a single skill section and scripts block to base prompt."""
     sections: list[str] = [base_prompt.content, f"## Skill: {skill.name}\n\n{skill.content}"]
     scripts_block = _format_scripts_for_run_command([skill])

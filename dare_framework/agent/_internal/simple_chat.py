@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from dare_framework.context import Budget
     from dare_framework.memory import IShortTermMemory, ILongTermMemory
     from dare_framework.knowledge import IKnowledge
+    from dare_framework.transport.kernel import AgentChannel
 
 
 class SimpleChatAgent(BaseAgent):
@@ -47,6 +48,7 @@ class SimpleChatAgent(BaseAgent):
         knowledge: IKnowledge | None = None,
         tools: IToolProvider | None = None,
         budget: Budget | None = None,
+        agent_channel: AgentChannel | None = None,
     ) -> None:
         """Initialize SimpleChatAgent.
 
@@ -59,8 +61,9 @@ class SimpleChatAgent(BaseAgent):
             knowledge: Knowledge retrieval implementation (optional).
             tools: Tool provider for listing tools (optional).
             budget: Resource budget (optional).
+            agent_channel: Optional transport channel for streaming outputs.
         """
-        super().__init__(name)
+        super().__init__(name, agent_channel=agent_channel)
         self._model = model
 
         # Create or use provided context

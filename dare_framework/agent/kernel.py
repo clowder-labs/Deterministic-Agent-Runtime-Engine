@@ -20,9 +20,12 @@ Design Decision (2026-01-30):
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Protocol, TYPE_CHECKING
 
 from dare_framework.plan.types import RunResult, Task
+
+if TYPE_CHECKING:
+    from dare_framework.transport.kernel import AgentChannel
 
 
 class IAgent(Protocol):
@@ -56,7 +59,25 @@ class IAgent(Protocol):
         result = await agent.run(task)
     """
 
-    async def run(self, task: str | Task, deps: Any | None = None) -> RunResult:
+    async def __call__(self, message: str | Task, deps: Any | None = None) -> RunResult:
+        """Invoke the agent directly (no transport attached)."""
+        ...
+
+    async def start(self) -> None:
+        """Start agent components and spawn the transport loop if configured."""
+        ...
+
+    async def stop(self) -> None:
+        """Stop agent components and cancel the transport loop."""
+        ...
+
+    async def run(
+        self,
+        task: str | Task,
+        deps: Any | None = None,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> RunResult:
         """Execute a task and return a structured RunResult.
 
         Args:
@@ -66,6 +87,7 @@ class IAgent(Protocol):
                   full five-layer orchestration; otherwise routes based on
                   agent configuration (planner presence, tool availability).
             deps: Optional runtime dependencies (e.g., file handles, clients).
+            transport: Optional transport channel for streaming outputs.
                 Kept separate from Task so Task remains serializable for
                 audit and logging purposes.
 
@@ -83,4 +105,3 @@ class IAgent(Protocol):
 
 
 __all__ = ["IAgent"]
-

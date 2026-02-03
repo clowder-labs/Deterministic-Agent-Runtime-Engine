@@ -27,7 +27,7 @@ class SkillScriptRunner(ITool, IComponent):
     LLM calls this tool to execute scripts defined in a skill's scripts/ directory.
     """
 
-    def __init__(self, skill_store: "ISkillStore") -> None:
+    def __init__(self, skill_store: ISkillStore) -> None:
         self._skill_store = skill_store
 
     @property

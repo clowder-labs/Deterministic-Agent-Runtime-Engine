@@ -18,9 +18,9 @@ class InMemorySTM(IShortTermMemory):
     """
 
     def __init__(self) -> None:
-        self._messages: list["Message"] = []
+        self._messages: list[Message] = []
 
-    def add(self, message: "Message") -> None:
+    def add(self, message: Message) -> None:
         """Add a message to memory."""
         self._messages.append(message)
 
@@ -28,7 +28,7 @@ class InMemorySTM(IShortTermMemory):
         """Clear all messages."""
         self._messages.clear()
 
-    def get(self, query: str = "", **kwargs) -> list["Message"]:
+    def get(self, query: str = "", **kwargs) -> list[Message]:
         """Retrieve all messages (implements IRetrievalContext.get).
 
         For short-term memory, query is ignored - returns all messages.
