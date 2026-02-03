@@ -9,6 +9,7 @@ from dare_framework.skill.types import Skill
 from dare_framework.skill._internal import (
     FileSystemSkillLoader,
     KeywordSkillSelector,
+    SearchSkillTool,
     SkillScriptRunner,
     SkillStore,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "ISkillSelector",
     "FileSystemSkillLoader",
     "KeywordSkillSelector",
+    "SearchSkillTool",
     "SkillScriptRunner",
     "SkillStore",
 ]

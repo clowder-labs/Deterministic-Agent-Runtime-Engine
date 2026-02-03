@@ -41,9 +41,9 @@ class SkillScriptRunner(ITool, IComponent):
     @property
     def description(self) -> str:
         return (
-            "Execute a script from an Agent Skill. "
-            "Use when the active skill's instructions require running a specific script. "
-            "Provide skill_id (e.g. 'code-review'), script_name (e.g. 'run_linter'), and optional args."
+            "Run a script that belongs to an Agent Skill (scripts listed in the skill's 'Available scripts'). "
+            "Use only when the loaded skill instructs you to run one of its scripts. "
+            "Input: skill_id (from the catalog), script_name (e.g. 'run_linter'—no path). Do NOT use for generic shell commands; use run_command for those."
         )
 
     @property
