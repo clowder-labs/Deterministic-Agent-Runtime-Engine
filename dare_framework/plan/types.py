@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from dare_framework.context.types import Budget
@@ -184,10 +185,20 @@ class ValidatedPlan:
 
 @dataclass(frozen=True)
 class VerifyResult:
-    """Verification output for a milestone."""
+    """Verification output for a milestone.
+
+    Attributes:
+        success: Whether the milestone was successfully verified.
+        errors: List of error messages if verification failed.
+        evidence_required: List of evidence types required for verification.
+        evidence_collected: List of Evidence objects collected during execution.
+        metadata: Additional verification metadata.
+    """
 
     success: bool
     errors: list[str] = field(default_factory=list)
+    evidence_required: list[str] = field(default_factory=list)
+    evidence_collected: list["Evidence"] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -246,17 +257,105 @@ class ToolLoopRequest:
 
 
 __all__ = [
+    "DecompositionResult",
     "DonePredicate",
     "Envelope",
+    "Evidence",
     "Milestone",
     "MilestoneSummary",
     "ProposedStep",
     "ProposedPlan",
     "RunResult",
     "SessionSummary",
+    "StepResult",
     "Task",
     "ToolLoopRequest",
     "ValidatedStep",
     "ValidatedPlan",
     "VerifyResult",
 ]
+
+
+@dataclass(frozen=True)
+class Evidence:
+    """Structured evidence collected during execution.
+
+    Evidence is collected from tool results, external validators, file hashes,
+    or other sources to support milestone verification.
+
+    Attributes:
+        evidence_id: Unique identifier for this evidence.
+        evidence_type: Type of evidence (tool_result, file_hash, external_validation, assertion).
+        source: Source capability_id or validation source.
+        data: Evidence payload data.
+        timestamp: When the evidence was collected.
+
+    Example:
+        evidence = Evidence(
+            evidence_id="ev_001",
+            evidence_type="tool_result",
+            source="write_file",
+            data={"path": "/app/main.py", "bytes_written": 1024},
+            timestamp=datetime.now(),
+        )
+    """
+
+    evidence_id: str
+    evidence_type: str  # "tool_result" | "file_hash" | "external_validation" | "assertion"
+    source: str
+    data: dict[str, Any]
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class DecompositionResult:
+    """Result from decomposing a Task into Milestones.
+
+    Returned by IPlanner.decompose() to carry milestone decomposition output
+    with reasoning for auditability.
+
+    Attributes:
+        milestones: List of generated milestones.
+        reasoning: Explanation of how the task was decomposed.
+        metadata: Additional decomposition metadata.
+
+    Example:
+        result = DecompositionResult(
+            milestones=[Milestone(...)],
+            reasoning="Split into design, implement, and test phases.",
+        )
+    """
+
+    milestones: list[Milestone]
+    reasoning: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StepResult:
+    """Result from executing a single ValidatedStep.
+
+    Returned by IStepExecutor.execute_step() with execution outcome
+    and collected evidence.
+
+    Attributes:
+        step_id: ID of the executed step.
+        success: Whether the step executed successfully.
+        output: Step execution output.
+        evidence: Evidence collected during step execution.
+        errors: Error messages if step failed.
+
+    Example:
+        result = StepResult(
+            step_id="step_1",
+            success=True,
+            output={"file_created": "/app/main.py"},
+            evidence=[Evidence(...)],
+        )
+    """
+
+    step_id: str
+    success: bool
+    output: Any = None
+    evidence: list[Evidence] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)

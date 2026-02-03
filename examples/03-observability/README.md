@@ -1,6 +1,6 @@
 # 03-observability
 
-演示基于 OpenTelemetry 的可观测性接入。
+在 02 的基础上加入 OpenTelemetry 可观测性，聚焦埋点、指标与输出汇总（本示例不强调工具调用）。
 
 ## 运行
 
@@ -9,7 +9,7 @@ cd examples/03-observability
 export OPENROUTER_API_KEY="your-api-key"
 # 可选：指定模型
 export OPENROUTER_MODEL="z-ai/glm-4.7"
-# 可选：限制最大输出 tokens
+# 可选：限制最大输出 tokens，避免信用不足错误
 export OPENROUTER_MAX_TOKENS="2048"
 python main.py
 ```
@@ -38,11 +38,25 @@ builder = (
 agent = await builder.build()
 ```
 
-## 输出示例
+## 进阶点
 
-执行后可看到两类输出：
-- Recorder 汇总（spans/metrics）
-- OpenTelemetry console exporter 输出（如启用）
+- 相对 02，新增可观测性：TelemetryProvider + ObservabilityHook
+- 内置 `RecordingTelemetryProvider`，结束后打印 spans/metrics 汇总
+- 若安装 OTel SDK 且设置 `exporter_type=console`，控制台会输出 trace/metrics
+- 示例聚焦观测，不展示工具调用（如需工具可参考 02）
+
+## Prompt 管理
+
+系统提示由框架 Prompt Store 管理（默认 `base.system`），无需在示例中手写系统提示。
+如需覆盖，使用 `.dare/_prompts.json` 配置。
+
+## 文件结构
+
+```
+03-observability/
+├── main.py
+└── README.md
+```
 
 ## 适用场景
 

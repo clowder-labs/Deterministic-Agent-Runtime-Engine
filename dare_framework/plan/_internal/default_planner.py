@@ -11,7 +11,13 @@ from typing import TYPE_CHECKING, Any, Literal
 from dare_framework.context import Message
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput
-from dare_framework.plan.types import ProposedPlan, ProposedStep
+from dare_framework.plan.types import (
+    DecompositionResult,
+    Milestone,
+    ProposedPlan,
+    ProposedStep,
+    Task,
+)
 
 if TYPE_CHECKING:
     from dare_framework.context.kernel import IContext
@@ -279,5 +285,32 @@ Output ONLY valid JSON following the structure defined in your instructions."""
                 ],
             )
 
+    async def decompose(self, task: Task, ctx: "IContext") -> DecompositionResult:
+        """Decompose a task into milestones.
+
+        Default implementation returns a single milestone from task description.
+        Override this method to enable LLM-driven task decomposition.
+
+        Args:
+            task: The task to decompose.
+            ctx: Current context.
+
+        Returns:
+            DecompositionResult with milestones and reasoning.
+        """
+        from uuid import uuid4
+
+        return DecompositionResult(
+            milestones=[
+                Milestone(
+                    milestone_id=f"{task.task_id or uuid4().hex[:8]}_m1",
+                    description=task.description,
+                    user_input=task.description,
+                )
+            ],
+            reasoning="Default: single milestone from task description",
+        )
+
 
 __all__ = ["DefaultPlanner", "DEFAULT_PLAN_SYSTEM_PROMPT"]
+

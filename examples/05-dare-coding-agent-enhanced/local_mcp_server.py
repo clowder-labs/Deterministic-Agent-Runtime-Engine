@@ -7,7 +7,7 @@
 
 用法：
   终端 1：python local_mcp_server.py          # 服务默认监听 http://127.0.0.1:8765
-  终端 2：cd examples/04-dare-coding-agent-enhanced && python main.py   # CLI 连接该服务
+  终端 2：cd examples/05-dare-coding-agent-enhanced && python main.py   # CLI 连接该服务
 """
 from __future__ import annotations
 

@@ -37,16 +37,24 @@ from dare_framework.observability._internal.otel_provider import (
 )
 from dare_framework.observability._internal.tracing_hook import ObservabilityHook
 from dare_framework.plan.types import (
+    DecompositionResult,
     DonePredicate,
     Envelope,
+    Evidence,
     MilestoneSummary,
     SessionSummary,
     Milestone,
     RunResult,
+    StepResult,
     Task,
     ToolLoopRequest,
     ValidatedPlan,
     VerifyResult,
+)
+from dare_framework.plan.interfaces import (
+    IEvidenceCollector,
+    IPlanAttemptSandbox,
+    IStepExecutor,
 )
 from dare_framework.tool.types import CapabilityKind
 
@@ -128,11 +136,16 @@ class DareAgent(BaseAgent):
         event_log: IEventLog | None = None,
         hooks: list[IHook] | None = None,
         telemetry: ITelemetryProvider | None = None,
-        # Session configuration (optional)
+        # Milestone orchestration components (optional)
+        sandbox: IPlanAttemptSandbox | None = None,
+        step_executor: IStepExecutor | None = None,
+        evidence_collector: IEvidenceCollector | None = None,
+        # Configuration
         config_provider: IConfigProvider | None = None,
         session_summary_store: ISessionSummaryStore | None = None,
         # Runtime limits
         budget: Budget | None = None,
+        execution_mode: str = "model_driven",  # "model_driven" or "step_driven"
         max_milestone_attempts: int = 3,
         max_plan_attempts: int = 3,
         max_tool_iterations: int = 20,
@@ -161,6 +174,10 @@ class DareAgent(BaseAgent):
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
             max_tool_iterations: Max tool call iterations per execute loop.
+            sandbox: Plan attempt sandbox for state isolation (optional).
+            step_executor: Step executor for step-driven mode (optional).
+            evidence_collector: Evidence collector for verification (optional).
+            execution_mode: "model_driven" (default) or "step_driven".
         """
         super().__init__(name)
         self._model = model
@@ -189,6 +206,17 @@ class DareAgent(BaseAgent):
         self._validator = validator
         self._remediator = remediator
 
+        # Milestone orchestration components (optional)
+        self._sandbox = sandbox
+        self._step_executor = step_executor
+        self._evidence_collector = evidence_collector
+        self._execution_mode = execution_mode
+
+        # Create default sandbox if not provided
+        if self._sandbox is None:
+            from dare_framework.agent._internal.sandbox import DefaultPlanAttemptSandbox
+            self._sandbox = DefaultPlanAttemptSandbox()
+
         # Observability
         self._telemetry = telemetry if telemetry is not None else NoOpTelemetryProvider()
         self._event_log = make_trace_aware(event_log)
@@ -205,6 +233,7 @@ class DareAgent(BaseAgent):
         self._max_plan_attempts = max_plan_attempts
         self._max_tool_iterations = max_tool_iterations
         self._verbose = verbose
+
 
         # Runtime state (set during execution)
         self._session_state: SessionState | None = None
@@ -533,8 +562,28 @@ class DareAgent(BaseAgent):
         user_message = Message(role="user", content=task.description)
         self._context.stm_add(user_message)
 
-        # Get milestones
-        milestones = task.to_milestones()
+        # Get or decompose milestones
+        if task.milestones:
+            # Use pre-defined milestones
+            milestones = list(task.milestones)
+            await self._log_event("session.milestones_predefined", {
+                "count": len(milestones),
+            })
+        elif self._planner is not None:
+            # Decompose task into milestones using planner
+            self._log("Decomposing task into milestones...")
+            decomposition = await self._planner.decompose(task, self._context)
+            milestones = decomposition.milestones
+            await self._log_event("session.milestones_decomposed", {
+                "count": len(milestones),
+                "reasoning": decomposition.reasoning,
+            })
+        else:
+            # Fall back to single milestone
+            milestones = task.to_milestones()
+            await self._log_event("session.milestones_default", {
+                "count": len(milestones),
+            })
 
         # Initialize milestone states
         for milestone in milestones:
@@ -548,6 +597,7 @@ class DareAgent(BaseAgent):
 
         for idx, milestone in enumerate(milestones):
             self._session_state.current_milestone_idx = idx
+            print(f"[DEBUG] Starting milestone {idx + 1}/{len(milestones)}: {milestone.milestone_id}", flush=True)
 
             # Check budget before each milestone
             # TODO(@mahaichuan-qq): Confirm exception type for budget_check()
@@ -560,6 +610,7 @@ class DareAgent(BaseAgent):
 
             result = await self._run_milestone_loop(milestone)
             milestone_results.append(result)
+            print(f"[DEBUG] Milestone {idx + 1} result: success={result.success}", flush=True)
 
             if not result.success:
                 errors.extend(result.errors or ["milestone failed"])
@@ -660,14 +711,25 @@ class DareAgent(BaseAgent):
         for attempt in range(self._max_milestone_attempts):
             if milestone_state is not None:
                 milestone_state.attempts = attempt + 1
+            print(f"[DEBUG] Milestone attempt {attempt + 1}/{self._max_milestone_attempts}", flush=True)
             # Budget check
             self._context.budget_check()
 
+            # Create snapshot for plan attempt isolation
+            snapshot_id = None
+            if self._sandbox is not None:
+                snapshot_id = self._sandbox.create_snapshot(self._context)
+                print(f"[DEBUG] Created STM snapshot: {snapshot_id}", flush=True)
+
             # Run plan loop (if planner available)
+            print("[DEBUG] Running plan loop...", flush=True)
             validated_plan = await self._run_plan_loop(milestone)
+            print(f"[DEBUG] Plan loop done, validated_plan={validated_plan is not None}", flush=True)
 
             # Run execute loop
+            print("[DEBUG] Running execute loop...", flush=True)
             execute_result = await self._run_execute_loop(validated_plan)
+            print(f"[DEBUG] Execute loop done, result keys={list(execute_result.keys())}", flush=True)
 
             # Handle plan tool encountered
             if execute_result.get("encountered_plan_tool", False):
@@ -675,12 +737,21 @@ class DareAgent(BaseAgent):
                     milestone_state.add_reflection(
                         f"plan tool encountered: {execute_result.get('plan_tool_name')}"
                     )
+                # Rollback on plan tool encounter
+                if self._sandbox is not None and snapshot_id:
+                    self._sandbox.rollback(self._context, snapshot_id)
+                    self._log(f"Rolled back STM snapshot: {snapshot_id}")
                 continue
 
             # Verify milestone (if validator available); pass plan so validator can use step criteria (e.g. expected_files)
             verify_result = await self._verify_milestone(execute_result, validated_plan)
 
             if verify_result.success:
+                # Commit snapshot on success (discard, keep current state)
+                if self._sandbox is not None and snapshot_id:
+                    self._sandbox.commit(snapshot_id)
+                    self._log(f"Committed STM snapshot: {snapshot_id}")
+
                 await self._log_event("milestone.success", {
                     "milestone_id": milestone.milestone_id,
                     "attempts": attempt + 1,
@@ -699,7 +770,12 @@ class DareAgent(BaseAgent):
                     verify_result=verify_result,
                 )
 
-            # Remediate if available
+            # Rollback on verification failure
+            if self._sandbox is not None and snapshot_id:
+                self._sandbox.rollback(self._context, snapshot_id)
+                self._log(f"Rolled back STM snapshot: {snapshot_id}")
+
+            # Remediate if available (reflection survives rollback)
             if self._remediator is not None and milestone_state:
                 reflection = await self._remediator.remediate(
                     verify_result,
