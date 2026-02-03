@@ -688,9 +688,19 @@ async def load_mcp_toolkit(
     if config is None:
         config = Config()
 
-    # Determine scan paths
+    # Determine scan paths; resolve relative paths against config.workspace_dir
+    # so that config.json can use paths like ".dare/mcp" regardless of cwd.
     if paths is None:
         paths = config.mcp_paths if config.mcp_paths else None
+    if paths:
+        workspace_path = Path(config.workspace_dir)
+        resolved: list[Path] = []
+        for p in paths:
+            path = Path(p).expanduser()
+            if not path.is_absolute():
+                path = workspace_path / path
+            resolved.append(path)
+        paths = resolved
 
     # Load MCP server configurations
     mcp_configs = load_mcp_configs(

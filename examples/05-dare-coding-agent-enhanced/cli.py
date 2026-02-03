@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import DareAgentBuilder
+from dare_framework.config import FileConfigProvider
 from dare_framework.config.types import Config
 from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
@@ -238,10 +239,9 @@ def _create_builder(
     timeout_seconds: float,
     display: CLIDisplay,
     *,
-    initial_skill_path: Path | str | None = None,
     config: Config | None = None,
 ) -> DareAgentBuilder:
-    """创建 DareAgentBuilder；MCP 由 builder.build() 内部根据 config.mcp_paths 加载。"""
+    """创建 DareAgentBuilder；MCP 与 initial_skill_path 由 builder.build() 内部从 config 读取。"""
     model = OpenRouterModelAdapter(
         model=model_name,
         api_key=api_key,
@@ -277,8 +277,6 @@ def _create_builder(
     )
     if config is not None:
         builder = builder.with_config(config)
-    if initial_skill_path:
-        builder = builder.with_skill(initial_skill_path)
     return builder
 
 
@@ -402,12 +400,6 @@ async def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--script", type=str, default=None, help="run scripted CLI session")
     parser.add_argument("--demo", type=str, default=None, help="run demo script")
     parser.add_argument("--model", type=str, default=None, help="OpenRouter model name")
-    parser.add_argument(
-        "--skill",
-        type=str,
-        default=None,
-        help="path to initial skill directory (one skill)",
-    )
     args = parser.parse_args(argv)
 
     try:
@@ -417,12 +409,12 @@ async def main(argv: list[str] | None = None) -> None:
     except Exception:
         pass
 
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key = "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"
     if not api_key:
         print("OPENROUTER_API_KEY not set")
         sys.exit(1)
 
-    model_name = args.model or os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.7")
+    model_name = "openai/gpt-oss-120b"
     max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", "2048"))
     timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT", "60"))
     workspace = Path(__file__).parent / "workspace"
@@ -436,17 +428,15 @@ async def main(argv: list[str] | None = None) -> None:
     display.info(f"timeout={timeout_seconds}s")
 
     example_dir = Path(__file__).parent
-    mcp_dir = example_dir / ".dare" / "mcp"
-    config = None
-    if mcp_dir.exists():
-        config = Config(
-            mcp_paths=[str(mcp_dir)],
-            workspace_dir=str(example_dir),
-            user_dir=str(Path.home()),
-        )
+    # 统一从 .dare/config.json 读取配置（含 mcp_paths、initial_skill_path 等）
+    config_provider = FileConfigProvider(
+        workspace_dir=example_dir,
+        user_dir=Path.home(),
+    )
+    config = config_provider.current()
+    if config.mcp_paths:
         display.info("MCP config found. Start local_mcp_server.py in another terminal if using local_math.")
 
-    initial_skill_path = Path(args.skill) if args.skill else None
     builder = _create_builder(
         workspace,
         model_name,
@@ -454,7 +444,6 @@ async def main(argv: list[str] | None = None) -> None:
         max_tokens,
         timeout_seconds,
         display,
-        initial_skill_path=initial_skill_path,
         config=config,
     )
     agent = await builder.build()
