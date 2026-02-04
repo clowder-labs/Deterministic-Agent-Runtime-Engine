@@ -382,11 +382,11 @@ sequenceDiagram
 
 | Domain | 主要职责（架构视角） | 现状落点（示例） | 模块文档 |
 |---|---|---|---|
-| agent | 编排策略承载域；对外最小运行面；支持多编排实现 | `dare_framework/agent/_internal/five_layer.py` | `docs/design/module_design/agent/README.md` |
+| agent | 编排策略承载域；对外最小运行面；支持多编排实现 | `dare_framework/agent/dare_agent.py` | `docs/design/module_design/agent/README.md` |
 | context | 上下文核心实体（context-centric）；持有 STM/LTM/Knowledge 引用与 Budget；assemble 组装上下文 | `dare_framework/context/_internal/context.py` | `docs/design/module_design/context/README.md` |
-| tool | 能力目录（registry）与系统调用边界；Tool Loop 语义 | `dare_framework/tool/_internal/managers/tool_manager.py` | `docs/design/module_design/tool/README.md` |
+| tool | 能力目录（registry）与系统调用边界；Tool Loop 语义 | `dare_framework/tool/default_tool_manager.py` | `docs/design/module_design/tool/README.md` |
 | plan | 任务/计划/结果模型；plan 生成/校验/补救 | `dare_framework/plan/_internal/*.py` | `docs/design/module_design/plan/README.md` |
-| model | 模型调用适配；Prompt/ModelInput 规范化 | `dare_framework/model/_internal/*` | `docs/design/module_design/model/README.md` |
+| model | 模型调用适配；Prompt/ModelInput 规范化 | `dare_framework/model/*` | `docs/design/module_design/model/README.md` |
 | security | trust/policy/sandbox 边界 | `dare_framework/security/*` | `docs/design/module_design/security/README.md` |
 | event | 可审计事件日志（WORM）与查询/重放 | `dare_framework/event/*` | `docs/design/module_design/event/README.md` |
 | hook | 生命周期扩展点；best-effort hooks | `dare_framework/hook/*` | `docs/design/module_design/hook/README.md` |
@@ -395,7 +395,7 @@ sequenceDiagram
 | memory/knowledge | 统一检索面与跨域组合接口位 | `dare_framework/memory/*`, `dare_framework/knowledge/*` | `docs/design/module_design/memory_knowledge/README.md` |
 | skill | Skill 解析与脚本执行能力 | `dare_framework/skill/*` | `docs/design/module_design/skill/README.md` |
 | embedding | Embedding 接口与适配器 | `dare_framework/embedding/*` | `docs/design/module_design/embedding/README.md` |
-| transport | Client ↔ Agent 交互协议（设计中） | `docs/design/module_design/transport/*` | `docs/design/module_design/transport/Transport_Domain_Design.md` |
+| transport | Client ↔ Agent 交互协议 | `dare_framework/transport/*` | `docs/design/module_design/transport/transport_mvp.md` |
 
 ### 5.2 关键接口签名（节选）
 
@@ -434,7 +434,7 @@ class IToolGateway(Protocol):
 - memory/knowledge: `docs/design/module_design/memory_knowledge/README.md`
 - skill: `docs/design/module_design/skill/README.md`
 - embedding: `docs/design/module_design/embedding/README.md`
-- transport（设计中）：`docs/design/module_design/transport/Transport_Domain_Design.md`
+- transport（设计中）：`docs/design/module_design/transport/transport_mvp.md`
 
 ---
 
