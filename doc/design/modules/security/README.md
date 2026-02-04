@@ -36,3 +36,7 @@
 - TODO: 提供默认 Policy/Sandbox 实现。
 - TODO: 在 Agent 的 Plan→Execute 与 Tool invoke 前接入 policy gate。
 - TODO: 与 HITL (`IExecutionControl`) 形成审批闭环。
+
+## 7. Design Clarifications (2026-02-03)
+
+- Doc/Impl gap: security is interface-only; define minimal default stub or explicit no-op policy.

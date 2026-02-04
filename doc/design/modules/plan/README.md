@@ -56,3 +56,8 @@
 - TODO: 计划 attempt 隔离（Context snapshot / rollback）。
 - TODO: 统一证据模型（planner evidence ↔ tool evidence）。
 - TODO: 明确 plan tool 的元数据与 policy gate 语义。
+
+## 8. Design Clarifications (2026-02-03)
+
+- Doc/Impl gap: `plan/kernel.py` is empty; decide kernel surface or document interfaces-only.
+- Type cleanup: internal validators/planners should avoid `Any` for core plan types.

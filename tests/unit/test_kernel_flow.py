@@ -17,7 +17,6 @@ from dare_framework.tool.impl.tools.noop import NoOpTool
 from dare_framework.plan.impl.validators.kernel_validator import GatewayValidator
 from dare_framework.contracts.ids import generator_id
 from dare_framework.contracts.risk import RiskLevel
-from dare_framework.contracts.run_context import RunContext
 from dare_framework.contracts.tool import ITool, ToolResult, ToolType
 from dare_framework.execution.types import Budget
 from dare_framework.execution.impl.budget.in_memory import InMemoryResourceManager
@@ -29,7 +28,7 @@ from dare_framework.execution.impl.orchestrator.default_orchestrator import Defa
 from dare_framework.execution.impl.run_loop.default_run_loop import DefaultRunLoop
 from dare_framework.security.impl.default_security_boundary import DefaultSecurityBoundary
 from dare_framework.tool.impl.default_tool_gateway import DefaultToolGateway
-from dare_framework.tool.impl.run_context_state import RunContextState
+from dare_framework.tool.types import RunContext
 from dare_framework.plan.envelope import DonePredicate, Envelope, EvidenceCondition, ToolLoopRequest
 from dare_framework.plan.planning import ProposedStep
 from dare_framework.security.types import PolicyDecision
@@ -39,11 +38,11 @@ from dare_framework.plan.task import Task
 @pytest.mark.asyncio
 async def test_plan_tool_triggers_replan_then_succeeds(tmp_path):
     event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))
-    run_context = RunContextState()
+    run_context = RunContext()
 
     tools = [NoOpTool()]
     tool_gateway = DefaultToolGateway()
-    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
+    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=lambda: run_context))
 
     planner = DeterministicPlanner(
         [
@@ -78,11 +77,11 @@ async def test_plan_tool_triggers_replan_then_succeeds(tmp_path):
 @pytest.mark.asyncio
 async def test_tool_loop_enforces_done_predicate_and_budget(tmp_path):
     event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))
-    run_context = RunContextState()
+    run_context = RunContext()
 
     tools = [NoOpTool()]
     tool_gateway = DefaultToolGateway()
-    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
+    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=lambda: run_context))
 
     orchestrator = DefaultLoopOrchestrator(
         planner=DeterministicPlanner([]),
@@ -170,11 +169,11 @@ async def test_tool_requires_approval_triggers_checkpoint_events(tmp_path):
             return ToolResult(success=True, output={"status": "ok"}, evidence=[])
 
     event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))
-    run_context = RunContextState()
+    run_context = RunContext()
 
     tools = [ApprovalTool()]
     tool_gateway = DefaultToolGateway()
-    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
+    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=lambda: run_context))
 
     orchestrator = DefaultLoopOrchestrator(
         planner=DeterministicPlanner([]),
@@ -216,11 +215,11 @@ async def test_execute_plan_requires_approval_triggers_waiting_events(tmp_path):
             return PolicyDecision.ALLOW
 
     event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))
-    run_context = RunContextState()
+    run_context = RunContext()
 
     tools = [NoOpTool()]
     tool_gateway = DefaultToolGateway()
-    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
+    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=lambda: run_context))
 
     planner = DeterministicPlanner(
         [

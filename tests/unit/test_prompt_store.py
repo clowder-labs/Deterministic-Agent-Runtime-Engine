@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dare_framework.model import LayeredPromptStore, Prompt
+from dare_framework.model import Prompt
+from dare_framework.model import LayeredPromptStore
 
 
 class StaticPromptLoader:

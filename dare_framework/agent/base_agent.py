@@ -12,7 +12,7 @@ from dare_framework.plan.types import RunResult, Task
 from dare_framework.transport.types import TransportEnvelope, new_envelope_id
 
 if TYPE_CHECKING:
-    from dare_framework.agent._internal.builder import DareAgentBuilder, ReactAgentBuilder, SimpleChatAgentBuilder
+    from dare_framework.agent.builder import DareAgentBuilder, ReactAgentBuilder, SimpleChatAgentBuilder
     from dare_framework.transport.kernel import AgentChannel
 
 
@@ -33,6 +33,7 @@ class BaseAgent(ABC):
         self._agent_channel = agent_channel
         self._active_transport: AgentChannel | None = None
         self._loop_task: asyncio.Task[None] | None = None
+        self._running = False
         self._logger = logging.getLogger("dare.agent")
 
     @property
@@ -51,16 +52,21 @@ class BaseAgent(ABC):
 
     async def start(self) -> None:
         """Start agent components and spawn the transport loop."""
+        if self._running:
+            return
+        self._running = True
+        await self._start_components()
         channel = self._agent_channel
         if channel is None:
             return
-        if self._loop_task is not None and not self._loop_task.done():
-            return
         await channel.start()
-        self._loop_task = asyncio.create_task(self.execute())
+        self._loop_task = asyncio.create_task(self._run_transport_loop())
 
     async def stop(self) -> None:
         """Stop agent components and cancel the transport loop."""
+        if not self._running and self._loop_task is None:
+            return
+        self._running = False
         loop_task = self._loop_task
         self._loop_task = None
         if loop_task is not None:
@@ -69,35 +75,48 @@ class BaseAgent(ABC):
                 await loop_task
         if self._agent_channel is not None:
             await self._agent_channel.stop()
+        await self._stop_components()
 
-    async def execute(self) -> None:
+    async def _run_transport_loop(self) -> None:
         """Run the transport-driven loop for this agent (invoked by start)."""
         channel = self._agent_channel
         if channel is None:
             raise RuntimeError("Agent has no transport channel configured")
-        await channel.start()
-        while True:
-            envelope = await channel.poll()
-            if envelope.kind == "control":
-                if envelope.type == "interrupt":
-                    channel.interrupt()
+        try:
+            while self._running:
+                envelope = await channel.poll()
+                if envelope.kind == "control":
+                    if envelope.type == "interrupt":
+                        channel.interrupt()
+                        continue
+                    if envelope.type in {"stop", "close"}:
+                        await channel.stop()
+                        self._running = False
+                        break
+                payload = envelope.payload
+                if isinstance(payload, Task):
+                    task = payload
+                elif isinstance(payload, str):
+                    task = payload
+                else:
                     continue
-                if envelope.type in {"stop", "close"}:
-                    await channel.stop()
-                    break
-            payload = envelope.payload
-            if isinstance(payload, Task):
-                task = payload
-            elif isinstance(payload, str):
-                task = payload
-            else:
-                continue
-            try:
-                await self.run(task, transport=channel)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self._logger.exception("agent execute loop failed")
+                try:
+                    await channel.run_interruptible(self.run(task, transport=channel))
+                except asyncio.CancelledError:
+                    # Interrupt cancels the current run without stopping the loop.
+                    if self._running:
+                        continue
+                    raise
+                except Exception:
+                    self._logger.exception("agent execute loop failed")
+        finally:
+            self._loop_task = None
+
+    async def _start_components(self) -> None:
+        """Hook for subclasses to start internal components."""
+
+    async def _stop_components(self) -> None:
+        """Hook for subclasses to stop internal components."""
 
     async def run(
         self,
@@ -168,21 +187,21 @@ class BaseAgent(ABC):
     @staticmethod
     def simple_chat_agent_builder(name: str) -> SimpleChatAgentBuilder:
         """Return a builder for SimpleChatAgent."""
-        from dare_framework.agent._internal.builder import SimpleChatAgentBuilder
+        from dare_framework.agent.builder import SimpleChatAgentBuilder
 
         return SimpleChatAgentBuilder(name)
 
     @staticmethod
     def react_agent_builder(name: str) -> ReactAgentBuilder:
         """Return a builder for ReactAgent (ReAct tool loop)."""
-        from dare_framework.agent._internal.builder import ReactAgentBuilder
+        from dare_framework.agent.builder import ReactAgentBuilder
 
         return ReactAgentBuilder(name)
 
     @staticmethod
-    def five_layer_agent_builder(name: str) -> DareAgentBuilder:
+    def dare_agent_builder(name: str) -> DareAgentBuilder:
         """Return a builder for DareAgent (five-layer orchestration)."""
-        from dare_framework.agent._internal.builder import DareAgentBuilder
+        from dare_framework.agent.builder import DareAgentBuilder
 
         return DareAgentBuilder(name)
 

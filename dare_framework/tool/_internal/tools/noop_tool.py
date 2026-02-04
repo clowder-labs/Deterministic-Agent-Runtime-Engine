@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dare_framework.tool.interfaces import ITool
+from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,

@@ -11,7 +11,7 @@ from dare_framework.config import Config
 from dare_framework.model.components import IModelAdapter
 from dare_framework.model.types import ModelResponse
 from dare_framework.contracts.risk import RiskLevel
-from dare_framework.contracts.run_context import RunContext
+from dare_framework.tool.types import RunContext
 from dare_framework.contracts.tool import ITool, ToolResult, ToolType
 from dare_framework.contracts import ComponentType
 from dare_framework.builder.plugin_system.entrypoint_managers import (

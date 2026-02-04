@@ -92,3 +92,7 @@ YAML 示例见 `doc/design/Observability_Design_v2.md`。
 
 - OpenTelemetry SDK 为可选依赖；缺失时自动退化为 no-op。
 - 当前 Hook payload 仍以 Agent 层为主，工具内部细粒度 span 可后续补充。
+
+## 10. Design Clarifications (2026-02-03)
+
+- Doc gap: minimal hook payload schema must be treated as a contract across modules.

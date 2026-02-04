@@ -24,6 +24,7 @@
 - `ToolManager.register_provider()`：注册 IToolProvider（批量同步）。
 - `refresh()`：从 provider 同步工具列表，自动增删。
 - `list_capabilities()` / `list_tool_defs()`：输出 registry 视图与模型所需 defs。
+- 支持通过 entrypoint 组 `dare_framework.tool_providers` 自动发现 provider。
 
 ### 3.2 Builder 侧加载策略
 
@@ -67,22 +68,24 @@
 - **文件类**：`read_file`, `write_file`, `edit_line`, `search_code`。
 - **命令类**：`run_command`（requires_approval）。
 - **辅助类**：`echo_tool`, `noop_tool`。
-- **Skill 执行**：`run_skill_script`（capability_kind=SKILL, requires_approval）。
-- **MCP 适配**：`MCPToolkit` 将 MCP tools 暴露为 `ITool`。
+- **Skill 检索**：`search_skill`（capability_kind=SKILL）。
+- **MCP 适配**：`MCPToolProvider` 将 MCP tools 暴露为 `ITool`（defaults）。
 
 > 具体参数与 guardrails 见各工具实现（`dare_framework/tool/_internal/tools/*`）。
+> 内置工具属于 internal API，不通过 `dare_framework.tool` facade 暴露。
 
 ## 7. 关键接口与实现
 
-- Kernel：`IToolGateway`, `IToolManager`, `IExecutionControl`（`dare_framework/tool/kernel.py`）
-- Pluggable：`ITool`, `IToolProvider`, `IMCPClient`（`dare_framework/tool/interfaces.py`）
-- 默认 registry：`ToolManager`（`dare_framework/tool/_internal/managers/tool_manager.py`）
+- Kernel：`ITool`, `IToolProvider`, `IToolGateway`, `IToolManager`（`dare_framework/tool/kernel.py`）
+- Interfaces：`IExecutionControl`（`dare_framework/tool/interfaces.py`）
+- MCP：`IMCPClient`（`dare_framework/mcp/kernel.py`），`MCPToolProvider`（`dare_framework/mcp/defaults.py`）
+- 默认 registry：`ToolManager`（`dare_framework/tool/default_tool_manager.py`，`dare_framework.tool` 也 re-export）
 
 ## 8. 扩展点
 
 - 自定义 Tool：实现 `ITool`，注册到 ToolManager。
 - 自定义 Provider：实现 `IToolProvider`，用于批量加载工具。
-- 远端协议：实现 `IMCPClient` 并通过 `MCPToolkit` 注入。
+- 远端协议：实现 `IMCPClient` 并通过 `MCPToolProvider` 注入或 entrypoint 加载。
 - 运行上下文：通过 Builder 注入 `RunContext`，提供 config/metadata。
 
 ## 9. TODO / 未决问题
@@ -91,3 +94,8 @@
 - TODO: 工具调用审计快照（capability hash / tool defs snapshot）。
 - TODO: 能力等级与审批策略统一（risk_level ↔ approval policy）。
 - TODO: 统一 tool defs schema（跨模型 adapter 一致性）。
+
+## 10. Design Clarifications (2026-02-03)
+
+- Impl gap: `IToolGateway.invoke()` returns `Any` in kernel; should return `ToolResult`.
+- Type cleanup: replace string annotations for `ITool`/`IToolProvider` in kernel with direct types.

@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from dare_framework.tool.kernel import IExecutionControl
+from dare_framework.tool.interfaces import IExecutionControl
 from dare_framework.tool.types import ExecutionSignal
 
 

@@ -27,13 +27,9 @@ from dare_framework.model import OpenAIModelAdapter
 from dare_framework.model.types import ModelInput
 from dare_framework.plan import ProposedPlan, ProposedStep
 from dare_framework.plan._internal.registry_validator import RegistryPlanValidator
-from dare_framework.tool import (
-    EchoTool,
-    ReadFileTool,
-    RunContextState,
-    SearchCodeTool,
-    ToolManager,
-)
+from dare_framework.tool._internal.tools import EchoTool, ReadFileTool, SearchCodeTool
+from dare_framework.tool.types import RunContext
+from dare_framework.tool.default_tool_manager import ToolManager
 
 MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
 API_KEY = os.getenv("CHAT_API_KEY", "")
@@ -286,7 +282,7 @@ async def main() -> None:
         http_client_options=HTTP_CLIENT_OPTIONS,
     )
 
-    run_context = RunContextState(
+    run_context = RunContext(
         config={
             "workspace_roots": [WORKSPACE_ROOT],
             "tools": {
@@ -300,7 +296,7 @@ async def main() -> None:
         }
     )
 
-    tool_manager = ToolManager(context_factory=run_context.build)
+    tool_manager = ToolManager(context_factory=lambda: run_context)
     tool_manager.register_tool(ReadFileTool())
     tool_manager.register_tool(SearchCodeTool())
     tool_manager.register_tool(EchoTool())

@@ -8,7 +8,7 @@ from dare_framework.skill.types import Skill
 
 
 class KeywordSkillSelector:
-    """Selects skills by matching task description keywords against skill metadata."""
+    """Selects skills by matching task description keywords against skill text."""
 
     def __init__(self, *, min_score: float = 0.0) -> None:
         """Initialize selector.

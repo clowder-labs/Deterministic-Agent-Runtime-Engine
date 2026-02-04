@@ -52,3 +52,9 @@
 - TODO: 流式输出与增量 tool calls 支持。
 - TODO: 多模型策略（fallback/router/ensemble）。
 - TODO: Prompt 多阶段（plan/execute/verify）与上下文预算联动。
+
+## 9. Design Clarifications (2026-02-03)
+
+- Impl gap: adapter client construction uses `Any`; define minimal client protocol or alias.
+- Doc gap: tool definition schema normalization should be explicitly documented.
+- Surface: default adapters/loaders live in the model package and are part of the facade.

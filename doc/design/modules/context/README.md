@@ -17,7 +17,7 @@
 ## 3. 核心流程（当前实现）
 
 - `Context.stm_add()`：写入短期记忆（STM）。
-- `Context.listing_tools()`：通过 ToolProvider 获取 tool defs（结构化）。
+- `Context.listing_tools()`：通过 ToolProvider 获取 tool defs（结构化，内部缓存）。
 - `Context.assemble()`：
   - 读取 STM 消息
   - 读取 tool defs
@@ -39,7 +39,7 @@
 
 ## 6. 约束与限制（当前实现）
 
-- **工具列表缓存**：`Context.toollist` 缓存 tool defs，刷新时依赖 ToolProvider；未记录快照用于审计（TODO）。
+- **工具列表缓存**：`Context` 内部缓存 tool defs，刷新时依赖 ToolProvider；未记录快照用于审计（TODO）。
 - **检索融合缺失**：LTM/Knowledge 未默认合入 messages（TODO）。
 - **Budget 仅局部使用**：Agent 侧使用 Budget，但缺少统一归因与跨组件统计（TODO）。
 
@@ -54,3 +54,9 @@
 - TODO: 规范 `AssembledContext.metadata` 最小字段（context_id / tool_snapshot_hash）。
 - TODO: 定义 LTM/Knowledge 融合策略与预算归因。
 - TODO: 对齐工具快照记录与 EventLog 审计链。
+
+## 9. Design Clarifications (2026-02-03)
+
+- Doc gap: `Context` maintains skill state (`current_skill`), but skill injection path is not documented.
+- Type cleanup: replaced string annotations with direct types + `TYPE_CHECKING` imports.
+- Config snapshot: `Context.config` is intended as read‑only session snapshot (no `config_update`).

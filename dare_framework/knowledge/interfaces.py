@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from dare_framework.knowledge.kernel import IKnowledge
-from dare_framework.tool.interfaces import ITool
+from dare_framework.tool.kernel import ITool
 
 
 @runtime_checkable

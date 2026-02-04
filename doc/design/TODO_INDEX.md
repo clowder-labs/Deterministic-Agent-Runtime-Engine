@@ -8,7 +8,7 @@
 - [ ] 将 ValidatedPlan.steps 驱动 Execute Loop（计划执行一致性）。(`doc/design/modules/agent/README.md`)
 - [ ] 引入 plan attempt snapshot/rollback，实现失败计划隔离。(`doc/design/modules/agent/README.md`)
 - [ ] 接入 `ISecurityBoundary`（policy gate + trust derivation）。(`doc/design/modules/agent/README.md`)
-- [ ] Hooks 生命周期触发点与默认 hook 管理器。(`doc/design/modules/agent/README.md`)
+- [ ] Hook payload schema 与默认 hook 管理器。(`doc/design/modules/agent/README.md`)
 - [ ] 对齐 EventLog / HITL 事件链（pause → wait → resume）。(`doc/design/modules/agent/README.md`)
 
 ## context
@@ -50,7 +50,6 @@
 - [ ] 定义稳定事件 taxonomy 与 payload schema。(`doc/design/modules/event/README.md`)
 
 ## hook
-- [ ] 在 DareAgent 生命周期注入 hook 调用点。(`doc/design/modules/hook/README.md`)
 - [ ] 明确 hook 的 payload schema 与错误处理策略。(`doc/design/modules/hook/README.md`)
 
 ## config

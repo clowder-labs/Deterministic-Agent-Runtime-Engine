@@ -36,3 +36,8 @@
 
 - TODO: 接入 Knowledge/RAG pipeline。
 - TODO: 统一配置与 adapter 选择策略。
+
+## 8. Design Clarifications (2026-02-03)
+
+- Doc/Impl gap: embedding domain lacks a `kernel.py` despite kernel conventions elsewhere.
+- Type cleanup: reduce `Any` usage in adapter client construction.

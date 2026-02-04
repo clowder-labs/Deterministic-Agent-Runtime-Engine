@@ -14,13 +14,14 @@
 - 不在本变更中引入新的 config 元数据机制（例如 hash/source layers）；如未来需要，可在 `IConfigProvider` 上扩展或引入新的 metadata 类型。
 
 ## Proposed Public API (sketch)
+
 ```python
 from dare_framework.builder import Builder
 from dare_framework.config.types import Config
 
 config = Config(...)  # effective config
 agent = (
-    Builder.five_layer_agent_builder("my-agent")
+    Builder.dare_agent_builder("my-agent")
     .with_config(config)
     .with_managers(
         model_adapter_manager=model_adapter_manager,
@@ -30,9 +31,9 @@ agent = (
         remediator_manager=remediator_manager,
         hook_manager=hook_manager,
     )
-    .with_model(explicit_model)          # single-select override (optional)
-    .add_tools(tool_a, tool_b)           # multi-load (extend)
-    .add_hooks(hook_a)                   # multi-load (extend)
+    .with_model(explicit_model)  # single-select override (optional)
+    .add_tools(tool_a, tool_b)  # multi-load (extend)
+    .add_hooks(hook_a)  # multi-load (extend)
     .build()
 )
 ```

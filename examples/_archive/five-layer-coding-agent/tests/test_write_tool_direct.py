@@ -1,8 +1,10 @@
 """Test WriteFileTool directly to see if it works."""
 import asyncio
 from pathlib import Path
-from dare_framework.tool import WriteFileTool, NativeToolProvider, DefaultToolGateway
-from dare_framework.tool.types import Envelope
+from dare_framework.plan.types import Envelope
+from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
+from dare_framework.tool._internal.tools import WriteFileTool
+from dare_framework.tool.default_tool_manager import ToolManager
 
 
 async def test_write_tool_direct():
@@ -23,7 +25,7 @@ async def test_write_tool_direct():
 
     # Create provider and gateway
     tool_provider = NativeToolProvider(tools=[write_tool])
-    tool_gateway = DefaultToolGateway()
+    tool_gateway = ToolManager()
     tool_gateway.register_provider(tool_provider)
 
     # Try to invoke write_file

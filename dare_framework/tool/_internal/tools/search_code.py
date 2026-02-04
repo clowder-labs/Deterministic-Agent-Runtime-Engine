@@ -8,9 +8,9 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from dare_framework.tool.interfaces import ITool
+from dare_framework.tool.kernel import ITool
 from dare_framework.tool.errors import ToolError
-from dare_framework.tool._internal.utils.file_utils import (
+from dare_framework.tool._internal.file_utils import (
     DEFAULT_IGNORE_DIRS,
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_RESULTS,
@@ -21,7 +21,7 @@ from dare_framework.tool._internal.utils.file_utils import (
     resolve_path,
     resolve_workspace_roots,
 )
-from dare_framework.tool._internal.utils.ids import generate_id
+from dare_framework.infra.ids import generate_id
 from dare_framework.tool.types import (
     CapabilityKind,
     Evidence,

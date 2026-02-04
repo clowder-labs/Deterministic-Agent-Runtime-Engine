@@ -18,7 +18,9 @@
 ## 3. 当前实现
 
 - `InMemorySTM`：默认短期记忆实现（内存列表）。
-- LongTermMemory / Knowledge 仅有接口定义，缺少默认实现。
+- LongTermMemory / Knowledge 提供默认实现（rawdata / vector，内部实现），通常通过 factory 创建：
+  - `create_long_term_memory(...)`
+  - `create_knowledge(...)`
 
 ## 4. 与其他模块的交互
 
@@ -28,8 +30,8 @@
 
 ## 5. 约束与限制
 
-- 缺少默认 LTM/Knowledge 实现。
 - 检索融合策略未标准化（默认 assemble 不合入 LTM/Knowledge）。
+- 默认实现依赖 embedding adapter（vector 类型时）。
 
 ## 6. 扩展点
 
@@ -41,3 +43,8 @@
 - TODO: 提供默认 LTM/Knowledge 实现（或接入外部向量库）。
 - TODO: 统一检索融合策略（排序、去重、预算控制）。
 - TODO: 知识作为 Tool 的统一策略（权限、计费、审计）。
+
+## 8. Design Clarifications (2026-02-03)
+
+- Doc gap: design doc is combined, but code is split into separate `memory/` and `knowledge/` domains.
+- Impl gap: factories depend on embedding adapter; dependency should be documented and typed.

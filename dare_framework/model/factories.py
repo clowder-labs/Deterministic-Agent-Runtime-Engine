@@ -6,10 +6,10 @@ from pathlib import Path
 
 from dare_framework.config.types import Config
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
-from dare_framework.model._internal.builtin_prompt_loader import BuiltInPromptLoader
-from dare_framework.model._internal.default_model_adapter_manager import DefaultModelAdapterManager
-from dare_framework.model._internal.filesystem_prompt_loader import FileSystemPromptLoader
-from dare_framework.model._internal.layered_prompt_store import LayeredPromptStore
+from dare_framework.model.adapters.builtin_prompt_loader import BuiltInPromptLoader
+from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
+from dare_framework.model.adapters.filesystem_prompt_loader import FileSystemPromptLoader
+from dare_framework.model.layered_prompt_store import LayeredPromptStore
 
 
 def create_default_model_adapter_manager(config: Config | None = None) -> IModelAdapterManager:

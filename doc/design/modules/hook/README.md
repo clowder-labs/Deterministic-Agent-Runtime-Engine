@@ -1,6 +1,6 @@
 # Module: hook
 
-> Status: interface + helper only (2026-01-31). TODO indicates missing integration.
+> Status: integrated with DareAgent (2026-02-04). TODO indicates remaining gaps.
 
 ## 1. 定位与职责
 
@@ -21,15 +21,19 @@
 
 ## 4. 与其他模块的交互
 
-- **Agent**：应在运行时触发 hook（TODO）。
+- **Agent**：DareAgent 已在生命周期阶段触发 hook。
 - **Config/Managers**：可加载多 hook 实现并按顺序执行。
 
 ## 5. 现状与限制
 
-- DareAgent 接收 hooks 但未实际调用（TODO）。
+- DareAgent 会触发 HookPhase 生命周期事件；其他 agent 仍未接入。
 - Hook payload schema 未统一定义。
 
 ## 6. TODO / 未决问题
 
-- TODO: 在 DareAgent 生命周期注入 hook 调用点。
 - TODO: 明确 hook 的 payload schema 与错误处理策略。
+
+## 7. Design Clarifications (2026-02-03)
+
+- Doc gap: hook payload schema needs a minimal contract (observability relies on it).
+- Impl gap: DareAgent now emits hooks; update module doc to reflect actual integration.

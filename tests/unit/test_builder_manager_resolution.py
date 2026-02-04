@@ -12,8 +12,8 @@ from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.interfaces import IValidator
 from dare_framework.plan.types import ProposedPlan
-from dare_framework.tool import ToolManager
-from dare_framework.tool.interfaces import ITool
+from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import ToolResult
 
 
@@ -192,7 +192,7 @@ async def test_five_layer_builder_validators_extend_and_config_boundary() -> Non
         }
     )
     agent = (
-        BaseAgent.five_layer_agent_builder("test")
+        BaseAgent.dare_agent_builder("test")
         .with_model(DummyModelAdapter("ok"))
         .with_config(config)
         .with_managers(validator_manager=FixedValidatorManager([enabled_validator, disabled_validator]))
@@ -223,7 +223,7 @@ def test_five_layer_builder_hooks_extend_and_config_boundary() -> None:
         }
     )
     agent = (
-        BaseAgent.five_layer_agent_builder("test")
+        BaseAgent.dare_agent_builder("test")
         .with_model(DummyModelAdapter("ok"))
         .with_config(config)
         .with_managers(hook_manager=FixedHookManager([enabled_hook, disabled_hook]))

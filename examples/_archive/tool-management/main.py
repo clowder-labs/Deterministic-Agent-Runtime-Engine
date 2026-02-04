@@ -20,13 +20,10 @@ from dare_framework.agent import BaseAgent
 from dare_framework.infra.component import ComponentType
 from dare_framework.model import IModelAdapter
 from dare_framework.plan import Envelope
-from dare_framework.tool import (
-    DefaultExecutionControl,
-    EchoTool,
-    NoopTool,
-    RunContextState,
-    ToolManager,
-)
+from dare_framework.tool._internal.control.default_execution_control import DefaultExecutionControl
+from dare_framework.tool._internal.tools import EchoTool, NoopTool
+from dare_framework.tool.types import RunContext
+from dare_framework.tool.default_tool_manager import ToolManager
 
 # Configuration (consistent with examples/base_tool)
 WORKSPACE_ROOT = os.getenv("TOOL_WORKSPACE_ROOT", ".")
@@ -56,13 +53,9 @@ async def main():
 
     # 1. Create components
     print("\n[1] Creating components...")
-    run_context = RunContextState(
-        config={
-            "workspace_roots": [WORKSPACE_ROOT],
-        }
-    )
+    run_context = RunContext(config={"workspace_roots": [WORKSPACE_ROOT]})
 
-    gateway = ToolManager(context_factory=run_context.build)
+    gateway = ToolManager(context_factory=lambda: run_context)
     execution_control = DefaultExecutionControl()
     tools = [NoopTool(), EchoTool()]
 

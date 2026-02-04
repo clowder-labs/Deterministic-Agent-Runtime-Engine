@@ -23,11 +23,9 @@ from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan import ProposedPlan, ProposedStep
 from dare_framework.plan._internal.registry_validator import RegistryPlanValidator
-from dare_framework.tool import (
-    EchoTool,
-    RunContextState,
-    ToolManager,
-)
+from dare_framework.tool._internal.tools import EchoTool
+from dare_framework.tool.types import RunContext
+from dare_framework.tool.default_tool_manager import ToolManager
 
 
 def _latest_user_message(messages: list[Message]) -> str:
@@ -118,9 +116,9 @@ class DeterministicToolCallModel:
 
 
 async def main() -> None:
-    run_context = RunContextState(config={"workspace_roots": ["."]})
+    run_context = RunContext(config={"workspace_roots": ["."]})
 
-    tool_manager = ToolManager(context_factory=run_context.build)
+    tool_manager = ToolManager(context_factory=lambda: run_context)
     descriptor = tool_manager.register_tool(EchoTool())
 
     planner = EchoPlanner(capability_id=descriptor.id)

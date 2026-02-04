@@ -2,22 +2,99 @@
 
 Alignment notes:
 - All side-effects MUST flow through `IToolGateway.invoke(...)`.
-- HITL control plane lives behind `IExecutionControl`.
+- HITL control plane lives behind `IExecutionControl` in tool.interfaces.
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol, Sequence, runtime_checkable
+from typing import Any, Literal, Protocol, Sequence, runtime_checkable
 
 from dare_framework.config.types import Config
+from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.plan.types import Envelope
 from dare_framework.tool.types import (
     CapabilityDescriptor,
-    ExecutionSignal,
+    CapabilityKind,
     ProviderStatus,
+    RiskLevelName,
+    RunContext,
     ToolDefinition,
     ToolResult,
+    ToolType,
 )
+
+
+@runtime_checkable
+class IToolProvider(Protocol):
+    """[Component] Tool provider interface (core)."""
+
+    def list_tools(self) -> list["ITool"]:
+        """Get available tool instances for registration."""
+        ...
+
+
+@runtime_checkable
+class ITool(IComponent, Protocol):
+    """A callable tool implementation (core contract)."""
+
+    @property
+    def name(self) -> str:
+        """Unique tool identifier."""
+        ...
+
+    @property
+    def component_type(self) -> Literal[ComponentType.TOOL]:
+        """Component category used for config scoping."""
+        ...
+
+    @property
+    def description(self) -> str:
+        """Human-readable description."""
+        ...
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        """JSON schema for input validation."""
+        ...
+
+    @property
+    def output_schema(self) -> dict[str, Any]:
+        """JSON schema for output validation."""
+        ...
+
+    @property
+    def tool_type(self) -> ToolType:
+        """Tool classification (atomic or work unit)."""
+        ...
+
+    @property
+    def risk_level(self) -> RiskLevelName:
+        """Security risk classification (trusted registry source)."""
+        ...
+
+    @property
+    def requires_approval(self) -> bool:
+        """Whether human approval is required (trusted registry source)."""
+        ...
+
+    @property
+    def timeout_seconds(self) -> int:
+        """Execution timeout in seconds."""
+        ...
+
+    @property
+    def is_work_unit(self) -> bool:
+        """Whether this tool is a work unit (envelope-bounded loop)."""
+        ...
+
+    @property
+    def capability_kind(self) -> CapabilityKind:
+        """Capability kind for trusted registry metadata."""
+        ...
+
+    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+        """Execute the tool and return a ToolResult."""
+        ...
 
 
 class IToolGateway(Protocol):
@@ -40,15 +117,13 @@ class IToolGateway(Protocol):
 class IToolManager(IToolGateway, Protocol):
     """Trusted tool registry and management interface."""
 
-    # NOTE: Forward references avoid importing tool.interfaces into the kernel layer.
-
-    def load_tools(self, *, config: Config | None = None) -> list["ITool"]:
+    def load_tools(self, *, config: Config | None = None) -> list[ITool]:
         """Load tool implementations from configuration."""
         ...
 
     def register_tool(
         self,
-        tool: "ITool",
+        tool: ITool,
         *,
         namespace: str | None = None,
         version: str | None = None,
@@ -62,7 +137,7 @@ class IToolManager(IToolGateway, Protocol):
 
     def update_tool(
         self,
-        tool: "ITool",
+        tool: ITool,
         *,
         capability_id: str,
         enabled: bool | None = None,
@@ -74,11 +149,11 @@ class IToolManager(IToolGateway, Protocol):
         """Enable or disable a capability in the registry."""
         ...
 
-    def register_provider(self, provider: "IToolProvider") -> None:
+    def register_provider(self, provider: IToolProvider) -> None:
         """Register a tool provider."""
         ...
 
-    def unregister_provider(self, provider: "IToolProvider") -> bool:
+    def unregister_provider(self, provider: IToolProvider) -> bool:
         """Unregister a tool provider."""
         ...
 
@@ -122,20 +197,4 @@ class IToolManager(IToolGateway, Protocol):
         ...
 
 
-class IExecutionControl(Protocol):
-    """Control plane for pause/resume/checkpoints (HITL)."""
-
-    def poll(self) -> ExecutionSignal: ...
-
-    def poll_or_raise(self) -> None: ...
-
-    async def pause(self, reason: str) -> str: ...
-
-    async def resume(self, checkpoint_id: str) -> None: ...
-
-    async def checkpoint(self, label: str, payload: dict[str, Any]) -> str: ...
-
-    async def wait_for_human(self, checkpoint_id: str, reason: str) -> None: ...
-
-
-__all__ = ["IExecutionControl", "IToolGateway", "IToolManager"]
+__all__ = ["ITool", "IToolGateway", "IToolManager", "IToolProvider"]

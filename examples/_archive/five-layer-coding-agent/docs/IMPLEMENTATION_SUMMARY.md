@@ -6,7 +6,7 @@ All 4 phases of the approved plan have been successfully implemented:
 
 ### Phase 1: Fix tool_calls Extraction (CRITICAL) ✅
 
-**File**: `dare_framework/model/_internal/openrouter_adapter.py`
+**File**: `dare_framework/model/openrouter_adapter.py`
 
 **Changes**:
 - Added `import json` for parsing tool call arguments
@@ -184,7 +184,7 @@ All modules verified:
 - ✅ cli_commands.py - Syntax valid, command parsing works
 - ✅ cli_display.py - Syntax valid, display formatters work
 - ✅ evidence_tracker.py - Syntax valid, imports work
-- ✅ dare_framework/model/_internal/openrouter_adapter.py - tool_calls extraction implemented
+- ✅ dare_framework/model/openrouter_adapter.py - tool_calls extraction implemented
 - ✅ interactive_cli.py - Refactored with command system
 
 ---
@@ -273,7 +273,7 @@ All modules verified:
 ## 📄 Files Modified/Created
 
 **Modified**:
-- `dare_framework/model/_internal/openrouter_adapter.py` - Added tool_calls extraction
+- `dare_framework/model/openrouter_adapter.py` - Added tool_calls extraction
 - `interactive_cli.py` - Major refactor for command system
 
 **Created**:

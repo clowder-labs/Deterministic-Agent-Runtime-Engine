@@ -68,8 +68,6 @@ class FileSystemSkillLoader:
             return None
 
         skill_id = name.lower().replace(" ", "-").replace("_", "-")
-        metadata = dict(frontmatter.get("metadata", {})) if isinstance(frontmatter.get("metadata"), dict) else {}
-
         scripts = self._load_scripts(skill_dir)
         skill_dir_resolved = skill_dir.resolve()
 
@@ -78,7 +76,6 @@ class FileSystemSkillLoader:
             name=name,
             description=description,
             content=body,
-            metadata=metadata,
             skill_dir=skill_dir_resolved,
             scripts=scripts,
         )

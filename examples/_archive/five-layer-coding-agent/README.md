@@ -88,7 +88,7 @@ five-layer-coding-agent/
 
 ## Tools
 
-The example uses built-in tools from `dare_framework.tool`:
+The example uses built-in tools from `dare_framework.tool._internal.tools`:
 
 - **ReadFileTool** - Read file contents (READ_ONLY risk level)
 - **WriteFileTool** - Write file contents (IDEMPOTENT_WRITE risk level)
@@ -395,13 +395,15 @@ To modify this example:
 from pathlib import Path
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.plan.types import ProposedPlan, ProposedStep, Task
-from dare_framework.tool import ReadFileTool, SearchCodeTool, NativeToolProvider, DefaultToolGateway
+from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
+from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool
+from dare_framework.tool.default_tool_manager import ToolManager
 from examples.five_layer_coding_agent.planners import DeterministicPlanner
 from examples.five_layer_coding_agent.validators import SimpleValidator
 
 # 创建工具
 tools = NativeToolProvider(tools=[ReadFileTool(), SearchCodeTool()])
-gateway = DefaultToolGateway()
+gateway = ToolManager()
 gateway.register_provider(tools)
 
 # 创建计划
@@ -465,7 +467,7 @@ asyncio.run(my_custom_scenario())
 
 1. 使用 framework 的工具：
 ```python
-from dare_framework.tool import RunCommandTool, EditLineTool
+from dare_framework.tool._internal.tools import EditLineTool, RunCommandTool
 tools_list = [ReadFileTool(), RunCommandTool(), EditLineTool()]
 ```
 

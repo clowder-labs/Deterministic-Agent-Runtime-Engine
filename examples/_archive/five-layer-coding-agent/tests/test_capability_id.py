@@ -1,10 +1,6 @@
 """Test what capability_id tools use."""
-from dare_framework.tool import (
-    ReadFileTool,
-    WriteFileTool,
-    SearchCodeTool,
-    NativeToolProvider,
-)
+from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
+from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
 
 
 def test_capability_ids():

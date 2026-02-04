@@ -1,9 +1,9 @@
-"""Tool imports from dare_framework.
+"""Tool imports from dare_framework internals.
 
-Re-exports built-in tools from the framework for use in this example.
+Re-exports built-in tools from the internal tool module for this example.
 """
 
-from dare_framework.tool import (
+from dare_framework.tool._internal.tools import (
     ReadFileTool,
     WriteFileTool,
     SearchCodeTool,

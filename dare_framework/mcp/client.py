@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from dare_framework.mcp.kernel import IMCPClient
 from dare_framework.mcp.transports.base import ITransport
-from dare_framework.tool.interfaces import IMCPClient
 from dare_framework.tool.types import RunContext, ToolResult
 
 logger = logging.getLogger(__name__)

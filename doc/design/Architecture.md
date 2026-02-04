@@ -175,7 +175,7 @@ flowchart TB
   - 当前部分控制面仅有接口形态（security/event/hook），需要后续实现与接入。
 
 - **Layer 1（协议适配）**：把协议世界翻译为 canonical capability。
-  - 目前仅 MCPToolkit 在 `tool` 域落地；A2A/A2UI 处于设计文档阶段（TODO）。
+  - 目前 MCPToolProvider 在 `mcp` 域落地；A2A/A2UI 处于设计文档阶段（TODO）。
 
 - **Layer 2（可插拔组件）**：策略/能力实现层。
   - planner/validator/remediator/model/tools/memory/knowledge/embedding 等。
@@ -380,11 +380,11 @@ sequenceDiagram
 
 | Domain | 主要职责（架构视角） | 现状落点（示例） | 模块文档 |
 |---|---|---|---|
-| agent | 编排策略承载域；对外最小运行面；支持多编排实现 | `dare_framework/agent/_internal/five_layer.py` | `doc/design/modules/agent/README.md` |
+| agent | 编排策略承载域；对外最小运行面；支持多编排实现 | `dare_framework/agent/five_layer.py` | `doc/design/modules/agent/README.md` |
 | context | 上下文核心实体（context-centric）；持有 STM/LTM/Knowledge 引用与 Budget；assemble 组装上下文 | `dare_framework/context/_internal/context.py` | `doc/design/modules/context/README.md` |
-| tool | 能力目录（registry）与系统调用边界；Tool Loop 语义 | `dare_framework/tool/_internal/managers/tool_manager.py` | `doc/design/modules/tool/README.md` |
+| tool | 能力目录（registry）与系统调用边界；Tool Loop 语义 | `dare_framework/tool/default_tool_manager.py` | `doc/design/modules/tool/README.md` |
 | plan | 任务/计划/结果模型；plan 生成/校验/补救 | `dare_framework/plan/_internal/*.py` | `doc/design/modules/plan/README.md` |
-| model | 模型调用适配；Prompt/ModelInput 规范化 | `dare_framework/model/_internal/*` | `doc/design/modules/model/README.md` |
+| model | 模型调用适配；Prompt/ModelInput 规范化 | `dare_framework/model/*` | `doc/design/modules/model/README.md` |
 | security | trust/policy/sandbox 边界 | `dare_framework/security/*` | `doc/design/modules/security/README.md` |
 | event | 可审计事件日志（WORM）与查询/重放 | `dare_framework/event/*` | `doc/design/modules/event/README.md` |
 | hook | 生命周期扩展点；best-effort hooks | `dare_framework/hook/*` | `doc/design/modules/hook/README.md` |

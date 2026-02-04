@@ -8,13 +8,9 @@ from dotenv import load_dotenv
 from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
 from dare_framework.plan.types import ProposedPlan, ProposedStep, Task
-from dare_framework.tool import (
-    ReadFileTool,
-    WriteFileTool,
-    SearchCodeTool,
-    NativeToolProvider,
-    DefaultToolGateway,
-)
+from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
+from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
+from dare_framework.tool.default_tool_manager import ToolManager
 
 from dare_framework.model import OpenRouterModelAdapter
 from planners import DeterministicPlanner
@@ -54,7 +50,7 @@ async def main():
 
     # Wrap in tool provider and gateway
     tool_provider = NativeToolProvider(tools=tools_list)
-    tool_gateway = DefaultToolGateway()
+    tool_gateway = ToolManager()
     tool_gateway.register_provider(tool_provider)
 
     # Create real model adapter

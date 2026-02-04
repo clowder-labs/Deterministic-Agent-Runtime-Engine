@@ -20,7 +20,7 @@ from dare_framework.tool.types import CapabilityKind, CapabilityMetadata
 
 if TYPE_CHECKING:
     from dare_framework.tool.kernel import IToolGateway
-    from dare_framework.tool.interfaces import IToolManager
+    from dare_framework.tool.kernel import IToolManager
     from dare_framework.tool.types import CapabilityDescriptor
 
 

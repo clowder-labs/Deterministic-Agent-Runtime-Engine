@@ -2,7 +2,8 @@
 
 import pytest
 
-from dare_framework.tool import NativeToolProvider, NoopTool, EchoTool, ToolManager
+from dare_framework.tool._internal import EchoTool, NativeToolProvider, NoopTool
+from dare_framework.tool.default_tool_manager import ToolManager
 from dare_framework.plan.types import Envelope
 
 

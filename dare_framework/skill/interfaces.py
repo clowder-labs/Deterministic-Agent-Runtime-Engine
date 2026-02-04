@@ -1,4 +1,7 @@
-"""Skill domain interfaces."""
+"""Skill domain pluggable interfaces (implementations).
+
+Core skill contracts live in `dare_framework.skill.kernel`.
+"""
 
 from __future__ import annotations
 
