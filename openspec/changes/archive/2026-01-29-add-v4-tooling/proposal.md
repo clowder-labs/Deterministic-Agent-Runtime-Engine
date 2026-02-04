@@ -1,7 +1,7 @@
 # Change: Add v4 tool runtime + workspace file tools (dare_framework3_4)
 
 ## Why
-The v4.0 base (`dare_framework3_4`) currently exposes only a thin `IToolProvider` stub and is missing the tool runtime interfaces/types and default implementations described in `doc/design/Interfaces_v4.0.md`. The minimal workspace file toolset (read/search/write/edit) exists only in commit `a1d8ad5c6` on branch `add_tools`, and the project lacks a v4.0-aligned implementation inside `dare_framework3_4`. To support deterministic task execution and align with the v4.0 design requirements, we need to port and adapt those tool implementations to `dare_framework3_4`, using the v4.0 config shape and trusted registry flow.
+The v4.0 base (`dare_framework3_4`) currently exposes only a thin `IToolProvider` stub and is missing the tool runtime interfaces/types and default implementations described in `docs/design/Interfaces_v4.0.md`. The minimal workspace file toolset (read/search/write/edit) exists only in commit `a1d8ad5c6` on branch `add_tools`, and the project lacks a v4.0-aligned implementation inside `dare_framework3_4`. To support deterministic task execution and align with the v4.0 design requirements, we need to port and adapt those tool implementations to `dare_framework3_4`, using the v4.0 config shape and trusted registry flow.
 
 ## What Changes
 - Add v4.0-aligned tool interfaces/types (IToolGateway/IExecutionControl/ITool/ICapabilityProvider/etc.) and risk enums inside `dare_framework3_4`.

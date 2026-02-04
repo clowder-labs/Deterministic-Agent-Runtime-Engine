@@ -11,8 +11,8 @@
 - [x] 2.3 Update runtime/builder wiring to use CompositeValidator by default.
 
 ## 3. Docs + alignment
-- [x] 3.1 Update `doc/design/archive/Architecture_Final_Review_v1.3.md` to include ComponentManager and entry point discovery.
-- [x] 3.2 Update `doc/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` for component lifecycle and config/prompt interfaces.
+- [x] 3.1 Update `docs/design/archive/Architecture_Final_Review_v1.3.md` to include ComponentManager and entry point discovery.
+- [x] 3.2 Update `docs/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` for component lifecycle and config/prompt interfaces.
 
 ## 4. Tests
 - [x] 4.1 Add unit tests for ComponentManager ordering, discovery filters, and lifecycle ownership.

@@ -1,5 +1,5 @@
 ## Context
-The repository currently contains two framework variants (`dare_framework` and `dare_framework2`) with different layouts. The v3.3 proposal in `doc/design/archive/ARCHITECTURE_COMPARISON.md` fixes missing kernel interfaces (config/hook/tool), clarifies manager/gateway ownership, enforces scope annotations on interfaces, renames impl packages to internal, and removes the runtime layer. It also formalizes a mixed architecture with explicit `kernel.py` and `component.py` separation per domain and a stable public API facade at each domain package.
+The repository currently contains two framework variants (`dare_framework` and `dare_framework2`) with different layouts. The v3.3 proposal in `docs/design/archive/ARCHITECTURE_COMPARISON.md` fixes missing kernel interfaces (config/hook/tool), clarifies manager/gateway ownership, enforces scope annotations on interfaces, renames impl packages to internal, and removes the runtime layer. It also formalizes a mixed architecture with explicit `kernel.py` and `component.py` separation per domain and a stable public API facade at each domain package.
 
 ## Goals / Non-Goals
 - Goals:

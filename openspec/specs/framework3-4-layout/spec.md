@@ -18,7 +18,7 @@ The system SHALL place v3.4 default implementations under `_internal/` directori
 - **THEN** it is located under a domain `_internal/` package (e.g., `dare_framework3_4/memory/_internal/`)
 
 ### Requirement: v3.4 includes placeholder v4 domains
-The system SHALL provide importable placeholder domains for `plan`, `security`, `event`, `hook`, and `config` under `dare_framework3_4/` with minimal type and Protocol declarations aligned to `doc/design/Interfaces.md`.
+The system SHALL provide importable placeholder domains for `plan`, `security`, `event`, `hook`, and `config` under `dare_framework3_4/` with minimal type and Protocol declarations aligned to `docs/design/Interfaces.md`.
 
 #### Scenario: Importing placeholder domains
 - **WHEN** a developer imports `dare_framework3_4.plan` or `dare_framework3_4.security`

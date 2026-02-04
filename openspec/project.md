@@ -282,11 +282,11 @@ test(coverage): add deterministic coverage validator tests
 
 ## References
 
-- [架构设计（权威）](/doc/design/Architecture.md)
-- [接口设计（权威）](/doc/design/Interfaces.md)
-- [对齐清单](/doc/design/DARE_alignment.md)
-- [证据索引](/doc/design/DARE_evidence.yaml)
-- [架构终稿评审 v2.1（已归档）](/doc/design/archive/Architecture_Final_Review_v2.1.md)
-- [架构终稿评审 v1.3（已归档）](/doc/design/archive/Architecture_Final_Review_v1.3.md)
-- [接口层设计 v1.1（已归档）](/doc/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md)
-- [Anthropic Engineering 博客（已归档）](/doc/design/archive/anthropic-engineering.md)
+- [架构设计（权威）](/docs/design/Architecture.md)
+- [接口设计（权威）](/docs/design/Interfaces.md)
+- [对齐清单](/docs/design/DARE_alignment.md)
+- [证据索引](/docs/design/DARE_evidence.yaml)
+- [架构终稿评审 v2.1（已归档）](/docs/design/archive/Architecture_Final_Review_v2.1.md)
+- [架构终稿评审 v1.3（已归档）](/docs/design/archive/Architecture_Final_Review_v1.3.md)
+- [接口层设计 v1.1（已归档）](/docs/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md)
+- [Anthropic Engineering 博客（已归档）](/docs/design/archive/anthropic-engineering.md)

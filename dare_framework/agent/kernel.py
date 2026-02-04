@@ -15,7 +15,7 @@ Design Decision (2026-01-30):
     (e.g., DareAgent) internally routes to the appropriate execution mode based on
     whether milestones are present and whether a planner is configured.
     
-    See: doc/用户旅程地图：全栈智能研发 Agent 交付云服务 LandingZone 对接.md
+    See: docs/用户旅程地图：全栈智能研发 Agent 交付云服务 LandingZone 对接.md
 """
 
 from __future__ import annotations

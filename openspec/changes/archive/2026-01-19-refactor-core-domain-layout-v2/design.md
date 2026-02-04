@@ -1,5 +1,5 @@
 ## Context
-The project is converging on the v2 Kernelized architecture (`doc/design/archive/Architecture_Final_Review_v2.1.md`, based on v2.0). The current codebase already implements the v2 five-layer loop skeleton and core contracts, but the file layout and some contracts still reflect “transitional” choices.
+The project is converging on the v2 Kernelized architecture (`docs/design/archive/Architecture_Final_Review_v2.1.md`, based on v2.0). The current codebase already implements the v2 five-layer loop skeleton and core contracts, but the file layout and some contracts still reflect “transitional” choices.
 
 This proposal captures the next structural iteration (“方案 2”):
 - domain-oriented packages,
@@ -28,7 +28,7 @@ This proposal captures the next structural iteration (“方案 2”):
 `DefaultContextManager` currently imports `IMemory` from `dare_framework/components/memory/*`, which violates the desired dependency direction (Layer 0 should not depend on Layer 2). The agreed direction is to place `IMemory` in `dare_framework/contracts/` and have components implement that contract.
 
 ### Envelope inconsistency between spec and flow
-In `doc/design/archive/Architecture_Final_Review_v2.0.md` (baseline) and `doc/design/archive/Architecture_Final_Review_v2.1.md` (current):
+In `docs/design/archive/Architecture_Final_Review_v2.0.md` (baseline) and `docs/design/archive/Architecture_Final_Review_v2.1.md` (current):
 - The normative `Envelope` structure is boundary-only (allowed ids + budget + done predicate + risk).
 - The tool loop pseudocode references `envelope.current_capability_id` and `envelope.params`.
 
@@ -92,4 +92,4 @@ This is the intended direction; exact filenames can be finalized in apply stage 
 ## Confirmed Decisions (before apply)
 1) Entrypoint/plugin discovery code moves under `dare_framework/components/` (target: `dare_framework/components/plugin_system/`).
 2) Prefer “clean” domain packaging: convert top-level Kernel modules (e.g., `core/budget.py`) into domain packages where appropriate.
-3) Do not edit `doc/design/archive/Architecture_Final_Review_v2.0.md`; create `doc/design/archive/Architecture_Final_Review_v2.1.md` and place adjustments there.
+3) Do not edit `docs/design/archive/Architecture_Final_Review_v2.0.md`; create `docs/design/archive/Architecture_Final_Review_v2.1.md` and place adjustments there.

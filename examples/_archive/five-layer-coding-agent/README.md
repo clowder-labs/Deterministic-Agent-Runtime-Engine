@@ -509,8 +509,8 @@ class MyValidator:
 
 ## 📚 参考资料
 
-- [DARE Framework 文档](../../doc/design/)
-- [五层循环架构设计](../../doc/design/Architecture.md)
+- [DARE Framework 文档](../../docs/design/)
+- [五层循环架构设计](../../docs/design/Architecture.md)
 - [OpenSpec Proposal](../../openspec/changes/add-five-layer-example/)
 - [OpenRouter API](https://openrouter.ai/)
 - [FiveLayerAgent 源码](../../dare_framework/agent/_internal/five_layer.py)

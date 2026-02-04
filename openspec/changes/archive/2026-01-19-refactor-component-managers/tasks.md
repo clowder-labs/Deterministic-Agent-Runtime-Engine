@@ -8,8 +8,8 @@
 - [x] 2.2 Ensure managers return ordered lists of typed components (e.g., list[IValidator]).
 
 ## 3. Docs + alignment
-- [x] 3.1 Update `doc/design/archive/Architecture_Final_Review_v1.3.md` to describe per-interface managers and BaseComponentManager.
-- [x] 3.2 Update `doc/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` to reflect manager split and always-on entry points.
+- [x] 3.1 Update `docs/design/archive/Architecture_Final_Review_v1.3.md` to describe per-interface managers and BaseComponentManager.
+- [x] 3.2 Update `docs/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md` to reflect manager split and always-on entry points.
 
 ## 4. Tests
 - [x] 4.1 Update/replace ComponentManager tests for BaseComponentManager and typed managers.

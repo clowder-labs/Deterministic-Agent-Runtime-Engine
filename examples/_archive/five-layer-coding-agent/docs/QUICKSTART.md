@@ -87,7 +87,7 @@ PYTHONPATH=../.. python openrouter_agent.py
 
 - 📖 [完整文档](README.md)
 - 📝 [详细使用指南](USAGE.md)
-- 🏗️ [架构设计](../../doc/design/Architecture.md)
+- 🏗️ [架构设计](../../docs/design/Architecture.md)
 
 ### 想定制场景？
 
