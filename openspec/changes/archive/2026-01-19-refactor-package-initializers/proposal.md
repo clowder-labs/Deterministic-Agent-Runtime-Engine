@@ -16,7 +16,7 @@ Concrete findings from the current tree (post `c4b18582`):
   contracts, which adds indirection without adding semantics.
 
 This makes the project harder to navigate and undermines the “clean files / clear ownership” goal in
-`doc/design/archive/Architecture_Final_Review_v2.1.md` and prior OpenSpec deltas (e.g., “Minimal Package Initializers”
+`docs/design/archive/Architecture_Final_Review_v2.1.md` and prior OpenSpec deltas (e.g., “Minimal Package Initializers”
 and “No Pass-through Modules”).
 
 ## What Changes

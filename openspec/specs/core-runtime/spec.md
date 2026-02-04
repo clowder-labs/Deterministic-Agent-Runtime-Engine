@@ -24,7 +24,7 @@ The system SHALL provide an explicit HITL waiting interface via `IExecutionContr
 - **THEN** it records `exec.pause`, calls `wait_for_human(...)`, and records `exec.resume` before continuing
 
 ### Requirement: Five-Layer Runtime Orchestration
-The runtime SHALL orchestrate the five-layer loop (Session, Milestone, Plan, Execute, Tool) as defined in `doc/design/Architecture.md`, delegating to the interfaces in `doc/design/Interfaces.md` (planner/validator/remediator/tool gateway/security boundary).
+The runtime SHALL orchestrate the five-layer loop (Session, Milestone, Plan, Execute, Tool) as defined in `docs/design/Architecture.md`, delegating to the interfaces in `docs/design/Interfaces.md` (planner/validator/remediator/tool gateway/security boundary).
 
 #### Scenario: Execute encounters a Plan Tool
 - **WHEN** the Execute Loop encounters a tool classified as a Plan Tool
@@ -76,7 +76,7 @@ Plan Loop attempts that fail validation SHALL NOT mutate Milestone context; only
 - **THEN** the reflection is added to MilestoneState.reflections and survives the rollback
 
 ### Requirement: HITL Gate Between Plan and Execute
-The Kernel SHALL place the human approval gate between Plan and Execute, using `ISecurityBoundary.check_policy()` and `IExecutionControl.pause()/resume()` semantics as defined in `doc/design/Architecture.md` / `doc/design/Interfaces.md`.
+The Kernel SHALL place the human approval gate between Plan and Execute, using `ISecurityBoundary.check_policy()` and `IExecutionControl.pause()/resume()` semantics as defined in `docs/design/Architecture.md` / `docs/design/Interfaces.md`.
 
 #### Scenario: Plan requires approval
 - **WHEN** `ISecurityBoundary.check_policy(action="execute_plan", ...)` returns `APPROVE_REQUIRED`

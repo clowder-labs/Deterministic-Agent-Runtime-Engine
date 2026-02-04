@@ -8,11 +8,11 @@
 - Provide a deterministic queue + pump model with blocking backpressure and stack-penetration avoidance.
 - Define minimal lifecycle rules (`start` idempotent, `stop` drop outgoing messages) and error handling (receiver/sender errors are logged and non-fatal).
 - Clarify streaming envelope fields and interrupt semantics for MVP.
-- Update transport design docs to align naming/semantics, archive redundant drafts, and refresh `doc/design/Architecture.md` + module index.
+- Update transport design docs to align naming/semantics, archive redundant drafts, and refresh `docs/design/Architecture.md` + module index.
 - Sync agent integration and examples with the transport channel contracts and envelope usage.
 
 ## Impact
 - Affected specs: `transport-channel` (new)
 - Affected code: new `dare_framework/transport` domain; agent integration to send/poll via `AgentChannel`; hook-to-client outputs route through transport.
-- Affected docs: `doc/design/modules/transport/transport_mvp.md`, `doc/design/Architecture.md`, `doc/design/modules/README.md` (plus archiving redundant drafts).
+- Affected docs: `docs/design/modules/transport/transport_mvp.md`, `docs/design/Architecture.md`, `docs/design/modules/README.md` (plus archiving redundant drafts).
 - Affected examples: `examples/*` that expose agent↔client interaction.

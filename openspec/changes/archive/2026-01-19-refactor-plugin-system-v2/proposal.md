@@ -1,7 +1,7 @@
 # Change: Refactor plugin system + remove legacy v1 surfaces (v2)
 
 ## Why
-The framework has moved to the v2 Kernel architecture (`doc/design/archive/Architecture_Final_Review_v2.0.md`), but there are still two gaps that prevent the project from being “v2 clean”:
+The framework has moved to the v2 Kernel architecture (`docs/design/archive/Architecture_Final_Review_v2.0.md`), but there are still two gaps that prevent the project from being “v2 clean”:
 
 1) HITL requires an explicit “waiting” control-plane call (even if the MVP implementation does not truly block).
 2) The framework’s extension mechanism is entrypoint-based, but the current entrypoint groups/managers are v1-shaped and the v2 runtime still depends on many `dare_framework/core/*` legacy contracts/types.
@@ -31,5 +31,5 @@ This change removes v1-only contracts/implementations, migrates the remaining sh
 - **BREAKING**: new entrypoint group names; removal/migration of legacy v1 import paths.
 
 ## References
-- `doc/design/archive/Architecture_Final_Review_v2.0.md` (authoritative)
-- `doc/guides/Development_Constraints.md` (implementation constraints)
+- `docs/design/archive/Architecture_Final_Review_v2.0.md` (authoritative)
+- `docs/guides/Development_Constraints.md` (implementation constraints)

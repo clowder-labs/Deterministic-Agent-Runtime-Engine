@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 ### Requirement: Core Interface Coverage
-The interface layer SHALL define the v2.0 Kernel contracts from `doc/design/archive/Architecture_Final_Review_v2.0.md`, including:
+The interface layer SHALL define the v2.0 Kernel contracts from `docs/design/archive/Architecture_Final_Review_v2.0.md`, including:
 
 - Kernel: `IRunLoop`, `ILoopOrchestrator`, `IExecutionControl`, `IContextManager`, `IResourceManager`, `IEventLog`, `IToolGateway`, `ISecurityBoundary`, `IExtensionPoint`
 - Strategies: `IPlanner`, `IValidator`, `IRemediator`, `IContextStrategy`

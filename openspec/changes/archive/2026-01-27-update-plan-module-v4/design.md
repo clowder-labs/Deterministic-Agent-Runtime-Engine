@@ -1,5 +1,5 @@
 ## 背景
-- V4 设计文档（`doc/design/Architecture.md`、`doc/design/Interfaces.md`）明确了五层循环、Plan Attempt Isolation、Plan Tool 语义与可信元数据派生规则。
+- V4 设计文档（`docs/design/Architecture.md`、`docs/design/Interfaces.md`）明确了五层循环、Plan Attempt Isolation、Plan Tool 语义与可信元数据派生规则。
 - 当前 `dare_framework/plan` 已具备基础类型与接口，但缺少一份明确的规格与边界说明，导致计划模块如何承载“可信/不可信分层”与“失败计划隔离”等核心语义仍不够清晰。
 
 ## 目标 / 非目标

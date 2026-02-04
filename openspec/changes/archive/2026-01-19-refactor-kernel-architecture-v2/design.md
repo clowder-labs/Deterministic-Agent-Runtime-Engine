@@ -1,5 +1,5 @@
 ## Context
-The current codebase implements a v1.3-shaped runtime (`IRuntime` + `AgentRuntime`) and related contracts (`IContextAssembler`, `IToolRuntime`, `ICheckpoint`, `IPolicyEngine`, `ITrustBoundary`). The v2.0 architecture (`doc/design/archive/Architecture_Final_Review_v2.0.md`) reorganizes the framework into a 4-layer model and introduces a Kernel contract that standardizes:
+The current codebase implements a v1.3-shaped runtime (`IRuntime` + `AgentRuntime`) and related contracts (`IContextAssembler`, `IToolRuntime`, `ICheckpoint`, `IPolicyEngine`, `ITrustBoundary`). The v2.0 architecture (`docs/design/archive/Architecture_Final_Review_v2.0.md`) reorganizes the framework into a 4-layer model and introduces a Kernel contract that standardizes:
 
 - Scheduling as immutable infrastructure (`IRunLoop`, `ILoopOrchestrator`)
 - Context engineering as a first-class control plane (`IContextManager`)
@@ -17,7 +17,7 @@ The implementation MUST be refactored to conform to the v2.0 contracts and execu
   - Preserve the five-layer loop as the framework “skeleton” while making it explicit via `ILoopOrchestrator`.
   - Ensure a closed loop: plan isolation, tool loop with done predicate, event logging, and a minimal pause/resume path.
   - Provide complete interface surfaces; allow no-op implementations for non-core methods as a temporary scaffold.
-  - Follow `doc/guides/Development_Constraints.md`: minimal coupling, dependency injection, append-only audit, tests, structured logging.
+  - Follow `docs/guides/Development_Constraints.md`: minimal coupling, dependency injection, append-only audit, tests, structured logging.
 - Non-Goals:
   - Backwards compatible import paths or API shims for v1.3.
   - A production-grade sandbox on day 1 (allowed: minimal stub that is fail-closed for high-risk).

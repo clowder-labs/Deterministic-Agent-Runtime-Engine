@@ -1,6 +1,6 @@
 # DARE Framework 详细 PPT 素材 — 基于源码
 
-> **重要**：本文档仅基于 `dare_framework/` 和 `examples/05-dare-coding-agent-enhanced/` 的**源码**分析而成，不引用 doc/、openspec/ 等外部文档。供 Notebook LM 生成详细 PPT 与流程图使用。
+> **重要**：本文档仅基于 `dare_framework/` 和 `examples/05-dare-coding-agent-enhanced/` 的**源码**分析而成，不引用 docs/、openspec/ 等外部文档。供 Notebook LM 生成详细 PPT 与流程图使用。
 >
 > **文档要求**：每个组件必须包含 **① 工作逻辑图**（流程图/时序图）和 **② 要点说明**（输入/输出、关键步骤、与上下游衔接、可扩展点）。
 

@@ -65,7 +65,7 @@ class Task:
         resume_from_checkpoint: Reserved field for future resume workflows.
 
     See Also:
-        doc/用户旅程地图：全栈智能研发 Agent 交付云服务 LandingZone 对接.md
+        docs/用户旅程地图：全栈智能研发 Agent 交付云服务 LandingZone 对接.md
     """
 
     description: str

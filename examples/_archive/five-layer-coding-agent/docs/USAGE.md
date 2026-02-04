@@ -376,6 +376,6 @@ cp .env.example .env
 ## 📝 下一步
 
 - 阅读 [README.md](README.md) 了解架构细节
-- 查看 [../../doc/design/Architecture.md](../../doc/design/Architecture.md) 理解五层循环
+- 查看 [../../docs/design/Architecture.md](../../docs/design/Architecture.md) 理解五层循环
 - 探索 [dare_framework/agent/_internal/five_layer.py](../../dare_framework/agent/_internal/five_layer.py) 源码
 - 加入讨论，分享你的使用经验！

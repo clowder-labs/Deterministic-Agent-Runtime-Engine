@@ -13,4 +13,4 @@ The current single ComponentManager centralizes discovery and registration with 
 ## Impact
 - Affected specs: component-management
 - Affected code: component management, builder wiring, registries, tests
-- Affected docs: `doc/design/archive/Architecture_Final_Review_v1.3.md`, `doc/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`
+- Affected docs: `docs/design/archive/Architecture_Final_Review_v1.3.md`, `docs/design/archive/Interface_Layer_Design_v1.1_MCP_and_Builtin.md`

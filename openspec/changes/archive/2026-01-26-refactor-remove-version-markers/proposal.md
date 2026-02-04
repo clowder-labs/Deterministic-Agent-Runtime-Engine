@@ -11,7 +11,7 @@ The canonical `dare_framework` package is now the single source of truth. Versio
 
 ## Impact
 - Affected specs: `organize-layered-structure`
-- Affected code: `dare_framework/**`, `examples/**`, `tests/**`, `doc/design/**` (non-archive)
+- Affected code: `dare_framework/**`, `examples/**`, `tests/**`, `docs/design/**` (non-archive)
 
 ## Open Questions
 - Naming collisions: confirm target filenames for basic-chat scripts and config tests since some neutral names already exist.

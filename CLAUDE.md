@@ -24,7 +24,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - **Project Context**: `openspec/project.md` - 技术栈、架构、约定
 - **AI Agent Guidelines**: `CONTRIBUTING_AI.md` - AI Agent 协作规则
 - **OpenSpec Workflow**: `openspec/AGENTS.md` - 变更提案流程
-- **Design Docs**: `doc/design/` - 架构设计文档
+- **Design Docs**: `docs/design/` - 架构设计文档
 
 ## Core Principles
 

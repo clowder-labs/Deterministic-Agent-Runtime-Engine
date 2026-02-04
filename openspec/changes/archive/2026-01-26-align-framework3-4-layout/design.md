@@ -11,7 +11,7 @@ This change focuses on alignment at the *interface and layout level* (Protocols,
 ## Goals / Non-Goals
 - Goals:
   - Make `dare_framework3_4/` structure match the v4.0 domain layout convention as closely as possible.
-  - Provide interface declarations consistent with `doc/design/Interfaces.md` (agent/context/tool + placeholders for plan/security/event/hook/config).
+  - Provide interface declarations consistent with `docs/design/Interfaces.md` (agent/context/tool + placeholders for plan/security/event/hook/config).
   - Migrate legacy `internal/` packages to `_internal/`.
   - Ensure all placeholder domains are importable (even without implementations).
 - Non-Goals:
@@ -24,7 +24,7 @@ This change focuses on alignment at the *interface and layout level* (Protocols,
 - Decision: Rename `internal/` → `_internal/` across `dare_framework3_4/`.
   - Rationale: Matches the v4.0 domain convention and avoids ambiguity about what is public API.
 - Decision: Add placeholder domains for `plan`, `security`, `event`, `hook`, and `config`.
-  - Rationale: `doc/design/Interfaces.md` describes these domains as part of the target interface surface; placeholders allow early alignment without committing to runtime behavior.
+  - Rationale: `docs/design/Interfaces.md` describes these domains as part of the target interface surface; placeholders allow early alignment without committing to runtime behavior.
 - Decision: Fix `tool._internal` exports by making the package import-safe first, then adding implementations only when explicitly requested.
   - Rationale: Alignment work should not introduce broken imports.
 

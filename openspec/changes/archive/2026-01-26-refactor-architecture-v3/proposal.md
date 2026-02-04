@@ -1,7 +1,7 @@
 # Change: Refactor framework architecture to v3.3 (new package)
 
 ## Why
-The current codebase contains two parallel frameworks (v1 and v2) with overlapping concepts and divergent layouts. The v3.3 architecture in `doc/design/archive/ARCHITECTURE_COMPARISON.md` fixes missing kernel interfaces, clarifies manager/gateway ownership, enforces interface scope annotations, and renames impl packages to internal. Aligning implementations with that architecture reduces fragmentation and creates a clear migration path while introducing `dare_framework3_3` as a new package.
+The current codebase contains two parallel frameworks (v1 and v2) with overlapping concepts and divergent layouts. The v3.3 architecture in `docs/design/archive/ARCHITECTURE_COMPARISON.md` fixes missing kernel interfaces, clarifies manager/gateway ownership, enforces interface scope annotations, and renames impl packages to internal. Aligning implementations with that architecture reduces fragmentation and creates a clear migration path while introducing `dare_framework3_3` as a new package.
 
 ## What Changes
 - Introduce `dare_framework3_3/` aligned to the v3.3 domain layout (agent + 10 domains).
