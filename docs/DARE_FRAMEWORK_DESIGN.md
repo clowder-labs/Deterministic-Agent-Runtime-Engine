@@ -75,42 +75,36 @@ DARE Framework 是一个**可插拔的 Agent 运行时引擎**：用 Builder 将
 ```mermaid
 flowchart TB
   subgraph L3["Layer 3: Builder"]
-    B1[DareAgentBuilder]
-    B2[ReactAgentBuilder]
-    B3[SimpleChatAgentBuilder]
+    direction LR
+    B1[DareAgentBuilder] ~~~ B2[ReactAgentBuilder] ~~~ B3[SimpleChatAgentBuilder]
   end
+
   subgraph L2["Layer 2: Template Agent"]
-    A1[DareAgent]
-    A2[ReactAgent]
-    A3[SimpleChatAgent]
+    direction LR
+    A1[DareAgent] ~~~ A2[ReactAgent] ~~~ A3[SimpleChatAgent]
   end
+
   subgraph L1["Layer 1: Domain Components"]
-    M1[Context]
-    M2[Model]
-    M3[Plan]
-    M4[Tool]
-    M5[Knowledge]
-    M6[Memory]
-    M7[Event]
-    M8[Hook]
-    M9[Config]
-    M10[Skill]
-    M11[Compression]
-    M12[Embedding]
-    M13[MCP]
-    M14[A2A]
-    M15[Observability]
-    M16[Security]
-    M17[Infra]
+    direction LR
+    subgraph L1a[" "]
+      direction LR
+      M1[Context] ~~~ M2[Model] ~~~ M3[Plan] ~~~ M4[Tool] ~~~ M5[Knowledge] ~~~ M6[Memory]
+    end
+    subgraph L1b[" "]
+      direction LR
+      M7[Event] ~~~ M8[Hook] ~~~ M9[Config] ~~~ M10[Skill] ~~~ M11[Compression] ~~~ M12[Embedding]
+    end
+    subgraph L1c[" "]
+      direction LR
+      M13[MCP] ~~~ M14[A2A] ~~~ M15[Observability] ~~~ M16[Security] ~~~ M17[Infra]
+    end
   end
+
   subgraph L0["Layer 0: Kernel"]
-    K1["IToolGateway / IToolManager"]
-    K2[IEventLog]
-    K3[IExecutionControl]
-    K4[IConfigProvider]
-    K5[ITelemetryProvider]
-    K6[ISessionSummaryStore]
+    direction LR
+    K1["IToolGateway"] ~~~ K2[IEventLog] ~~~ K3[IExecutionControl] ~~~ K4[IConfigProvider] ~~~ K5[ITelemetryProvider]
   end
+
   L3 --> L2 --> L1 --> L0
 ```
 
@@ -175,23 +169,29 @@ flowchart LR
 #### 2.2.2 设计方案（五层循环）
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph L1["Session Loop"]
-    S1["config_snapshot + previous_summary + milestones"]
+    direction TB
+    S1["config_snapshot + milestones"]
     S2["FOR each milestone"]
+    S1 --> S2
   end
+
   subgraph L2["Milestone Loop"]
-    M1["snapshot(STM)"]
+    direction TB
+    M1["snapshot STM"]
     M2["Plan Loop"]
     M3["Execute Loop"]
     M4["Verify"]
     M5{"ok?"}
-    M6["commit snapshot"]
-    M7["rollback snapshot + remediate()"]
+    M6["commit"]
+    M7["rollback + remediate"]
+    M1 --> M2 --> M3 --> M4 --> M5
+    M5 -->|yes| M6
+    M5 -->|no| M7 --> M1
   end
-  S1 --> S2 --> M1 --> M2 --> M3 --> M4 --> M5
-  M5 -->|yes| M6
-  M5 -->|no| M7 --> M1
+
+  S2 --> M1
 ```
 
 #### 2.2.3 要点说明
@@ -250,18 +250,25 @@ flowchart TD
 #### 工作逻辑图（persistent vs auto）
 
 ```mermaid
-flowchart TB
-  subgraph P["persistent_skill_mode（默认）"]
-    P1["with_skill/initial_skill_path"] --> P2["FileSystemSkillLoader.load()"]
-    P2 --> P3["context.set_skill(skill)"]
-    P3 --> P4["sys_prompt = enrich_prompt_with_skill(...)"]
+flowchart LR
+  subgraph P["persistent mode"]
+    direction TB
+    P1["with_skill / initial_skill_path"]
+    P2["FileSystemSkillLoader.load()"]
+    P3["context.set_skill(skill)"]
+    P4["enrich_prompt_with_skill"]
+    P1 --> P2 --> P3 --> P4
   end
-  subgraph A["auto_skill_mode"]
-    A1["skill_paths"] --> A2["SkillStore.reload()"]
-    A2 --> A3["sys_prompt = enrich_prompt_with_skill_summaries(...)"]
-    A3 --> A4["tools += search_skill + run_skill_script"]
-    A4 --> A5["search_skill loads full skill into Context"]
-    A5 --> A6["assemble merges full skill into sys_prompt"]
+
+  subgraph A["auto mode"]
+    direction TB
+    A1["skill_paths"]
+    A2["SkillStore.reload()"]
+    A3["enrich_prompt_with_summaries"]
+    A4["tools += search + run_script"]
+    A5["search loads full skill"]
+    A6["assemble merges skill"]
+    A1 --> A2 --> A3 --> A4 --> A5 --> A6
   end
 ```
 
@@ -280,13 +287,13 @@ flowchart TB
 #### 工作逻辑图
 
 ```mermaid
-flowchart TD
-  A["create_knowledge(config.knowledge)"] --> B{"type?"}
-  B -->|rawdata| C["RawDataKnowledge + RawDataStorage(in_memory/sqlite)"]
-  B -->|vector| D["VectorKnowledge + VectorStore(in_memory/sqlite/chromadb)"]
-  D --> E["needs embedding_adapter"]
-  C --> F["Builder registers knowledge_get/add tools"]
-  D --> F
+flowchart TB
+  A["create_knowledge"] --> B{"type?"}
+  B -->|rawdata| C["RawDataKnowledge"]
+  B -->|vector| D["VectorKnowledge"]
+  D --> E["embedding_adapter"]
+  C --> F["register tools"]
+  E --> F
 ```
 
 #### 要点说明
@@ -304,12 +311,25 @@ flowchart TD
 #### 工作逻辑图
 
 ```mermaid
-flowchart TD
-  A["builder.with_model(model)?"] --> B{explicit?}
-  B -->|yes| C["use provided adapter"]
-  B -->|no| D["DefaultModelAdapterManager.load_model_adapter(config.llm)"]
-  E["create_default_prompt_store()"] --> F["LayeredPromptStore(workspace+user+builtin)"]
-  F --> G["get(prompt_id, model=model.name)"]
+flowchart LR
+  subgraph MA["Model Adapter"]
+    direction TB
+    A["builder.with_model?"]
+    B{explicit?}
+    C["use provided"]
+    D["load from config.llm"]
+    A --> B
+    B -->|yes| C
+    B -->|no| D
+  end
+
+  subgraph PS["Prompt Store"]
+    direction TB
+    E["create_default_prompt_store"]
+    F["LayeredPromptStore"]
+    G["get prompt_id"]
+    E --> F --> G
+  end
 ```
 
 #### 要点说明
@@ -351,12 +371,23 @@ sequenceDiagram
 #### 工作逻辑图（ToolManager 注册与调用）
 
 ```mermaid
-flowchart TD
-  A["Builder collects tools"] --> B["ToolManager.register_tool(tool)"]
-  B --> C["CapabilityDescriptor(metadata: risk/approval/kind)"]
-  D["Execute Loop tool_calls"] --> E["ToolManager.invoke(capability_id, params, envelope)"]
-  E --> F["ITool.execute(params, RunContext)"]
-  F --> G["ToolResult(success/output/error/evidence)"]
+flowchart LR
+  subgraph Reg["Registration"]
+    direction TB
+    A["Builder collects tools"]
+    B["ToolManager.register_tool"]
+    C["CapabilityDescriptor"]
+    A --> B --> C
+  end
+
+  subgraph Inv["Invocation"]
+    direction TB
+    D["tool_calls from LLM"]
+    E["ToolManager.invoke"]
+    F["ITool.execute"]
+    G["ToolResult"]
+    D --> E --> F --> G
+  end
 ```
 
 #### 要点说明
@@ -374,13 +405,25 @@ flowchart TD
 #### 工作逻辑图
 
 ```mermaid
-flowchart TD
-  A["Context.short_term_memory"] --> B["InMemorySTM (default)"]
-  A2["Context.long_term_memory"] --> C["create_long_term_memory(config.long_term_memory)"]
-  C --> D{"type?"}
-  D -->|rawdata| E["RawDataLongTermMemory + RawDataStorage"]
-  D -->|vector| F["VectorLongTermMemory + VectorStore"]
-  F --> G["needs embedding_adapter"]
+flowchart LR
+  subgraph STM["Short-Term Memory"]
+    direction TB
+    A["Context.short_term_memory"]
+    B["InMemorySTM"]
+    A --> B
+  end
+
+  subgraph LTM["Long-Term Memory"]
+    direction TB
+    A2["Context.long_term_memory"]
+    C["create_long_term_memory"]
+    D{"type?"}
+    E["RawDataLTM"]
+    F["VectorLTM"]
+    A2 --> C --> D
+    D -->|rawdata| E
+    D -->|vector| F
+  end
 ```
 
 #### 要点说明
