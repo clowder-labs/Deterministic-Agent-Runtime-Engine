@@ -107,13 +107,13 @@ The tool domain SHALL define an `IToolManager` contract in `dare_framework/tool/
 - **THEN** the result is derived from the manager registry and not from model output
 
 ### Requirement: Builder facade for variant selection
-The system SHALL provide a stable facade for selecting which builder variant to use, such as:
+The system SHALL provide a stable facade for selecting which builder variant to use via `BaseAgent`, such as:
 
-- `Builder.simple_chat_agent_builder(name)` → builder for `SimpleChatAgent`
-- `Builder.five_layer_agent_builder(name)` → builder for `FiveLayerAgent`
+- `BaseAgent.simple_chat_agent_builder(name)` → builder for `SimpleChatAgent`
+- `BaseAgent.five_layer_agent_builder(name)` → builder for `FiveLayerAgent`
 
 #### Scenario: Developer selects a builder variant
-- **WHEN** a developer selects a builder variant via the facade
+- **WHEN** a developer selects a builder variant via `BaseAgent`
 - **THEN** they receive a builder whose `build()` produces the corresponding agent type
 
 ### Requirement: Tool providers return ITool lists
@@ -125,12 +125,12 @@ The system SHALL provide a stable facade for selecting which builder variant to 
 - **THEN** it returns an ordered `list[ITool]` suitable for registration into ToolManager
 
 ### Requirement: Capability id is the tool call identity
-The system SHALL use a UUID-based `capability_id` as the canonical identity for tools. The LLM-facing tool definition MUST use `function.name == capability_id`, and ToolManager/ToolGateway MUST route invocations by this same identifier.
+The system SHALL use the tool's `name` as the canonical identity for capabilities. The LLM-facing tool definition MUST use `function.name == tool.name`, and ToolManager/ToolGateway MUST route invocations by this same identifier.
 
 #### Scenario: Tool naming is consistent across LLM and routing
 - **GIVEN** a tool registered into ToolManager
 - **WHEN** the tool is exposed to the model
-- **THEN** the tool definition name equals the tool’s `capability_id` and tool calls route by that value
+- **THEN** the tool definition name equals the tool's `name` and tool calls route by that value
 
 ### Requirement: Trusted tool listings for model prompts
 `IToolProvider.list_tools()` SHALL derive tool definitions from the trusted capability registry exposed by `IToolGateway.list_capabilities()`; tool listings MUST NOT originate from untrusted sources (planner/model output).
@@ -147,4 +147,19 @@ When no explicit model adapter and no model adapter manager are provided, builde
 - **AND** no model adapter manager is provided
 - **WHEN** `build()` is called
 - **THEN** the builder uses the model domain default manager to resolve the adapter using `Config.llm`
+
+### Requirement: BaseAgent is a public agent entry point
+The agent domain SHALL expose `BaseAgent` as a public type, and built-in agents SHALL inherit from it.
+
+#### Scenario: Developer imports BaseAgent
+- **WHEN** a developer imports `BaseAgent` from `dare_framework.agent`
+- **THEN** the import succeeds without referencing `_internal` modules
+
+### Requirement: Tool names are unique in the registry
+ToolManager SHALL reject registration of a tool whose `name` collides with an existing capability id.
+
+#### Scenario: Duplicate tool name is rejected
+- **GIVEN** a tool named `write_file` is registered
+- **WHEN** another tool with name `write_file` is registered
+- **THEN** ToolManager rejects the registration with a clear error
 

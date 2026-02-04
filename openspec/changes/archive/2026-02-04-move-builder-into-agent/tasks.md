@@ -13,5 +13,5 @@
 - [x] 3.3 Update documentation references that mention `Builder` or `dare_framework.builder`.
 
 ## 4. Validation
-- [ ] 4.1 Run targeted unit tests for builder behavior.
-- [ ] 4.2 Validate example entrypoints still run with the new API.
+- [x] 4.1 Run targeted unit tests for builder behavior.
+- [x] 4.2 Validate example entrypoints still run with the new API.

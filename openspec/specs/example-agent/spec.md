@@ -4,12 +4,12 @@
 TBD - created by archiving the prior plugin-system change. Update Purpose after archive.
 ## Requirements
 ### Requirement: Verification examples track canonical contracts
-The coding-agent verification examples SHALL remain present and SHALL be updated to use the canonical contracts and plugin system.
+The canonical examples SHALL remain present and SHALL be updated to use the agent-domain builder API.
 
-#### Scenario: Real-model coding agent example imports builder/contracts
-- **GIVEN** `examples/coding-agent/real_model_agent.py`
+#### Scenario: Basic chat example imports agent builder
+- **GIVEN** `examples/basic-chat/chat_simple.py`
 - **WHEN** it is executed in a configured environment
-- **THEN** it composes the agent using builder + plugin loading (and does not depend on removed v1 runtime interfaces)
+- **THEN** it composes the agent using `BaseAgent` builder factories
 
 ### Requirement: Framework-Backed Coding Agent Example
 The example agent SHALL be built using the developer API and SHALL register tools (directly or via tool-group providers) in a way that exercises the Kernel `IToolGateway` boundary.
@@ -168,3 +168,4 @@ The five-layer coding agent example SHALL include comprehensive documentation.
 - **WHEN** a developer reads it
 - **THEN** it SHALL document known limitations (e.g., mocked components)
 - **AND** SHALL reference design gap tracking if applicable
+

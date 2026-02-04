@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Package facades expose minimal public surface (tool domain)
 The tool domain facade (`dare_framework.tool`) SHALL re-export stable kernel
