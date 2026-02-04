@@ -16,6 +16,36 @@
 - `ISkillStore`：技能存储与检索。
 - `ISkillSelector`：任务相关性选择器。
 
+## 2.1 Skill 模板（SKILL.md + scripts）
+
+**SKILL.md 结构**：
+- YAML Frontmatter（键值对）
+- Markdown 正文（技能说明、步骤、约束）
+
+**典型目录结构**：
+
+```text
+my_skill/
+├── SKILL.md
+└── scripts/
+    ├── run_tool.py
+    └── check.sh
+```
+
+**SKILL.md 示例**：
+
+```markdown
+---
+id: code-review
+name: Code Review
+description: Review code for defects and risks
+---
+# Usage
+1. Read relevant files
+2. Identify defects and risks
+3. Provide actionable feedback
+```
+
 ## 3. 当前实现
 
 - `FileSystemSkillLoader`：从目录扫描 `SKILL.md` + `scripts/`（default）。
@@ -30,8 +60,8 @@
 
 ## 4.1 Skill 模式
 
-- **模式 1：skill-as-agent**：单一 agent 挂载 `initial_skill_path`（多 skill 编排策略待定）。
-- **模式 2：search-tool**：单一 agent 注册 `search_skill` 工具（来自 `skill_paths`），工具返回 skill prompt。
+- **模式 1：persistent_skill_mode**：单一 agent 挂载 `initial_skill_path`（多 skill 编排策略待定）。
+- **模式 2：auto_skill_mode**：单一 agent 注册 `search_skill` 工具（来自 `skill_paths`），工具返回 skill prompt，并在后续 assemble 时注入上下文。
 
 ## 5. 约束与限制
 
@@ -52,8 +82,9 @@
 
 ## 7.1 Config 支持
 
-- `skill_mode`: `"agent"` | `"search_tool"` | `null`
-- `skill_paths`: 技能根目录列表（用于 `search_tool` 模式）
+- `skill_mode`: `"persistent_skill_mode"` | `"auto_skill_mode"`
+- `initial_skill_path`: 单个技能路径（用于 persistent 模式）
+- `skill_paths`: 技能根目录列表（用于 auto 模式）
 
 ## 8. Design Clarifications (2026-02-03)
 

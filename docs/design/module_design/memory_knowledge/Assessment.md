@@ -51,7 +51,7 @@
 
 ## 6. Doc Updates Needed
 
-- `docs/design/modules/memory_knowledge/README.md`: reflect default implementations + factory path.
+- `docs/design/module_design/memory_knowledge/README.md`: reflect default implementations + factory path.
 - `docs/design/Framework_MinSurface_Review.md`: align memory/knowledge exposure lists.
 
 ## 7. Proposed Implementation Plan (Memory / Knowledge)

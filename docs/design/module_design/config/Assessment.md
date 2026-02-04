@@ -50,7 +50,7 @@
 
 ## 6. Doc Updates Needed
 
-- `docs/design/modules/config/README.md`: clarify default provider location.
+- `docs/design/module_design/config/README.md`: clarify default provider location.
 - `docs/design/Framework_MinSurface_Review.md`: reflect facade reduction.
 
 ## 7. Proposed Implementation Plan (Config Domain)

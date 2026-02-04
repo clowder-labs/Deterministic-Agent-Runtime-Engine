@@ -23,7 +23,7 @@
 - Document: missing CLI, unreadable output, outdated tool id handling, missing demo runner.
 
 **Step 2: Save audit notes**
-- Write brief notes in `docs/design/modules/plan/2026-01-30-examples-cli-design.md` under “Audit Notes”.
+- Write brief notes in `docs/design/module_design/plan/2026-01-30-examples-cli-design.md` under “Audit Notes”.
 
 ---
 

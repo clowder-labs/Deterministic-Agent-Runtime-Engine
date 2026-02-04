@@ -16,6 +16,28 @@
 - `RunContext`：工具执行上下文（deps/config/metadata）。
 - `Envelope`：工具调用边界（allowlist/budget/done_predicate/risk_level）。
 
+## 2.1 Tool 定义模板（ToolDefinition）
+
+Tool 定义对外输出为 OpenAI function-call 兼容结构，由 `ToolManager.list_tool_defs()` 生成：
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "read_file",
+    "description": "Read a file from the workspace",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  "capability_id": "read_file"
+}
+```
+
 ## 3. 注册与加载策略（当前实现）
 
 ### 3.1 ToolManager 可信注册表

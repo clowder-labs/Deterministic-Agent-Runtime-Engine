@@ -59,7 +59,7 @@
 
 ## 6. Doc Updates Needed
 
-- `docs/design/modules/context/README.md`: reflect internal tool cache + config snapshot.
+- `docs/design/module_design/context/README.md`: reflect internal tool cache + config snapshot.
 - `docs/design/Interfaces.md`: remove `toollist` and `config_update`.
 - `DARE_FRAMEWORK_PPT_SOURCE.md`: align interface diagram with updated fields.
 

@@ -4,6 +4,7 @@
 
 ## 总则
 - 先看架构：不得破坏五层循环编排骨架、系统调用边界与核心接口契约（见 `docs/design/Architecture.md`、`docs/design/Interfaces.md`、`openspec/project.md`；历史参考见 `docs/design/archive/`）。重大能力/接口变更走 OpenSpec。
+- 文档一致性：任何代码修改或方案修改，必须同步更新 `docs/design/DARE_Formal_Design.md` 的最终设计与其关联的模块详细设计（`docs/design/module_design/`），同时更新 README 并补充对应 example；保证一次修改将所有涉及资料一并校准。
 - 状态外化：所有进度、决策、证据写入文件/EventLog，避免依赖模型“记忆”。
 - 最小必要变更：新增功能时优先扩展现有组件/接口，避免跨层耦合或绕过 `IToolGateway`/`ISecurityBoundary`。
 
