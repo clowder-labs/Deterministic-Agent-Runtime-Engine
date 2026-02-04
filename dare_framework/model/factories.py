@@ -6,9 +6,9 @@ from pathlib import Path
 
 from dare_framework.config.types import Config
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
-from dare_framework.model.adapters.builtin_prompt_loader import BuiltInPromptLoader
+from dare_framework.model.builtin_prompt_loader import BuiltInPromptLoader
 from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
-from dare_framework.model.adapters.filesystem_prompt_loader import FileSystemPromptLoader
+from dare_framework.model.filesystem_prompt_loader import FileSystemPromptLoader
 from dare_framework.model.layered_prompt_store import LayeredPromptStore
 
 
