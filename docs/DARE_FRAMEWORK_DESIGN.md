@@ -108,20 +108,6 @@ flowchart TB
   L3 --> L2 --> L1 --> L0
 ```
 
-### 1.4 总体数据流（从入口到输出）
-
-```mermaid
-flowchart TD
-  U["User Task (str | Task)"] --> R["IAgent.run()"]
-  R --> S{"选择模版"}
-  S -->|React 模版| X["ReactAgent: Execute→Tool 循环"]
-  S -->|Dare 模版| Y["DareAgent: Session→Milestone→Plan→Execute→Tool→Verify"]
-  S -->|Simple| Z["SimpleChatAgent: 单次 generate"]
-  X --> O["RunResult"]
-  Y --> O
-  Z --> O
-```
-
 ---
 
 ## Part 2. 两种模版 Agent（React 与 Dare）
@@ -138,15 +124,30 @@ flowchart TD
 #### 2.1.2 设计方案（执行循环）
 
 ```mermaid
-flowchart LR
-  A["stm_add(user)"] --> B["compress_context(react)"]
-  B --> C["assemble()"]
-  C --> D["model.generate()"]
-  D --> E{"tool_calls?"}
-  E -->|yes| F["gateway.invoke() x N"]
-  F --> G["stm_add(tool results)"]
-  G --> C
-  E -->|no| H["stm_add(assistant) & return"]
+sequenceDiagram
+  participant U as User
+  participant A as ReactAgent
+  participant C as Context
+  participant M as Model
+  participant TG as ToolGateway
+
+  U->>A: task
+  A->>C: stm_add(user message)
+  loop until no tool_calls
+    A->>C: compress_context()
+    A->>C: assemble()
+    C-->>A: AssembledContext
+    A->>M: generate()
+    M-->>A: response
+    alt has tool_calls
+      A->>TG: invoke(tool_call)
+      TG-->>A: ToolResult
+      A->>C: stm_add(tool result)
+    else no tool_calls
+      A->>C: stm_add(assistant)
+      A-->>U: final response
+    end
+  end
 ```
 
 #### 2.1.3 要点说明
@@ -169,29 +170,37 @@ flowchart LR
 #### 2.2.2 设计方案（五层循环）
 
 ```mermaid
-flowchart LR
-  subgraph L1["Session Loop"]
-    direction TB
-    S1["config_snapshot + milestones"]
-    S2["FOR each milestone"]
-    S1 --> S2
-  end
+sequenceDiagram
+  participant D as DareAgent
+  participant P as Planner
+  participant V as Validator
+  participant M as Model
+  participant T as ToolManager
+  participant R as Remediator
 
-  subgraph L2["Milestone Loop"]
-    direction TB
-    M1["snapshot STM"]
-    M2["Plan Loop"]
-    M3["Execute Loop"]
-    M4["Verify"]
-    M5{"ok?"}
-    M6["commit"]
-    M7["rollback + remediate"]
-    M1 --> M2 --> M3 --> M4 --> M5
-    M5 -->|yes| M6
-    M5 -->|no| M7 --> M1
+  Note over D: Session Loop
+  D->>D: config_snapshot + load milestones
+  loop FOR each milestone
+    Note over D: Milestone Loop
+    D->>D: snapshot(STM)
+    D->>P: plan(context)
+    P-->>D: ProposedPlan
+    D->>V: validate_plan()
+    V-->>D: ValidatedPlan
+    loop Execute Loop
+      D->>M: generate()
+      M-->>D: tool_calls
+      D->>T: invoke()
+      T-->>D: ToolResult
+    end
+    D->>V: verify_milestone()
+    alt ok
+      D->>D: commit
+    else fail
+      D->>D: rollback
+      D->>R: remediate()
+    end
   end
-
-  S2 --> M1
 ```
 
 #### 2.2.3 要点说明
@@ -225,14 +234,21 @@ flowchart LR
 #### 工作逻辑图
 
 ```mermaid
-flowchart TD
-  A["builder.build()"] --> B{"config.mcp_paths?"}
-  B -->|yes| C["load_mcp_toolkit(config)"]
-  C --> D["load_mcp_configs(paths)"]
-  D --> E["create_mcp_clients(connect=True)"]
-  E --> F["MCPToolkit.initialize()"]
-  F --> G["tools named server:tool"]
-  B -->|no| H["skip"]
+sequenceDiagram
+  participant B as Builder
+  participant L as MCPConfigLoader
+  participant F as MCPClientFactory
+  participant TK as MCPToolkit
+  participant TM as ToolManager
+
+  B->>L: load_mcp_configs(paths)
+  L-->>B: List[MCPServerConfig]
+  B->>F: create_mcp_clients(configs)
+  F-->>B: List[IMCPClient]
+  B->>TK: MCPToolkit(clients)
+  TK->>TK: initialize()
+  TK-->>B: tools (server:tool_name)
+  B->>TM: register_tool(mcp_tool)
 ```
 
 #### 要点说明
@@ -250,25 +266,28 @@ flowchart TD
 #### 工作逻辑图（persistent vs auto）
 
 ```mermaid
-flowchart LR
-  subgraph P["persistent mode"]
-    direction TB
-    P1["with_skill / initial_skill_path"]
-    P2["FileSystemSkillLoader.load()"]
-    P3["context.set_skill(skill)"]
-    P4["enrich_prompt_with_skill"]
-    P1 --> P2 --> P3 --> P4
+sequenceDiagram
+  participant B as Builder
+  participant SL as SkillLoader
+  participant SS as SkillStore
+  participant C as Context
+  participant TM as ToolManager
+
+  rect rgb(240, 248, 255)
+  Note over B,C: persistent mode
+  B->>SL: load(skill_path)
+  SL-->>B: Skill
+  B->>C: set_skill(skill)
+  C->>C: enrich_prompt_with_skill()
   end
 
-  subgraph A["auto mode"]
-    direction TB
-    A1["skill_paths"]
-    A2["SkillStore.reload()"]
-    A3["enrich_prompt_with_summaries"]
-    A4["tools += search + run_script"]
-    A5["search loads full skill"]
-    A6["assemble merges skill"]
-    A1 --> A2 --> A3 --> A4 --> A5 --> A6
+  rect rgb(255, 248, 240)
+  Note over B,TM: auto mode
+  B->>SS: reload(skill_paths)
+  SS-->>B: skill_summaries
+  B->>C: enrich_prompt_with_summaries()
+  B->>TM: register(SearchSkillTool)
+  B->>TM: register(RunSkillScriptTool)
   end
 ```
 
@@ -287,13 +306,21 @@ flowchart LR
 #### 工作逻辑图
 
 ```mermaid
-flowchart TB
-  A["create_knowledge"] --> B{"type?"}
-  B -->|rawdata| C["RawDataKnowledge"]
-  B -->|vector| D["VectorKnowledge"]
-  D --> E["embedding_adapter"]
-  C --> F["register tools"]
-  E --> F
+sequenceDiagram
+  participant B as Builder
+  participant KF as KnowledgeFactory
+  participant K as IKnowledge
+  participant TM as ToolManager
+
+  B->>KF: create_knowledge(config)
+  alt type = rawdata
+    KF-->>B: RawDataKnowledge
+  else type = vector
+    KF->>KF: requires embedding_adapter
+    KF-->>B: VectorKnowledge
+  end
+  B->>TM: register(knowledge_get)
+  B->>TM: register(knowledge_add)
 ```
 
 #### 要点说明
@@ -311,25 +338,23 @@ flowchart TB
 #### 工作逻辑图
 
 ```mermaid
-flowchart LR
-  subgraph MA["Model Adapter"]
-    direction TB
-    A["builder.with_model?"]
-    B{explicit?}
-    C["use provided"]
-    D["load from config.llm"]
-    A --> B
-    B -->|yes| C
-    B -->|no| D
-  end
+sequenceDiagram
+  participant B as Builder
+  participant MAM as ModelAdapterManager
+  participant PS as PromptStore
+  participant C as Context
 
-  subgraph PS["Prompt Store"]
-    direction TB
-    E["create_default_prompt_store"]
-    F["LayeredPromptStore"]
-    G["get prompt_id"]
-    E --> F --> G
+  alt explicit with_model()
+    B->>B: use provided adapter
+  else from config
+    B->>MAM: load_model_adapter(config.llm)
+    MAM-->>B: IModelAdapter
   end
+  B->>PS: create_default_prompt_store()
+  PS-->>B: LayeredPromptStore
+  B->>PS: get(prompt_id, model)
+  PS-->>B: Prompt
+  B->>C: set sys_prompt
 ```
 
 #### 要点说明
@@ -371,22 +396,23 @@ sequenceDiagram
 #### 工作逻辑图（ToolManager 注册与调用）
 
 ```mermaid
-flowchart LR
-  subgraph Reg["Registration"]
-    direction TB
-    A["Builder collects tools"]
-    B["ToolManager.register_tool"]
-    C["CapabilityDescriptor"]
-    A --> B --> C
+sequenceDiagram
+  participant B as Builder
+  participant TM as ToolManager
+  participant T as ITool
+
+  rect rgb(240, 248, 255)
+  Note over B,TM: Registration Phase
+  B->>TM: register_tool(tool)
+  TM->>TM: create CapabilityDescriptor
+  TM-->>B: capability_id
   end
 
-  subgraph Inv["Invocation"]
-    direction TB
-    D["tool_calls from LLM"]
-    E["ToolManager.invoke"]
-    F["ITool.execute"]
-    G["ToolResult"]
-    D --> E --> F --> G
+  rect rgb(255, 248, 240)
+  Note over TM,T: Invocation Phase
+  TM->>TM: check envelope constraints
+  TM->>T: execute(params, RunContext)
+  T-->>TM: ToolResult
   end
 ```
 
@@ -405,24 +431,26 @@ flowchart LR
 #### 工作逻辑图
 
 ```mermaid
-flowchart LR
-  subgraph STM["Short-Term Memory"]
-    direction TB
-    A["Context.short_term_memory"]
-    B["InMemorySTM"]
-    A --> B
+sequenceDiagram
+  participant B as Builder
+  participant C as Context
+  participant MF as MemoryFactory
+
+  rect rgb(240, 248, 255)
+  Note over B,C: STM (default)
+  B->>C: short_term_memory = InMemorySTM
   end
 
-  subgraph LTM["Long-Term Memory"]
-    direction TB
-    A2["Context.long_term_memory"]
-    C["create_long_term_memory"]
-    D{"type?"}
-    E["RawDataLTM"]
-    F["VectorLTM"]
-    A2 --> C --> D
-    D -->|rawdata| E
-    D -->|vector| F
+  rect rgb(255, 248, 240)
+  Note over B,MF: LTM (optional)
+  B->>MF: create_long_term_memory(config)
+  alt type = rawdata
+    MF-->>B: RawDataLongTermMemory
+  else type = vector
+    MF->>MF: requires embedding_adapter
+    MF-->>B: VectorLongTermMemory
+  end
+  B->>C: long_term_memory = ltm
   end
 ```
 
@@ -483,14 +511,36 @@ Config.is_component_enabled(component)
 
 #### 工作逻辑图（五层模版）
 
-```
-Session: config_snapshot + milestones
-  FOR milestone:
-    snapshot(STM)
-    Plan: planner.plan → validator.validate_plan
-    Execute: assemble → model.generate → tool_calls/invoke
-    Verify: validator.verify_milestone
-    ok: commit; fail: rollback + remediator.remediate
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant P as Planner
+  participant V as Validator
+  participant M as Model
+  participant TM as ToolManager
+  participant R as Remediator
+
+  A->>A: config_snapshot + milestones
+  loop FOR each milestone
+    A->>A: snapshot(STM)
+    A->>P: plan(context)
+    P-->>A: ProposedPlan
+    A->>V: validate_plan(proposed)
+    V-->>A: ValidatedPlan
+    loop Execute Loop
+      A->>M: generate(assembled)
+      M-->>A: tool_calls
+      A->>TM: invoke(capability_id)
+      TM-->>A: ToolResult
+    end
+    A->>V: verify_milestone(result)
+    alt ok
+      A->>A: commit snapshot
+    else fail
+      A->>A: rollback snapshot
+      A->>R: remediate(verify_result)
+    end
+  end
 ```
 
 #### 要点说明
@@ -516,12 +566,22 @@ Session: config_snapshot + milestones
 #### 工作逻辑图
 
 ```mermaid
-flowchart TD
-  A["DefaultPlanner.plan(ctx)"] --> B["model.generate(JSON plan)"]
-  B --> C["ProposedPlan"]
-  C --> D["RegistryPlanValidator.validate_plan"]
-  D --> E["ValidatedPlan (risk_level from registry)"]
-  E --> F["verify_milestone(result, plan)"]
+sequenceDiagram
+  participant A as Agent
+  participant P as DefaultPlanner
+  participant M as Model
+  participant V as RegistryPlanValidator
+  participant TM as ToolManager
+
+  A->>P: plan(context)
+  P->>M: generate(JSON plan prompt)
+  M-->>P: JSON response
+  P-->>A: ProposedPlan (untrusted)
+  A->>V: validate_plan(proposed)
+  V->>TM: lookup capability_id
+  TM-->>V: CapabilityDescriptor (risk_level)
+  V-->>A: ValidatedPlan (trusted fields)
+  Note over A,V: verify_milestone after execution
 ```
 
 #### 要点说明
@@ -546,12 +606,20 @@ Context 是“引用聚合器”（STM/LTM/Knowledge/Budget/Tools/Prompt），�
 
 #### 工作逻辑图
 
-```
-assemble():
-  messages = stm_get()
-  tools = listing_tools()
-  sys_prompt = _sys_prompt (+ loaded_full_skills)
-  return AssembledContext(...)
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant C as Context
+  participant STM as ShortTermMemory
+  participant TM as ToolManager
+
+  A->>C: assemble()
+  C->>STM: get_messages()
+  STM-->>C: List[Message]
+  C->>TM: list_tool_defs()
+  TM-->>C: List[ToolDefinition]
+  C->>C: merge sys_prompt + skills
+  C-->>A: AssembledContext
 ```
 
 #### 要点说明
