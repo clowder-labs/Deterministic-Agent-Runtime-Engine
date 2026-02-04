@@ -388,7 +388,15 @@ flowchart LR
 - **扩展点**：新增 Tool/Provider；MCP 适配；运行上下文工厂。
 - **现状限制**：policy gate 未闭环；allowlist 未强制执行（Config 侧 TODO）。
 
-### 5.5 model
+### 5.5 mcp
+详细设计：`docs/design/module_design/mcp/README.md`。
+- **职责**：MCP 客户端接入与配置加载，将 MCP tools 暴露为 `IToolProvider` 供 ToolManager 使用。
+- **关键类型**：`MCPServerConfig` / `MCPConfigFile` / `IMCPClient`。
+- **默认实现**：`MCPClient` / `MCPConfigLoader` / `MCPClientFactory` / `MCPToolProvider`（defaults）。
+- **扩展点**：自定义 transport/client/provider 以及 MCP 配置加载方式。
+- **现状限制**：风险/审批信息依赖 server 侧提供，策略未在 MCP 层强制。
+
+### 5.6 model
 详细设计：`docs/design/module_design/model/README.md`（Prompt 管理详见 `docs/design/module_design/model/Model_Prompt_Management.md`）。
 - **职责**：统一模型调用入口 + Prompt 管理。
 - **关键类型**：`ModelInput` / `ModelResponse` / `Prompt`。
@@ -397,7 +405,7 @@ flowchart LR
 - **扩展点**：多模型路由、流式输出、Prompt Loader。
 - **现状限制**：无流式输出与多阶段 prompt pack。
 
-### 5.6 skill
+### 5.7 skill
 详细设计：`docs/design/module_design/skill/README.md`。
 - **职责**：解析 SKILL.md、管理技能目录、脚本执行。
 - **关键类型**：`Skill` / `ISkillLoader` / `ISkillStore`。
@@ -405,54 +413,54 @@ flowchart LR
 - **扩展点**：远端技能源、智能匹配策略、技能注入策略。
 - **现状限制**：默认注入策略需 Builder/Context 配合；权限审计需完善。
 
-### 5.7 memory / knowledge
+### 5.8 memory / knowledge
 详细设计：`docs/design/module_design/memory_knowledge/README.md`。
 - **职责**：提供 STM/LTM/Knowledge 的检索实现。
 - **关键类型**：`IShortTermMemory` / `ILongTermMemory` / `IKnowledge`。
 - **默认实现**：`InMemorySTM`；LTM/Knowledge 仅接口。
 - **扩展点**：RAG/GraphRAG、向量库接入、策略排序。
 
-### 5.8 embedding
+### 5.9 embedding
 详细设计：`docs/design/module_design/embedding/README.md`。
 - **职责**：文本向量化适配。
 - **关键类型**：`IEmbeddingAdapter` / `EmbeddingResult`。
 - **默认实现**：OpenAI Embedding Adapter（LangChain）。
 - **扩展点**：本地模型或其他云服务。
 
-### 5.9 config
+### 5.10 config
 详细设计：`docs/design/module_design/config/README.md`。
 - **职责**：统一配置加载与合并（workspace + user）。
 - **关键类型**：`Config` / `LLMConfig` / `ComponentConfig`。
 - **默认实现**：`FileConfigProvider`（`.dare/config.json`）。
 - **扩展点**：多格式配置、热更新、allowlist enforcement。
 
-### 5.10 observability
+### 5.11 observability
 详细设计：`docs/design/module_design/observability/README.md`。
 - **职责**：OpenTelemetry traces/metrics/logs。
 - **关键类型**：`ITelemetryProvider` / `ISpan` / `TelemetryConfig`。
 - **默认实现**：`OTelTelemetryProvider` + `ObservabilityHook`。
 - **扩展点**：自定义 exporter、采样/脱敏策略。
 
-### 5.11 hook
+### 5.12 hook
 详细设计：`docs/design/module_design/hook/README.md`。
 - **职责**：生命周期扩展点（最佳努力执行）。
 - **关键类型**：`IHook` / `HookPhase` / `IExtensionPoint`。
 - **默认实现**：`HookExtensionPoint` + `CompositeExtensionPoint`。
 - **现状限制**：Hook payload schema 仍在收敛，字段规范需统一。
 
-### 5.12 event
+### 5.13 event
 详细设计：`docs/design/module_design/event/README.md`。
 - **职责**：WORM Event Log，审计与重放。
 - **关键类型**：`Event` / `RuntimeSnapshot`。
 - **现状**：接口已定义，默认实现缺失。
 
-### 5.13 security
+### 5.14 security
 详细设计：`docs/design/module_design/security/README.md`。
 - **职责**：Trust/Policy/Sandbox 统一边界。
 - **关键类型**：`RiskLevel` / `PolicyDecision` / `TrustedInput`。
 - **现状**：仅接口定义，未接入主流程。
 
-### 5.14 transport（设计占位）
+### 5.15 transport（设计占位）
 详细设计：`docs/design/module_design/transport/Transport_Domain_Design.md`。
 - **职责**：通道与消息处理管线（Netty 风格 Pipeline）。
 - **现状**：`docs/design/module_design/transport/Transport_Domain_Design.md` 为设计稿，尚未实现。
