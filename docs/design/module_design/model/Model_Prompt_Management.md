@@ -111,6 +111,18 @@ dare_framework/model/
 
 若找不到匹配 Prompt，抛出 `KeyError`（builder 会转换为 `ValueError`）。
 
+### 6.3 Prompt 模板解析流程图
+
+```mermaid
+flowchart LR
+  Input["Builder/Config"] --> Resolve["确定 prompt_id"]
+  Resolve --> Loaders["Prompt Loaders\nworkspace/user/builtin"]
+  Loaders --> Store["LayeredPromptStore"]
+  Store --> Select["按模型 + order 选择"]
+  Select --> SysPrompt["sys_prompt"]
+  SysPrompt --> Context["Context._sys_prompt"]
+```
+
 ---
 
 ## 7. 与 Context / Agent 的集成

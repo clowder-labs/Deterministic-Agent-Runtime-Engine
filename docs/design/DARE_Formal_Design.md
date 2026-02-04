@@ -110,130 +110,51 @@ flowchart TB
 
 ---
 
-## 2. 模板设计
+## 2. 编排层模板 Agent 设计（Template Agents）
 
-### 2.1 Prompt 模板（Prompt Store）
-Prompt 模板用于统一系统提示的版本化、可审计与多模型兼容。模板解析发生在 Builder 阶段，结果写入 `Context._sys_prompt`，并在 `Context.assemble()` 时注入模型输入。
+编排层内置两类“模板 Agent”，作为默认的可复用编排实现：`DareAgent` 与 `ReactAgent`。模板设计所需的 Prompt/Skill/Tool 模板已下沉至模块文档（见 `docs/design/module_design/model/Model_Prompt_Management.md`、`docs/design/module_design/skill/README.md`、`docs/design/module_design/tool/README.md`）。
 
-**Prompt 数据结构**（`dare_framework/model/types.py`）：
-- `prompt_id`（唯一标识）
-- `role`（system/user/assistant）
-- `content`（正文内容）
-- `supported_models`（匹配 `IModelAdapter.name`，支持 `*`）
-- `order`（越大优先级越高）
-- `version` / `name` / `metadata`（可选）
+### 2.1 DareAgent（五层循环模板）
+- **定位**：完整编排模板，提供 Session → Milestone → Plan → Execute → Tool 的闭环。
+- **关键组件**：Planner/Validator/Remediator、ToolGateway、Context、EventLog/Hook/Telemetry。
+- **典型能力**：计划生成与验证、证据收集、里程碑重试、审计追溯。
+- **适用场景**：复杂任务、多阶段交付、审计要求高的工作流。
 
-**Manifest 格式**（默认 `.dare/_prompts.json`）：
+### 2.2 ReactAgent（ReAct 工具循环模板）
+- **定位**：轻量执行模板，使用模型工具调用 + 观察循环完成任务。
+- **关键组件**：ModelAdapter、Context、ToolProvider（无需 Planner/Validator）。
+- **典型能力**：快速工具调用、多轮问答、低成本执行。
+- **适用场景**：简单任务、交互式工具调用、无需严格验证的场景。
 
-```json
-{
-  "prompts": [
-    {
-      "prompt_id": "base.system",
-      "role": "system",
-      "content": "You are a helpful assistant...",
-      "supported_models": ["*"],
-      "order": 0
-    }
-  ]
-}
-```
+### 2.3 模板 Agent 对比
 
-**解析与优先级**：
-- Loader 顺序：workspace → user → built-in（`LayeredPromptStore`）
-- 选择规则：匹配 `prompt_id` + `model` 后，取 `order` 最大；相同 `order` 时按 loader 顺序与清单顺序稳定选择
-- Builder 覆盖顺序：
-  1) `with_prompt(prompt)`  
-  2) `with_prompt_id(prompt_id)`  
-  3) `Config.default_prompt_id`  
-  4) fallback `base.system`
+| 维度 | DareAgent | ReactAgent |
+|---|---|---|
+| 编排层级 | 五层循环（Session/Milestone/Plan/Execute/Tool） | Execute + Tool Loop |
+| 计划能力 | 支持 Planner/Validator/Remediator | 不支持 |
+| 验证闭环 | 支持里程碑验证与证据收集 | 不支持（依赖模型输出） |
+| 工具调用 | 统一 ToolGateway 边界 + Envelope | 直接通过 ToolProvider |
+| 审计与观测 | EventLog + Hook + Telemetry | 可选（较少钩子位） |
+| 复杂度/成本 | 更高 | 更低 |
+| 适用任务 | 多阶段、可审计、可复验 | 轻量、快速、交互式 |
 
-**Prompt 解析流程图**：
+### 2.4 模板工作流对比图
 
 ```mermaid
-flowchart LR
-  Input["Builder/Config"] --> Resolve["确定 prompt_id"]
-  Resolve --> Loaders["Prompt Loaders\nworkspace/user/builtin"]
-  Loaders --> Store["LayeredPromptStore"]
-  Store --> Select["按模型 + order 选择"]
-  Select --> SysPrompt["sys_prompt"]
-  SysPrompt --> Context["Context._sys_prompt"]
-```
+flowchart TB
+  subgraph DareAgent["DareAgent (Five-Layer)"]
+    S["Session"] --> M["Milestone"]
+    M --> P["Plan"]
+    P --> E["Execute"]
+    E --> T["Tool"]
+    T --> E
+    E --> V["Verify"]
+  end
 
-### 2.2 Skill 模板（SKILL.md + scripts）
-技能模板用于在 System Prompt 中注入领域指令，并可通过脚本扩展执行能力。
-
-**SKILL.md 结构**：
-- YAML Frontmatter（键值对）
-- Markdown 正文（技能说明、步骤、约束）
-
-**典型目录结构**：
-
-```text
-my_skill/
-├── SKILL.md
-└── scripts/
-    ├── run_tool.py
-    └── check.sh
-```
-
-**SKILL.md 示例**：
-
-```markdown
----
-id: code-review
-name: Code Review
-description: Review code for defects and risks
----
-# Usage
-1. Read relevant files
-2. Identify defects and risks
-3. Provide actionable feedback
-```
-
-**两种 Skill 模式**（`Config.skill_mode`）：
-- `persistent_skill_mode`（默认）  
-  - Builder 在构建时加载 `initial_skill_path`  
-  - `Prompt` 通过 `enrich_prompt_with_skill(...)` 注入  
-- `auto_skill_mode`  
-  - Builder 加载 `skill_paths` 并注入“技能目录摘要”  
-  - 提供 `search_skill` 工具加载完整内容  
-  - `Context.assemble()` 将加载后的技能内容合并到下一次调用
-
-**Skill 注入流程图**：
-
-```mermaid
-flowchart LR
-  BasePrompt["Base Prompt"] --> Mode{"skill_mode"}
-  Mode -- persistent --> LoadSkill["load SKILL.md\n(单个技能)"]
-  LoadSkill --> Enrich["enrich_prompt_with_skill"]
-  Mode -- auto --> Catalog["生成技能目录摘要"]
-  Catalog --> Tools["search_skill / run_skill_script"]
-  Enrich --> Context["Context._sys_prompt"]
-  Tools --> Context
-```
-
-### 2.3 Tool/Capability 模板（JSON Schema）
-工具能力统一描述为 `CapabilityDescriptor` + `ToolDefinition`（OpenAI function-call 兼容），输入/输出 schema 由 `ITool` 提供。
-
-**最小工具定义示例**（`ToolManager.list_tool_defs()` 输出形态）：
-
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "read_file",
-    "description": "Read a file from the workspace",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "path": { "type": "string" }
-      },
-      "required": ["path"]
-    }
-  },
-  "capability_id": "read_file"
-}
+  subgraph ReactAgent["ReactAgent (ReAct)"]
+    E2["Execute"] --> T2["Tool"]
+    T2 --> E2
+  end
 ```
 
 ---
