@@ -120,6 +120,65 @@ flowchart TB
 - **典型能力**：计划生成与验证、证据收集、里程碑重试、审计追溯。
 - **适用场景**：复杂任务、多阶段交付、审计要求高的工作流。
 
+#### 2.1.1 DareAgent 端到端时序图
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Agent as DareAgent
+  participant Ctx as Context
+  participant Planner
+  participant Validator
+  participant Model
+  participant ToolGW as ToolGateway
+  participant Tool
+  participant EventLog
+  participant Hook as Hook/Telemetry
+
+  User->>Agent: run(Task)
+  Agent->>Hook: BEFORE_RUN
+  Agent->>EventLog: session.start
+
+  Agent->>Ctx: stm_add(user message)
+  Agent->>Planner: decompose(task) [optional]
+  Agent->>Agent: Session Loop / Milestone Loop
+
+  loop 每个 Milestone（含重试）
+    Agent->>Hook: BEFORE_MILESTONE
+    Agent->>Planner: plan(ctx)
+    Agent->>Validator: validate_plan(proposed)
+    Agent->>Hook: AFTER_PLAN
+
+    loop Execute Loop
+      Agent->>Ctx: assemble()
+      Agent->>Model: generate(ModelInput)
+      Agent->>Hook: AFTER_MODEL
+      alt 无 tool_calls
+        Agent->>Ctx: stm_add(assistant)
+        Agent->>Validator: verify_milestone(result)
+      else 有 tool_calls
+        Agent->>ToolGW: invoke(capability_id, params)
+        ToolGW->>Tool: execute()
+        Tool-->>ToolGW: ToolResult + evidence
+        ToolGW-->>Agent: ToolResult
+        Agent->>Ctx: stm_add(tool result)
+      end
+    end
+
+    alt 验证成功
+      Agent->>EventLog: milestone.success
+      Agent->>Hook: AFTER_MILESTONE
+    else 验证失败且剩余重试
+      Agent->>Hook: AFTER_MILESTONE
+      Agent->>Agent: retry milestone
+    end
+  end
+
+  Agent->>EventLog: session.summary
+  Agent->>Hook: AFTER_RUN
+  Agent-->>User: RunResult
+```
+
 ### 2.2 ReactAgent（ReAct 工具循环模板）
 - **定位**：轻量执行模板，使用模型工具调用 + 观察循环完成任务。
 - **关键组件**：ModelAdapter、Context、ToolProvider（无需 Planner/Validator）。
