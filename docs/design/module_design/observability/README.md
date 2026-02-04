@@ -86,7 +86,7 @@ telemetry = OTelTelemetryProvider(
 )
 ```
 
-YAML 示例见 `docs/design/modules/observability/Observability_Design_v2.md`。
+YAML 示例见 `docs/design/module_design/observability/Observability_Design_v2.md`。
 
 ## 9. 现状与限制
 

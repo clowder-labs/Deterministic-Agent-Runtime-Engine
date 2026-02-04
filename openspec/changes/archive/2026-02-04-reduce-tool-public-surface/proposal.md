@@ -32,6 +32,6 @@ facade that exposes only kernel contracts, interfaces, and cross-domain types.
 - **Potential breaking**: `IExecutionControl` import path changes
   (`tool.kernel` → `tool.interfaces`), and exceptions move to `tool.exceptions`.
 - **Breaking**: MCP/Skill interfaces are no longer exported from tool domain.
-- Affected docs: `docs/design/modules/tool/README.md`,
+- Affected docs: `docs/design/module_design/tool/README.md`,
   `docs/design/Framework_MinSurface_Review.md`.
 - Affected code: tool package facade, tests, examples, and MCP init.

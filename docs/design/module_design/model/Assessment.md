@@ -47,8 +47,8 @@
 
 ## 6. Doc Updates Needed
 
-- `docs/design/modules/model/README.md`: clarify defaults namespace.
-- `docs/design/modules/model/Model_Prompt_Management.md`: reference defaults for loaders/store.
+- `docs/design/module_design/model/README.md`: clarify defaults namespace.
+- `docs/design/module_design/model/Model_Prompt_Management.md`: reference defaults for loaders/store.
 - `docs/design/Framework_MinSurface_Review.md`: align surface notes.
 
 ## 7. Proposed Implementation Plan (Model Domain)

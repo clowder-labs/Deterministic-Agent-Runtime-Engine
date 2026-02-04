@@ -63,7 +63,7 @@ Supported defaults live under `dare_framework.skill.defaults`.
 
 ## 6. Doc Updates Needed
 
-- `docs/design/modules/skill/README.md`: clarify stable surface vs defaults; align prompt injection behavior.
+- `docs/design/module_design/skill/README.md`: clarify stable surface vs defaults; align prompt injection behavior.
 - `docs/design/Framework_MinSurface_Review.md`: ensure the “Keep/Hide” list matches the new public surface.
 
 ## 7. Proposed Implementation Plan (Skill Domain)

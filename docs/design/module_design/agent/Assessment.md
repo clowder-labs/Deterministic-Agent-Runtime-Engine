@@ -53,8 +53,8 @@
 
 ## 6. Doc Updates Needed
 
-- `docs/design/modules/agent/README.md`: reflect transport lifecycle + hook emissions.
-- `docs/design/modules/hook/README.md`: reflect DareAgent integration.
+- `docs/design/module_design/agent/README.md`: reflect transport lifecycle + hook emissions.
+- `docs/design/module_design/hook/README.md`: reflect DareAgent integration.
 - `docs/design/TODO_INDEX.md`: remove stale hook integration TODOs.
 
 ## 7. Proposed Implementation Plan (Agent Domain)

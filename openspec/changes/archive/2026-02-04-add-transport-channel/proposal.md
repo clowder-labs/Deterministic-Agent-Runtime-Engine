@@ -14,5 +14,5 @@
 ## Impact
 - Affected specs: `transport-channel` (new)
 - Affected code: new `dare_framework/transport` domain; agent integration to send/poll via `AgentChannel`; hook-to-client outputs route through transport.
-- Affected docs: `docs/design/modules/transport/transport_mvp.md`, `docs/design/Architecture.md`, `docs/design/modules/README.md` (plus archiving redundant drafts).
+- Affected docs: `docs/design/module_design/transport/transport_mvp.md`, `docs/design/Architecture.md`, `docs/design/module_design/README.md` (plus archiving redundant drafts).
 - Affected examples: `examples/*` that expose agent↔client interaction.

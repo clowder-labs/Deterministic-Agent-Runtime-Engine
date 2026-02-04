@@ -38,9 +38,9 @@
   - `stream_id` + `seq` optional; if present, `seq` is monotonically increasing per stream.
   - Ordering is preserved by single queue; no reordering guarantees beyond queue ordering.
 - Documentation:
-  - `docs/design/modules/transport/transport_mvp.md` is the canonical transport design doc.
-  - Archive `docs/design/modules/transport/Transport_Domain_Design.md`, `InteractionStreaming.md`, and `Interaction_Design_Discussion.md`.
-  - Update `docs/design/Architecture.md` and `docs/design/modules/README.md` to reference the canonical doc.
+  - `docs/design/module_design/transport/transport_mvp.md` is the canonical transport design doc.
+  - Archive `docs/design/module_design/transport/Transport_Domain_Design.md`, `InteractionStreaming.md`, and `Interaction_Design_Discussion.md`.
+  - Update `docs/design/Architecture.md` and `docs/design/module_design/README.md` to reference the canonical doc.
 
 ## Alternatives considered
 - Reusing `context.Message` as transport payload: rejected to avoid conflating conversational content with transport control signals.
