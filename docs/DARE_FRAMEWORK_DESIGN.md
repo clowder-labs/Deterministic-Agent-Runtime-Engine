@@ -1,52 +1,92 @@
 # 框架设计文档
 
 > 基于 `dare_framework/` 与 `examples/05-dare-coding-agent-enhanced/` 源码分析，可稍参考 DARE_FRAMEWORK_PPT_SOURCE.md。供导出 PDF 使用。
+>
+> **文档要求**：起手为层次化模块框图；每个模块包含 **工作逻辑图** 与 **设计方案**（输入/输出、关键步骤、上下游衔接、可扩展点）。
 
 ---
 
 ## 1. 框架整体架构
 
-### 1.1 定位
+### 1.1 模块框图（层次化）
 
-本框架是一个**可插拔的 Agent 运行时引擎**：通过 Builder 组装 Context、Model、Plan、Tool、Knowledge、Memory 等域组件，产出多种编排策略的 Agent（如 DareAgent 五层编排、ReactAgent、SimpleChatAgent）。DareAgent 仅是其中一种**模板 Agent 实现**，不代表整个架构。
+以下为框架全部模块的层次化框图，每框代表一个独立模块：
 
-### 1.2 四层组件结构
+```
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│  Layer 3: Builder 层                                                                   │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐                        │
+│  │ DareAgentBuilder │ │ ReactAgentBuilder│ │SimpleChatAgent   │                        │
+│  │                  │ │                  │ │Builder           │                        │
+│  └──────────────────┘ └──────────────────┘ └──────────────────┘                        │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│  Layer 2: 编排层（Agent 实现）                                                          │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                                       │
+│  │  DareAgent  │ │ ReactAgent  │ │SimpleChat   │                                       │
+│  │ 五层编排    │ │ ReAct循环   │ │Agent        │                                       │
+│  └─────────────┘ └─────────────┘ └─────────────┘                                       │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│  Layer 1: 核心域组件（可插拔）                                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│  │ Context  │ │  Model   │ │   Plan   │ │   Tool   │ │Knowledge │ │  Memory  │        │
+│  │ 上下文   │ │ 模型适配 │ │ 计划校验 │ │ 工具调用 │ │ 知识库   │ │ STM/LTM  │        │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│  │  Event   │ │   Hook   │ │  Config  │ │  Skill   │ │Compression│ │ Embedding│        │
+│  │ 事件日志 │ │ 扩展点   │ │ 配置     │ │ 技能     │ │ 压缩     │ │ 向量嵌入 │        │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────┐                  │
+│  │   MCP    │ │   A2A    │ │ Observability│ │ Security │ │  Infra   │                  │
+│  │ MCP协议  │ │Agent协议 │ │ 遥测追踪     │ │ 风险策略 │ │ 组件身份 │                  │
+│  └──────────┘ └──────────┘ └──────────────┘ └──────────┘ └──────────┘                  │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│  Layer 0: 边界与基础设施                                                                │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐   │
+│  │ IToolGateway     │ │ IEventLog        │ │ IExecutionControl│ │ IConfigProvider  │   │
+│  │ IToolManager     │ │ 审计/可重放      │ │ HITL 控制        │ │ 配置快照         │   │
+│  └──────────────────┘ └──────────────────┘ └──────────────────┘ └──────────────────┘   │
+│  ┌──────────────────┐ ┌──────────────────┐                                              │
+│  │ITelemetryProvider│ │ISessionSummaryStore│                                            │
+│  │ 遥测/Tracing     │ │ 会话摘要持久化    │                                              │
+│  └──────────────────┘ └──────────────────┘                                              │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Mermaid 框图（供导出 PDF 时渲染）：**
 
 ```mermaid
 flowchart TB
-    subgraph L3["Layer 3: Builder 层"]
-        B1["DareAgentBuilder"]
-        B2["ReactAgentBuilder"]
-        B3["SimpleChatAgentBuilder"]
+    subgraph L3["Layer 3: Builder"]
+        B1[DareAgentBuilder] B2[ReactAgentBuilder] B3[SimpleChatAgentBuilder]
     end
-
-    subgraph L2["Layer 2: 编排层（Agent 实现）"]
-        A1["DareAgent<br/>五层编排"]
-        A2["ReactAgent<br/>ReAct 工具循环"]
-        A3["SimpleChatAgent<br/>单次对话"]
+    subgraph L2["Layer 2: 编排"]
+        A1[DareAgent] A2[ReactAgent] A3[SimpleChatAgent]
     end
-
-    subgraph L1["Layer 1: 核心域组件"]
-        C1["Context / Memory / Knowledge"]
-        C2["Model / Embedding"]
-        C3["Plan"]
-        C4["Tool / Skill / MCP"]
-        C5["Config / Compression / Hook"]
-        C6["Event / Observability"]
-        C7["A2A / Security / Infra"]
+    subgraph L1["Layer 1: 核心域"]
+        C1[Context] C2[Model] C3[Plan] C4[Tool] C5[Knowledge] C6[Memory]
+        C7[Event] C8[Hook] C9[Config] C10[Skill] C11[Compression] C12[Embedding]
+        C13[MCP] C14[A2A] C15[Observability] C16[Security] C17[Infra]
     end
-
-    subgraph L0["Layer 0: 边界与基础设施"]
-        I1["IToolGateway / IToolManager"]
-        I2["IEventLog / IConfigProvider"]
-        I3["IExecutionControl"]
-        I4["ITelemetryProvider"]
+    subgraph L0["Layer 0: 边界"]
+        I1[IToolGateway] I2[IEventLog] I3[IExecutionControl] I4[IConfigProvider]
     end
-
-    L3 --> L2
-    L2 --> L1
-    L1 --> L0
+    L3 --> L2 --> L1 --> L0
 ```
+
+### 1.2 定位
+
+本框架是一个**可插拔的 Agent 运行时引擎**：通过 Builder 组装 Context、Model、Plan、Tool、Knowledge、Memory 等域组件，产出多种编排策略的 Agent（如 DareAgent 五层编排、ReactAgent、SimpleChatAgent）。DareAgent 仅是其中一种**模板 Agent 实现**，不代表整个架构。
+
+### 1.3 四层职责
 
 | 层级 | 职责 | 源码依据 |
 |------|------|----------|
@@ -134,7 +174,25 @@ flowchart LR
 
 ### 3.1 infra（基础设施）
 
-跨域组件身份契约，供配置与编排代码统一识别可插拔组件。
+**工作逻辑图：**
+
+```
+Config.is_component_enabled(component)
+    │
+    └─► component_settings(component.component_type).disabled 中不含 component.name
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | IComponent.name、IComponent.component_type；Config.components |
+| **输出** | is_component_enabled→bool；component_config(component)→Any |
+| **关键步骤** | ComponentType 枚举 PLANNER/VALIDATOR/REMEDIATOR/MEMORY/MODEL_ADAPTER/TOOL/SKILL/MCP/HOOK/PROMPT/TELEMETRY；所有可插拔组件实现 IComponent |
+| **与上下游** | 上游：Config、各域组件；下游：Builder 过滤 disabled 组件、per-component 配置 |
+| **可扩展点** | 扩展 ComponentType |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -142,6 +200,35 @@ flowchart LR
 | IComponent | infra/component.py | 协议：name、component_type，用于 config.is_component_enabled() 等 |
 
 ### 3.2 agent（Agent 域）
+
+**工作逻辑图：**
+
+```
+IAgent.run(task)
+    │
+    ▼
+execute(task) ──► 模式判断
+    │
+    ├─ [Full Five-Layer] ─► _run_session_loop
+    │       milestones → FOR each: create_snapshot → Plan Loop → Execute Loop → Verify
+    │       success: commit; fail: rollback + remediator.remediate
+    │
+    ├─ [ReAct] ─► stm_add(user_msg) → _run_execute_loop(None)
+    │
+    └─ [Simple] ─► stm_add(user_msg) → assemble → model.generate
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | Task(description, milestones?, previous_session_summary?) 或 str |
+| **输出** | RunResult(success, output, errors, session_id, session_summary) |
+| **关键步骤** | 模式选择（planner/milestones → Five-Layer；无 planner 有 tools → ReAct；否则 Simple）；Session 循环：config_snapshot、milestones 分解；Milestone 循环：快照→Plan→Execute→Verify→commit/rollback |
+| **与上下游** | 上游：Builder 注入 model/context/planner/validator/remediator/tool_gateway；下游：Context.assemble、Model.generate、IToolGateway.invoke、IValidator.verify_milestone |
+| **可扩展点** | 实现 IAgentOrchestration、IPlanAttemptSandbox；继承 _BaseAgentBuilder 实现 _build_impl() |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -163,6 +250,39 @@ flowchart LR
 | step_executor | agent/_internal/step_executor.py | IStepExecutor，step_driven 模式 |
 
 ### 3.3 plan（Plan 域）
+
+**工作逻辑图：**
+
+```
+IPlanner.plan(ctx)
+    │
+    ├─► task_description = ctx.stm_get()[-1].content
+    ├─► ModelInput(system_prompt, user_prompt) → model.generate
+    ├─► _parse_response(content) → plan_data
+    └─► ProposedPlan(plan_description, steps)
+
+IValidator.validate_plan(plan, ctx)
+    │
+    ├─► capability_index = tool_gateway.list_capabilities()
+    ├─► FOR step in plan.steps: _validate_step(step, index)
+    └─► ValidatedPlan(steps with risk_level from registry)
+
+IValidator.verify_milestone(result, ctx, plan)
+    │
+    └─► 基于 plan.steps.params.expected_files 或执行结果判断 success
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | plan：ctx（STM 最后消息为任务）；validate_plan：ProposedPlan、ctx；verify_milestone：RunResult、ctx、ValidatedPlan? |
+| **输出** | ProposedPlan / ValidatedPlan；VerifyResult(success, errors) |
+| **关键步骤** | DefaultPlanner：LLM 证据型 prompt→JSON parse→ProposedStep；RegistryPlanValidator：capability_index 校验 capability_id 存在性，从注册表派生 risk_level 覆盖 planner 输出；CompositeValidator：顺序执行，失败即返回 |
+| **与上下游** | 上游：DareAgent _run_plan_loop、_verify_milestone；下游：Execute Loop 使用 ValidatedPlan；Remediator 在 verify 失败后生成反思 |
+| **可扩展点** | 实现 IPlanner（覆写 plan/decompose）、IValidator（如 FileExistsValidator）、IRemediator；自定义 evidence 类型 |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -187,6 +307,30 @@ flowchart LR
 
 ### 3.4 context（Context 域）
 
+**工作逻辑图：**
+
+```
+Context.assemble()
+    │
+    ├─► messages = stm_get()
+    ├─► tools = listing_tools()  (list_tool_defs 优先)
+    ├─► sys_prompt = _sys_prompt
+    ├─► for skill in _loaded_full_skills: sys_prompt = enrich_prompt_with_skill(sys_prompt, skill)
+    └─► AssembledContext(messages, sys_prompt, tools, metadata)
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | stm_add、budget_use、set_skill、add_loaded_full_skill；listing_tools 从 tool_provider 拉取 |
+| **输出** | AssembledContext(messages, sys_prompt, tools, metadata) |
+| **关键步骤** | STM 为消息源；auto_skill_mode 下 _loaded_full_skills 动态合并进 sys_prompt；persistent_skill_mode 下 sys_prompt 在 build 时已合并 |
+| **与上下游** | 上游：Builder 注入 tool_provider、sys_prompt；下游：ModelInput(messages, tools) |
+| **可扩展点** | 覆写 assemble() 自定义 LTM/Knowledge 拼接；自定义 IRetrievalContext |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | **接口** | | |
@@ -200,6 +344,32 @@ flowchart LR
 | AssembledContext | context/types.py | messages、sys_prompt、tools、metadata |
 
 ### 3.5 tool（Tool 域）
+
+**工作逻辑图：**
+
+```
+ToolManager.invoke(capability_id, params, envelope)
+    │
+    ├─► allowed_capability_ids 校验
+    ├─► entry = _registry[capability_id]
+    ├─► context = context_factory()
+    └─► entry.tool.execute(params, context) → ToolResult
+
+list_tool_defs()
+    └─► 遍历 _registry → OpenAI function 格式 + metadata
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | register_tool(ITool)；invoke(capability_id, params, envelope)；list_tool_defs() |
+| **输出** | CapabilityDescriptor；ToolResult(success, output, error, evidence)；list[ToolDefinition] |
+| **关键步骤** | 注册时 _descriptor_from_tool 生成 CapabilityDescriptor（含 risk_level、requires_approval）；invoke 前 envelope 权限校验；证据 evidence 回传 milestone_state |
+| **与上下游** | 上游：Builder 注册 explicit + auto_skill + MCP + manager 工具；下游：ModelInput.tools、Execute Loop 调用 invoke |
+| **可扩展点** | 实现 ITool、IToolProvider；IExecutionControl 用于 HITL；新 transport 实现 IMCPClient |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -225,6 +395,32 @@ flowchart LR
 
 ### 3.6 model（Model 域）
 
+**工作逻辑图：**
+
+```
+IModelAdapter.generate(model_input)
+    │
+    ├─► messages = _serialize_messages(model_input.messages)
+    ├─► api_params = {model, messages, tools?, extra?, options?}
+    └─► client.chat.completions.create(**api_params) → ModelResponse(content, tool_calls, usage)
+
+_resolve_sys_prompt(model)
+    ├─► prompt_id = override | config.default_prompt_id | "base.system"
+    └─► LayeredPromptStore.get(prompt_id, model=model.name)
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | ModelInput(messages, tools, metadata)；GenerateOptions(temperature, max_tokens 等) |
+| **输出** | ModelResponse(content, tool_calls, usage) |
+| **关键步骤** | OpenRouter/OpenAI 用 AsyncOpenAI；_serialize_messages 转 OpenAI 格式；Prompt 叠加 workspace+user+builtin |
+| **与上下游** | 上游：Context.assemble()；下游：Execute Loop 解析 tool_calls、Tool Loop 调用 |
+| **可扩展点** | 实现 IModelAdapter；DefaultModelAdapterManager 从 Config.llm 解析 |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | **接口** | | |
@@ -245,6 +441,29 @@ flowchart LR
 
 ### 3.7 config（Config 域）
 
+**工作逻辑图：**
+
+```
+FileConfigProvider._load_config()
+    │
+    ├─► user_layer = _load_layer(user_dir / .dare/config.json)
+    ├─► workspace_layer = _load_layer(workspace_dir / .dare/config.json)
+    ├─► merged = _deep_merge(user_layer, workspace_layer)
+    └─► Config.from_dict(merged)
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | workspace_dir、user_dir；.dare/config.json 分层 |
+| **输出** | Config（llm、mcp_paths、allowtools、allowmcps、knowledge、long_term_memory、skill_mode 等） |
+| **关键步骤** | user 层优先，workspace 覆盖；_deep_merge 递归合并嵌套 dict；component_settings 用于 is_component_enabled |
+| **与上下游** | 上游：Builder.with_config；下游：create_long_term_memory、create_knowledge、load_mcp_toolkit、LayeredPromptStore |
+| **可扩展点** | 实现 IConfigProvider；扩展 Config 字段 |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | **接口** | | |
@@ -259,6 +478,29 @@ flowchart LR
 
 ### 3.8 memory（Memory 域）
 
+**工作逻辑图：**
+
+```
+InMemorySTM: add → _messages.append; get → list(_messages); compress(max_messages) → 保留最近 N 条
+
+RawDataLongTermMemory.get(query): storage.search(query, top_k) → _record_to_message
+
+VectorLongTermMemory.get(query): embed(query) → vector_store.search → _document_to_message
+VectorLongTermMemory.persist(messages): embed_batch → vector_store.add_batch
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | STM：add(Message)；LTM：get(query, top_k)、persist(messages) |
+| **输出** | get()→list[Message]；compress()→移除条数 |
+| **关键步骤** | RawData 用 IRawDataStore.substring 检索；Vector 用 IEmbeddingAdapter + IVectorStore；create_long_term_memory 按 config.type 选择实现 |
+| **与上下游** | 上游：Context 持有；下游：assemble 可选检索 LTM（默认不自动） |
+| **可扩展点** | 实现 IShortTermMemory/ILongTermMemory；自定义 storage 后端 |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | **接口** | | |
@@ -272,6 +514,30 @@ flowchart LR
 
 ### 3.9 knowledge（Knowledge 域）
 
+**工作逻辑图：**
+
+```
+RawDataKnowledge.get(query): storage.search(query, top_k) → Message(content, metadata)
+RawDataKnowledge.add(content): storage.add(content, metadata)
+
+VectorKnowledge.get(query): embed(query) → vector_store.search → Message + similarity
+VectorKnowledge.add(content): embed(content) → vector_store.add
+
+Builder._register_tools_with_manager() ──► if knowledge: register KnowledgeGetTool / KnowledgeAddTool
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | get(query, top_k?)；add(content, metadata?)；Builder 注入 knowledge |
+| **输出** | get→list[Message]；knowledge_get/knowledge_add 作为工具暴露 |
+| **关键步骤** | create_knowledge 按 config.type 选择 RawData/Vector；Vector 需 embedding_adapter |
+| **与上下游** | 上游：Builder/Config；下游：ToolManager 注册；模型可调用 knowledge_get/add |
+| **可扩展点** | 实现 IKnowledge；自定义 storage/vector_store |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | **接口** | | |
@@ -283,6 +549,32 @@ flowchart LR
 | **工厂** | knowledge/factory.py | create_knowledge(config, embedding_adapter) |
 
 ### 3.10 skill（Skill 域）
+
+**工作逻辑图：**
+
+```
+persistent_skill_mode:
+  build() ──► FileSystemSkillLoader.load() ──► context.set_skill(skill)
+  sys_prompt = enrich_prompt_with_skill(sys_prompt, skill)
+
+auto_skill_mode:
+  build() ──► SkillStore.reload() ──► sys_prompt = enrich_prompt_with_skill_summaries(sys_prompt, skills)
+  tools += SearchSkillTool + SkillScriptRunner
+  运行时: search_skill(skill_id) ──► context.add_loaded_full_skill(skill)
+  assemble() ──► sys_prompt + full skill content
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | initial_skill_path / skill_paths；SKILL.md（YAML frontmatter + body + scripts/） |
+| **输出** | persistent：sys_prompt 含完整 skill；auto：sys_prompt 含摘要，search_skill 加载完整内容 |
+| **关键步骤** | FileSystemSkillLoader 扫描 SKILL.md；SearchSkillTool 将 Skill 存入 Context._loaded_full_skills；assemble 合并进 sys_prompt |
+| **与上下游** | 上游：Builder、Config.skill_mode；下游：Context.assemble、run_skill_script |
+| **可扩展点** | ISkillLoader、ISkillSelector（如 KeywordSkillSelector） |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -301,12 +593,63 @@ flowchart LR
 
 ### 3.11 compression（Compression 域）
 
+**工作逻辑图：**
+
+```
+compress_context(ctx, phase, max_messages, strategy?)
+    │
+    ├─► strategy=summary_preview: _build_summary_preview(messages) → 摘要 + tail
+    ├─► strategy=dedup_then_truncate: _dedup_messages(messages) → 去重
+    └─► truncate: 保留最近 max_messages 条
+    stm_clear() + stm_add(消息)
+
+compress_context_llm_summary(ctx, model, max_messages, keep_tail)
+    │
+    ├─► head = messages[:-keep_tail]; tail = messages[-keep_tail:]
+    ├─► ModelInput(summary_prompt, conversation_text) → model.generate
+    └─► stm_clear() + stm_add(summary_msg) + stm_add(tail)
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | ctx、phase、max_messages；strategy：truncate/dedup_then_truncate/summary_preview |
+| **输出** | 就地修改 ctx.stm，无返回值 |
+| **关键步骤** | _dedup_messages 按 (role, content) 去重；_build_summary_preview 启发式摘要；llm_summary 调用模型生成语义摘要 |
+| **与上下游** | 上游：Agent 在 plan/execute/react/simple_chat 各阶段调用；下游：减少 context 长度，适配模型窗口 |
+| **可扩展点** | 新增 strategy；自定义 _build_summary_preview |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | compress_context | compression/core.py | 同步轻量压缩：truncate、dedup_then_truncate、summary_preview；_dedup_messages、_build_summary_preview |
 | compress_context_llm_summary | compression/core.py | 异步 LLM 语义摘要压缩；保留 keep_tail 条，将更早消息摘要为一条 system 消息 |
 
 ### 3.12 hook（Hook 域）
+
+**工作逻辑图：**
+
+```
+HookExtensionPoint.emit(phase, payload)
+    │
+    ├─► callbacks = _callbacks.get(phase)
+    │       FOR callback: callback(payload)  # 同步
+    └─► FOR hook in _hooks: await hook.invoke(phase, payload=payload)  # 异步，best-effort
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | HookPhase + payload（task_id、run_id、budget_stats、duration_ms 等） |
+| **输出** | 无强制返回值；异常仅日志，不中断主流程 |
+| **关键步骤** | DareAgent 在 BEFORE/AFTER_RUN、SESSION、MILESTONE、PLAN、EXECUTE、CONTEXT_ASSEMBLE、MODEL、TOOL、VERIFY 各阶段 emit |
+| **与上下游** | 上游：Agent 生命周期；下游：ObservabilityHook 记录 span/metric；IHookManager 从 Config 加载 |
+| **可扩展点** | 实现 IHook（如审批、审计、指标）；register_hook(phase, callback) |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -321,6 +664,30 @@ flowchart LR
 
 ### 3.13 event（Event 域）
 
+**工作逻辑图：**
+
+```
+IEventLog.append(event_type, payload)
+    │
+    └─► 追加事件记录，返回 event_id
+
+query(filter, limit) → list[Event]
+replay(from_event_id) → RuntimeSnapshot
+verify_chain() → bool
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | append(event_type, payload)；query(filter, limit) |
+| **输出** | event_id；list[Event]；RuntimeSnapshot |
+| **关键步骤** | DareAgent._log_event 在 session/milestone/plan/tool 各阶段 append；TraceAwareEventLog 自动附带 trace_id |
+| **与上下游** | 上游：DareAgentBuilder.with_event_log；下游：审计、重放、验证链 |
+| **可扩展点** | 实现 IEventLog；WORM 存储、哈希链 |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | IEventLog | event/kernel.py | append(event_type, payload)→event_id；query、replay、verify_chain |
@@ -328,6 +695,27 @@ flowchart LR
 | RuntimeSnapshot | event/types.py | from_event_id、events |
 
 ### 3.14 embedding（Embedding 域）
+
+**工作逻辑图：**
+
+```
+IEmbeddingAdapter.embed(text)
+    └─► client.aembed_query(text) → EmbeddingResult(vector, metadata)
+
+embed_batch(texts) → list[EmbeddingResult]
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | embed(text, options)；embed_batch(texts, options) |
+| **输出** | EmbeddingResult(vector, metadata) |
+| **关键步骤** | OpenAIEmbeddingAdapter 用 LangChain OpenAIEmbeddings；支持 OpenAI/Azure/自定义 endpoint |
+| **与上下游** | 上游：Builder.with_embedding_adapter；下游：VectorKnowledge、VectorLongTermMemory |
+| **可扩展点** | 实现 IEmbeddingAdapter |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -341,6 +729,28 @@ flowchart LR
 
 ### 3.15 mcp（MCP 域）
 
+**工作逻辑图：**
+
+```
+load_mcp_toolkit(config)
+    │
+    ├─► load_mcp_configs(paths, workspace_dir, user_dir) → list[MCPServerConfig]
+    ├─► create_mcp_clients(configs, connect=True) → list[IMCPClient]
+    └─► MCPToolkit(clients).initialize() → list_tools() 工具名 server:tool
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | Config.mcp_paths、allowmcps；JSON/YAML/MD 配置 |
+| **输出** | MCPToolkit(IToolProvider)，list_tools() 返回 MCPTool 列表 |
+| **关键步骤** | 路径解析（workspace_dir 相对）；stdio→StdioTransport，http→HTTPTransport；connect→list_tools→full_name=server:tool |
+| **与上下游** | 上游：Builder.build() 在 config.mcp_paths 时自动调用；下游：_resolved_tools 合并 MCP 工具→ToolManager 注册 |
+| **可扩展点** | 新 transport（grpc）；实现 IMCPClient |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | MCPConfigLoader | mcp/loader.py | 扫描 JSON/YAML/MD 配置，load()→list[MCPServerConfig] |
@@ -353,6 +763,30 @@ flowchart LR
 
 ### 3.16 a2a（A2A 域）
 
+**工作逻辑图：**
+
+```
+create_a2a_app(card, agent.run)
+    │
+    ├─► GET /.well-known/agent.json → AgentCard
+    └─► POST JSON-RPC
+          tasks/send: message_parts_to_user_input(parts) → Task → agent.run → run_result_to_artifact_dict
+          tasks/get: 返回 TaskState
+          tasks/cancel: 标记 cancelled
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | A2A Message.parts（text/file）；Task(description) |
+| **输出** | TaskStateDict（status、artifacts）；ArtifactDict（parts: text/file） |
+| **关键步骤** | message_parts_to_user_input 将 text/file 转为 Task.description；run_result_to_artifact_dict 将 RunResult 转为 Artifact；inlineData base64 或 URI |
+| **与上下游** | 上游：Config.a2a、Skill 构建 AgentCard；下游：A2AClient 发现与调用 |
+| **可扩展点** | 自定义 message_adapter、auth_validate |
+
+**组件清单：**
+
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | **类型** | a2a/types.py | AgentCardDict、AgentSkillDict、MessageDict、PartDict、TaskStateDict、ArtifactDict、TextPartDict、FilePartInlineDict、FilePartUriDict |
@@ -363,6 +797,29 @@ flowchart LR
 | A2AClient / discover_agent_card | a2a/client/ | 发现与调用远程 Agent |
 
 ### 3.17 observability（Observability 域）
+
+**工作逻辑图：**
+
+```
+ObservabilityHook.invoke(phase, payload)
+    │
+    ├─► BEFORE_RUN: start_span("run")
+    ├─► BEFORE/AFTER_SESSION/MILESTONE/PLAN/EXECUTE/MODEL/TOOL/VERIFY: span + attributes
+    ├─► payload.budget_stats → MetricsCollector.record_budget
+    └─► AFTER_RUN: end_span, record metrics
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | Hook payload（task_id、run_id、budget_stats、duration_ms、model_usage 等） |
+| **输出** | Traces（OTel span）、Metrics（budget、error 等） |
+| **关键步骤** | OTelTelemetryProvider 使用 OpenTelemetry；DareAgent 在 telemetry 为 OTel 时自动注入 ObservabilityHook；make_trace_aware 为 EventLog 附带 trace_id |
+| **与上下游** | 上游：HookExtensionPoint.emit；下游：OTLP exporter、Console exporter |
+| **可扩展点** | 实现 ITelemetryProvider；ObservabilityConfig（采样、脱敏） |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
@@ -377,6 +834,25 @@ flowchart LR
 | MetricsCollector | observability/_internal/metrics_collector.py | 采集 budget、error 等 |
 
 ### 3.18 security（Security 域）
+
+**工作逻辑图：**
+
+```
+ValidatedStep 的 risk_level 来自 RegistryPlanValidator 从 CapabilityDescriptor.metadata 解析
+TrustedInput: params + risk_level + metadata（可信来源覆盖 planner 输出）
+```
+
+**设计方案要点：**
+
+| 项目 | 说明 |
+|------|------|
+| **输入** | CapabilityDescriptor.metadata.risk_level；ProposedStep（不可信） |
+| **输出** | ValidatedStep.risk_level（READ_ONLY/IDEMPOTENT_WRITE/COMPENSATABLE/NON_IDEMPOTENT_EFFECT）；PolicyDecision |
+| **关键步骤** | RegistryPlanValidator 从 IToolGateway 能力列表取 risk_level 覆盖 planner；TrustedInput 表示可信派生结果 |
+| **与上下游** | 上游：ITool 注册时指定 risk_level；下游：Envelope、IExecutionControl、requires_approval |
+| **可扩展点** | 扩展 RiskLevel；实现 Policy 决策 |
+
+**组件清单：**
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
