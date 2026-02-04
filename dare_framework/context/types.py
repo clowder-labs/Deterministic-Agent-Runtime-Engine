@@ -46,7 +46,7 @@ class AssembledContext:
     """Request-time context for a single LLM call."""
 
     messages: list[Message]
-    sys_prompt: "Prompt | None" = None
+    sys_prompt: Prompt | None = None
     tools: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 

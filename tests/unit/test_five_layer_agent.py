@@ -185,9 +185,9 @@ class TestDareAgentInit:
         model = MockModelAdapter()
         agent = DareAgent(name="test-agent", model=model)
 
-        # Verify execute method exists with correct signature
-        assert hasattr(agent, "execute")
-        assert callable(agent.execute)
+        # Verify run_task method exists with correct signature
+        assert hasattr(agent, "run_task")
+        assert callable(agent.run_task)
 
         # Verify it's structurally compatible with IAgentOrchestration
         # (Python's Protocol uses structural subtyping)

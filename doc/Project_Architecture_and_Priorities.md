@@ -16,13 +16,13 @@
 - `dare_framework/protocols/`：Layer 1 Protocol Adapters（如 MCP），负责能力发现/调用的协议适配
 - `dare_framework/components/`：Layer 2 Pluggable Components（planner/validator/remediator/providers/tools 等默认实现）
 - `dare_framework/components/plugin_system/`：entrypoints 插件机制（组件发现 + manager 接口/实现；不进入 Kernel）
-- `dare_framework/agent/_internal/builder.py`：Layer 3 Developer API（`BaseAgent` builders + agent implementations），用于显式组装 Kernel 与组件
+- `dare_framework/agent/builder.py`：Layer 3 Developer API（`BaseAgent` builders + agent implementations），用于显式组装 Kernel 与组件
 - `examples/`：可运行示例（例如 stdin/stdout chat）
 - `tests/`：单元/集成测试
 
 ### 1.2 关键运行链路（从 build 到 RunResult）
 
-1. `BaseAgent.*_agent_builder(...).build()` 组装 Kernel 默认实现 + Layer 2 组件 + providers，返回 `Agent`（见 `dare_framework/agent/_internal/builder.py`）
+1. `BaseAgent.*_agent_builder(...).build()` 组装 Kernel 默认实现 + Layer 2 组件 + providers，返回 `Agent`（见 `dare_framework/agent/builder.py`）
 2. `Agent.run(task, deps)` 将 `deps` 绑定到运行态上下文（不进入 Task 以保持可序列化审计），随后进入编排执行（当前实现：`IRunLoop.run(Task)`）
 3. 编排驱动五层循环骨架（Session/Milestone/Plan/Execute/Tool）（当前实现：`IRunLoop` → `ILoopOrchestrator`；设计文档：编排归入 `agent` 域，详见 `doc/design/Architecture.md`）
 4. **Plan Loop（信息隔离）**：`IContextManager.assemble(PLAN)` → `IPlanner.plan()` → `IValidator.validate_plan()`；失败会在预算内重试或交给 `IRemediator`（可先 no-op）

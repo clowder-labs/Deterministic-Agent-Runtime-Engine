@@ -24,7 +24,7 @@ from dare_framework.execution.impl.orchestrator.default_orchestrator import Defa
 from dare_framework.execution.impl.run_loop.default_run_loop import DefaultRunLoop
 from dare_framework.security.impl.default_security_boundary import DefaultSecurityBoundary
 from dare_framework.tool.impl.default_tool_gateway import DefaultToolGateway
-from dare_framework.tool.impl.run_context_state import RunContextState
+from dare_framework.tool.types import RunContext
 from dare_framework.plan.planning import ProposedStep
 from dare_framework.execution.types import RunLoopState
 from dare_framework.plan.task import Task
@@ -33,11 +33,11 @@ from dare_framework.plan.task import Task
 @pytest.mark.asyncio
 async def test_run_loop_transitions_to_completed(tmp_path):
     event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))
-    run_context = RunContextState()
+    run_context = RunContext()
 
     tools = [NoOpTool()]
     tool_gateway = DefaultToolGateway()
-    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=run_context.build))
+    tool_gateway.register_provider(NativeToolProvider(tools=tools, context_factory=lambda: run_context))
 
     planner = DeterministicPlanner(
         [

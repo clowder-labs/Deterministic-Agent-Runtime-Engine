@@ -4,11 +4,8 @@ import pytest
 
 from dare_framework.agent import BaseAgent
 from dare_framework.config.types import Config, LLMConfig
-from dare_framework.model import (
-    OpenAIModelAdapter,
-    OpenRouterModelAdapter,
-    create_default_model_adapter_manager,
-)
+from dare_framework.model import create_default_model_adapter_manager
+from dare_framework.model import OpenAIModelAdapter, OpenRouterModelAdapter
 
 
 def test_default_manager_returns_openai_adapter() -> None:

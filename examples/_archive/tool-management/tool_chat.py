@@ -19,16 +19,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dare_framework.agent import BaseAgent
 from dare_framework.model import OpenAIModelAdapter
-from dare_framework.tool import (
+from dare_framework.tool._internal.tools import (
     EditLineTool,
-    NoOpTool,
     ReadFileTool,
     RunCommandTool,
-    RunContextState,
     SearchCodeTool,
-    ToolManager,
     WriteFileTool,
 )
+from dare_framework.tool._internal.tools.noop_tool import NoopTool
+from dare_framework.tool.types import RunContext
+from dare_framework.tool.default_tool_manager import ToolManager
 
 MODEL = os.getenv("CHAT_MODEL", "qwen-plus")
 API_KEY = os.getenv("CHAT_API_KEY", "")
@@ -91,7 +91,7 @@ async def main() -> None:
         http_client_options=HTTP_CLIENT_OPTIONS,
     )
 
-    run_context = RunContextState(
+    run_context = RunContext(
         config={
             "workspace_roots": [WORKSPACE_ROOT],
             "tools": {
@@ -113,13 +113,13 @@ async def main() -> None:
         WriteFileTool(),
         EditLineTool(),
         RunCommandTool(),
-        NoOpTool(),
+        NoopTool(),
     ]
 
-    gateway = ToolManager(context_factory=run_context.build)
+    gateway = ToolManager(context_factory=lambda: run_context)
 
     agent = (
-        BaseAgent.five_layer_agent_builder("tool-management-chat")
+        BaseAgent.dare_agent_builder("tool-management-chat")
         .with_model(model_adapter)
         .with_tool_gateway(gateway)
         .add_tools(*tools)

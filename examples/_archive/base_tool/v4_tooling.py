@@ -23,16 +23,16 @@ from dare_framework.agent import BaseAgent
 from dare_framework.infra.component import ComponentType
 from dare_framework.model import IModelAdapter
 from dare_framework.plan import Envelope
-from dare_framework.tool import (
+from dare_framework.tool._internal.tools import (
     EditLineTool,
-    NoOpTool,
     ReadFileTool,
     RunCommandTool,
-    RunContextState,
     SearchCodeTool,
-    ToolManager,
     WriteFileTool,
 )
+from dare_framework.tool._internal.tools.noop_tool import NoopTool
+from dare_framework.tool.types import RunContext
+from dare_framework.tool.default_tool_manager import ToolManager
 
 
 # BaseAgent builder requires a model adapter even when this example only exercises tools.
@@ -59,7 +59,7 @@ logger = logging.getLogger("v4-tooling")
 
 async def run_read_file(workspace_root: str, read_path: str):
     """Build the tool runtime and execute a read_file tool call."""
-    run_context = RunContextState(
+    run_context = RunContext(
         config={
             "workspace_roots": [workspace_root],
             "tools": {
@@ -81,10 +81,10 @@ async def run_read_file(workspace_root: str, read_path: str):
         WriteFileTool(),
         EditLineTool(),
         RunCommandTool(),
-        NoOpTool(),
+        NoopTool(),
     ]
 
-    gateway = ToolManager(context_factory=run_context.build)
+    gateway = ToolManager(context_factory=lambda: run_context)
     builder = (
         BaseAgent.simple_chat_agent_builder("v4-tooling")
         .with_model(_NoopModelAdapter())

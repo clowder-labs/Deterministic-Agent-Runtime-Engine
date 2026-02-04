@@ -4,7 +4,8 @@ from typing import Any
 
 import pytest
 
-from dare_framework.tool import CapabilityKind, ToolManager, ToolType
+from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.types import CapabilityKind, ToolType
 from dare_framework.infra.component import ComponentType
 
 

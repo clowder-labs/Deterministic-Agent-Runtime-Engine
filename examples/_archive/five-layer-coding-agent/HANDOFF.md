@@ -152,8 +152,8 @@ examples/five-layer-coding-agent/
 #### 1. 检查 Milestone Loop 是否有变化
 
 ```bash
-git log --oneline dare_framework/agent/_internal/five_layer.py
-git diff <last-known-commit> dare_framework/agent/_internal/five_layer.py
+git log --oneline dare_framework/agent/adapters/dare_agent.py
+git diff <last-known-commit> dare_framework/agent/adapters/dare_agent.py
 ```
 
 **关键方法**：
@@ -176,7 +176,7 @@ git log --oneline dare_framework/tool/
 #### 3. 检查 Context Assembly 是否有变化
 
 ```bash
-git log --oneline dare_framework/context/_internal/context.py
+git log --oneline dare_framework/context/adapters/context.py
 ```
 
 **关键方法**：

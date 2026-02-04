@@ -18,7 +18,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dare_framework.agent import BaseAgent
 from dare_framework.model import OpenRouterModelAdapter
-from dare_framework.tool import ReadFileTool, RunContext, WriteFileTool, SearchCodeTool
+from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
+from dare_framework.tool.types import RunContext
+from dare_framework.transport import AgentChannel, StdioClientChannel, TransportEnvelope
 
 
 async def main() -> None:
@@ -57,12 +59,29 @@ async def main() -> None:
             metadata={"agent": "tool-agent"},
         )
 
+    client_channel = StdioClientChannel()
+
+    def decoder(envelope: TransportEnvelope) -> TransportEnvelope:
+        return TransportEnvelope(
+            id=envelope.id,
+            reply_to=envelope.reply_to,
+            kind=envelope.kind,
+            type=envelope.type,
+            payload=f"Workspace: {workspace}\n\n{envelope.payload}",
+            meta=envelope.meta,
+            stream_id=envelope.stream_id,
+            seq=envelope.seq,
+        )
+
+    channel = AgentChannel.build(client_channel, decoder=decoder)
+
     # Build agent with tools (ReactAgent executes tool_calls in a ReAct loop)
     agent = (
         BaseAgent.react_agent_builder("tool-agent")
         .with_model(model_adapter)
         .with_run_context_factory(run_context_factory)
         .add_tools(read_tool, write_tool, search_tool)
+        .with_agent_channel(channel)
         .build()
     )
 
@@ -70,21 +89,11 @@ async def main() -> None:
     print(f"Workspace: {workspace}")
     print("Type your request, or /quit to exit.\n")
 
-    while True:
-        try:
-            prompt = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-
-        if not prompt:
-            continue
-        if prompt == "/quit":
-            break
-
-        # Include workspace context
-        full_prompt = f"Workspace: {workspace}\n\n{prompt}"
-        result = await agent.run(full_prompt)
-        print(f"\nAssistant: {result.output}\n")
+    await agent.start()
+    try:
+        await client_channel.start()
+    finally:
+        await agent.stop()
 
 
 if __name__ == "__main__":

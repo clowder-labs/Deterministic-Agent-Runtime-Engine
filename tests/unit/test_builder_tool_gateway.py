@@ -9,7 +9,7 @@ from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.infra.component import ComponentType
 from dare_framework.plan.types import Envelope
-from dare_framework.tool import ToolManager
+from dare_framework.tool.default_tool_manager import ToolManager
 from dare_framework.tool.types import ToolResult
 
 

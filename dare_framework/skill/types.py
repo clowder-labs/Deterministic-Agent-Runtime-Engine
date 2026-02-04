@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -19,16 +18,19 @@ class Skill:
     name: str
     description: str
     content: str
-    metadata: dict[str, Any] = field(default_factory=dict)
     skill_dir: Path | None = None  # Root of the skill folder (for script resolution)
     scripts: dict[str, Path] = field(default_factory=dict)  # script_name -> absolute path
 
     def to_context_section(self) -> str:
         """Render skill as a section for injection into system prompt."""
         parts = [f"## Skill: {self.name}\n\n{self.content}"]
+        if self.skill_dir is not None:
+            parts.append(f"\n**Skill path**: {self.skill_dir}")
         if self.scripts:
-            names = ", ".join(sorted(self.scripts.keys()))
-            parts.append(f"\n**Available scripts** (call via `run_skill_script`): {names}")
+            lines = []
+            for name, path in sorted(self.scripts.items()):
+                lines.append(f"- {name}: {path}")
+            parts.append("\n**Available scripts**:\n" + "\n".join(lines))
         return "\n".join(parts)
 
     def get_script_path(self, script_name: str) -> Path | None:

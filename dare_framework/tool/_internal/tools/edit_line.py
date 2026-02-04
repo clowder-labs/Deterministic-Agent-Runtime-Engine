@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from dare_framework.tool.interfaces import ITool
+from dare_framework.tool.kernel import ITool
 from dare_framework.tool.errors import ToolError
-from dare_framework.tool._internal.utils.file_utils import (
+from dare_framework.tool._internal.file_utils import (
     DEFAULT_MAX_BYTES,
     atomic_write,
     coerce_int,
@@ -15,7 +15,7 @@ from dare_framework.tool._internal.utils.file_utils import (
     resolve_path,
     resolve_workspace_roots,
 )
-from dare_framework.tool._internal.utils.ids import generate_id
+from dare_framework.infra.ids import generate_id
 from dare_framework.tool.types import (
     CapabilityKind,
     Evidence,

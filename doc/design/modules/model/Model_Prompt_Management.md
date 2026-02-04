@@ -35,7 +35,9 @@ dare_framework/model/
   types.py          # Prompt / ModelInput / ModelResponse
   kernel.py         # IModelAdapter
   interfaces.py     # IModelAdapterManager / IPromptLoader / IPromptStore
-  _internal/        # 默认实现（Prompt loaders + Layered store）
+  builtin_prompt_loader.py   # Built-in prompt loader
+  filesystem_prompt_loader.py # Filesystem prompt loader
+  layered_prompt_store.py    # Layered prompt store
 ```
 
 ---

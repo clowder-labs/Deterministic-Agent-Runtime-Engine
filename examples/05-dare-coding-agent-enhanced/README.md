@@ -56,9 +56,9 @@ python main.py
 ## 代码要点
 
 ```python
-from dare_framework.knowledge import RawDataKnowledge, InMemoryRawDataStorage
+from dare_framework.knowledge import create_knowledge
 
-knowledge = RawDataKnowledge(storage=InMemoryRawDataStorage())
+knowledge = create_knowledge({"type": "rawdata", "storage": "in_memory"})
 agent = (
     DareAgentBuilder("dare-coding-agent")
     .with_model(OpenRouterModelAdapter(...))
@@ -117,7 +117,7 @@ my_skill/
 
 **Knowledge（本示例）**
 
-本示例使用 **rawdata 知识库 + 内存存储**（`RawDataKnowledge(storage=InMemoryRawDataStorage())`），Agent 可通过工具调用知识库：
+本示例使用 **rawdata 知识库 + 内存存储**（`create_knowledge({"type": "rawdata", "storage": "in_memory"})`），Agent 可通过工具调用知识库：
 
 | 工具名 | 说明 |
 |--------|------|

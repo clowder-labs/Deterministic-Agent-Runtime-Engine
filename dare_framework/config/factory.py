@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from dare_framework.config.kernel import IConfigProvider
-from dare_framework.config._internal.file_config_provider import FileConfigProvider
+from dare_framework.config.file_config_provider import FileConfigProvider
 
 
 def build_config_provider(

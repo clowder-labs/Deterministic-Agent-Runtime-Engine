@@ -2,7 +2,7 @@
 
 import pytest
 
-from dare_framework.tool import NativeToolProvider, NoopTool, EchoTool
+from dare_framework.tool._internal import EchoTool, NativeToolProvider, NoopTool
 
 
 class TestNativeToolProvider:

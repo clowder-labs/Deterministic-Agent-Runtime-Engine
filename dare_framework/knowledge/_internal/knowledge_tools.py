@@ -6,7 +6,7 @@ from typing import Any
 
 from dare_framework.infra.component import ComponentType
 from dare_framework.knowledge.kernel import IKnowledge
-from dare_framework.tool.interfaces import ITool
+from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,

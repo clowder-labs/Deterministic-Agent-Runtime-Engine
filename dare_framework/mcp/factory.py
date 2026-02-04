@@ -9,10 +9,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from dare_framework.mcp.client import MCPClient
+from dare_framework.mcp.kernel import IMCPClient
 from dare_framework.mcp.transports.http import HTTPTransport
 from dare_framework.mcp.transports.stdio import StdioTransport
 from dare_framework.mcp.types import MCPServerConfig, TransportType
-from dare_framework.tool.interfaces import IMCPClient
 
 if TYPE_CHECKING:
     from dare_framework.mcp.transports.base import ITransport

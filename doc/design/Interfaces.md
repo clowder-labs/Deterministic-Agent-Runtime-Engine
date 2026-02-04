@@ -69,7 +69,7 @@ from dare_framework.plan.types import Task, RunResult
 class IAgentOrchestration(Protocol):
     """一种编排实现（五层循环只是其中之一）。"""
 
-    async def execute(self, task: Task, deps: Any | None = None) -> RunResult:
+    async def run_task(self, task: Task, deps: Any | None = None) -> RunResult:
         ...
 ```
 
@@ -118,8 +118,6 @@ class IContext(Protocol):
     long_term_memory: IRetrievalContext | None
     knowledge: IRetrievalContext | None
 
-    toollist: list[dict[str, Any]] | None
-
     # Short-term memory methods
     def stm_add(self, message: "Message") -> None: ...
     def stm_get(self) -> list["Message"]: ...
@@ -136,8 +134,6 @@ class IContext(Protocol):
     # Assembly (core)
     def assemble(self, **options: Any) -> "AssembledContext": ...
 
-    # Config
-    def config_update(self, patch: dict[str, Any]) -> None: ...
 ```
 
 补充语义（关键约束）：
@@ -158,11 +154,64 @@ class IContext(Protocol):
 ```python
 from __future__ import annotations
 
-from typing import Any, Protocol, Sequence
+from typing import Any, Literal, Protocol, Sequence
 
 from dare_framework.config.types import Config
 from dare_framework.plan.types import Envelope
-from dare_framework.tool.types import CapabilityDescriptor, ExecutionSignal, ProviderStatus, ToolDefinition, ToolResult
+from dare_framework.infra.component import ComponentType, IComponent
+from dare_framework.tool.types import (
+    CapabilityDescriptor,
+    CapabilityKind,
+    ProviderStatus,
+    RiskLevelName,
+    RunContext,
+    ToolDefinition,
+    ToolResult,
+    ToolType,
+)
+
+
+class IToolProvider(Protocol):
+    """提供工具实例，供 ToolManager 注册。"""
+
+    def list_tools(self) -> list["ITool"]: ...
+
+
+class ITool(IComponent, Protocol):
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def component_type(self) -> Literal[ComponentType.TOOL]: ...
+
+    @property
+    def description(self) -> str: ...
+
+    @property
+    def input_schema(self) -> dict[str, Any]: ...
+
+    @property
+    def output_schema(self) -> dict[str, Any]: ...
+
+    @property
+    def tool_type(self) -> ToolType: ...
+
+    @property
+    def risk_level(self) -> RiskLevelName: ...
+
+    @property
+    def requires_approval(self) -> bool: ...
+
+    @property
+    def timeout_seconds(self) -> int: ...
+
+    @property
+    def is_work_unit(self) -> bool: ...
+
+    @property
+    def capability_kind(self) -> CapabilityKind: ...
+
+    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult: ...
 
 
 class IToolGateway(Protocol):
@@ -170,7 +219,7 @@ class IToolGateway(Protocol):
 
     async def list_capabilities(self) -> Sequence[CapabilityDescriptor]: ...
 
-    async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope) -> Any: ...
+    async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope) -> ToolResult: ...
 
     def register_provider(self, provider: object) -> None: ...
 
@@ -178,21 +227,19 @@ class IToolGateway(Protocol):
 class IToolManager(IToolGateway, Protocol):
     """可信工具注册表与管理接口。"""
 
-    # NOTE: 通过 forward refs 避免 kernel 依赖 tool/interfaces。
+    def load_tools(self, *, config: Config | None = None) -> list[ITool]: ...
 
-    def load_tools(self, *, config: Config | None = None) -> list["ITool"]: ...
-
-    def register_tool(self, tool: "ITool", *, namespace: str | None = None, version: str | None = None) -> CapabilityDescriptor: ...
+    def register_tool(self, tool: ITool, *, namespace: str | None = None, version: str | None = None) -> CapabilityDescriptor: ...
 
     def unregister_tool(self, capability_id: str) -> bool: ...
 
-    def update_tool(self, tool: "ITool", *, capability_id: str, enabled: bool | None = None) -> CapabilityDescriptor: ...
+    def update_tool(self, tool: ITool, *, capability_id: str, enabled: bool | None = None) -> CapabilityDescriptor: ...
 
     def set_capability_enabled(self, capability_id: str, enabled: bool) -> None: ...
 
-    def register_provider(self, provider: "IToolProvider") -> None: ...
+    def register_provider(self, provider: IToolProvider) -> None: ...
 
-    def unregister_provider(self, provider: "IToolProvider") -> bool: ...
+    def unregister_provider(self, provider: IToolProvider) -> bool: ...
 
     async def refresh(self) -> list[CapabilityDescriptor]: ...
 
@@ -207,6 +254,18 @@ class IToolManager(IToolGateway, Protocol):
     async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope) -> ToolResult: ...
 
 
+```
+
+### 3.3 `tool/interfaces.py`（control plane）
+
+```python
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from dare_framework.tool.types import ExecutionSignal
+
+
 class IExecutionControl(Protocol):
     def poll(self) -> ExecutionSignal: ...
 
@@ -219,31 +278,6 @@ class IExecutionControl(Protocol):
     async def checkpoint(self, label: str, payload: dict[str, Any]) -> str: ...
 
     async def wait_for_human(self, checkpoint_id: str, reason: str) -> None: ...
-```
-
-### 3.3 `tool/interfaces.py`（providers / adapters / tools）
-
-```python
-from __future__ import annotations
-
-from typing import Any, Protocol, Sequence, runtime_checkable
-
-from dare_framework.tool.types import CapabilityDescriptor, RunContext, ToolResult
-
-
-@runtime_checkable
-class IToolProvider(Protocol):
-    """提供工具实例，供 ToolManager 注册。"""
-
-    def list_tools(self) -> list[ITool]: ...
-
-
-@runtime_checkable
-class ITool(Protocol):
-    @property
-    def name(self) -> str: ...
-
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult: ...
 
 
 @runtime_checkable

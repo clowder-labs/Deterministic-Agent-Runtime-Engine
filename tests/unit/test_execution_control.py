@@ -4,11 +4,11 @@ import asyncio
 
 import pytest
 
-from dare_framework.tool import (
-    DefaultExecutionControl,
+from dare_framework.tool._internal.control.default_execution_control import (
     Checkpoint,
-    ExecutionSignal,
+    DefaultExecutionControl,
 )
+from dare_framework.tool.types import ExecutionSignal
 
 
 class TestDefaultExecutionControl:

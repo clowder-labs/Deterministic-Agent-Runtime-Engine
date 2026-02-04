@@ -24,10 +24,11 @@ from dare_framework.config.types import Config
 from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
-from dare_framework.knowledge import RawDataKnowledge, InMemoryRawDataStorage
+from dare_framework.knowledge import create_knowledge
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
-from dare_framework.tool import ReadFileTool, WriteFileTool, SearchCodeTool, RunCommandTool, RunContext
+from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
+from dare_framework.tool.types import RunContext
 
 from validators.file_validator import FileExistsValidator
 
@@ -257,7 +258,7 @@ def _create_builder(
     event_log = StreamingEventLog(display.show_event)
 
     # Rawdata knowledge (in-memory): agent can call knowledge_get / knowledge_add as tools.
-    knowledge = RawDataKnowledge(storage=InMemoryRawDataStorage())
+    knowledge = create_knowledge({"type": "rawdata", "storage": "in_memory"})
 
     builder = (
         DareAgentBuilder("dare-coding-agent")

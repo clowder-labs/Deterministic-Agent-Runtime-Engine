@@ -34,3 +34,8 @@
 - TODO: 提供默认 EventLog 实现（持久化 + hash-chain）。
 - TODO: 统一 legacy event bus 与 WORM event log 的关系。
 - TODO: 定义稳定事件 taxonomy 与 payload schema。
+
+## 7. Design Clarifications (2026-02-03)
+
+- Doc/Impl gap: `dare_framework/events/*` (legacy) coexists with `event` domain; needs migration policy.
+- Doc gap: event taxonomy/schema must be defined for cross-module payloads.

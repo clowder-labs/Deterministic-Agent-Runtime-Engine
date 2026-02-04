@@ -17,18 +17,6 @@ class ExecutionSignal(Enum):
     HUMAN_APPROVAL_REQUIRED = "human_approval_required"
 
 
-class PauseRequested(RuntimeError):
-    """Raised when a pause is requested."""
-
-
-class CancelRequested(RuntimeError):
-    """Raised when cancellation is requested."""
-
-
-class HumanApprovalRequired(RuntimeError):
-    """Raised when HITL approval is required."""
-
-
 class ToolType(Enum):
     """Tool classification for execution semantics."""
 
@@ -161,9 +149,6 @@ __all__ = [
     "CapabilityType",
     "Evidence",
     "ExecutionSignal",
-    "PauseRequested",
-    "CancelRequested",
-    "HumanApprovalRequired",
     "InvocationContext",
     "ProviderStatus",
     "RiskLevelName",

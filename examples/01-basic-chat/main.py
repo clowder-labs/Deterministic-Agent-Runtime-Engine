@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dare_framework.agent import BaseAgent
 from dare_framework.model import OpenRouterModelAdapter
+from dare_framework.transport import AgentChannel, StdioClientChannel
 
 
 async def main() -> None:
@@ -40,28 +41,24 @@ async def main() -> None:
     )
 
     # Build agent using SimpleChatAgentBuilder
+    client_channel = StdioClientChannel()
+    channel = AgentChannel.build(client_channel)
+
     agent = (
         BaseAgent.simple_chat_agent_builder("basic-chat")
         .with_model(model_adapter)
+        .with_agent_channel(channel)
         .build()
     )
 
     print(f"Chat agent ready (model: {model})")
     print("Type your message, or /quit to exit.\n")
 
-    while True:
-        try:
-            prompt = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-
-        if not prompt:
-            continue
-        if prompt == "/quit":
-            break
-
-        result = await agent.run(prompt)
-        print(f"\nAssistant: {result.output}\n")
+    await agent.start()
+    try:
+        await client_channel.start()
+    finally:
+        await agent.stop()
 
 
 if __name__ == "__main__":

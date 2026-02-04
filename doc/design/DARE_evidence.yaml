@@ -37,14 +37,14 @@ sources:
     path: archive/frameworks/dare_framework3_3/agent/base.py
     why: "Agent.run as developer-facing surface; control-plane wiring"
   - id: code-arch-agent-five-layer
-    path: archive/frameworks/dare_framework3_3/agent/five_layer.py
+    path: archive/frameworks/dare_framework3_3/agent/dare_agent.py
     why: "five-layer loop implemented as an agent orchestration"
   - id: code-arch-plan-validator
     path: archive/frameworks/dare_framework3_3/plan/internal/gateway_validator.py
     why: "security fields derived from registry metadata; plan tool special-case"
 
   - id: code-context
-    path: dare_framework/context/_internal/context.py
+    path: dare_framework/context/adapters/context.py
     why: "context-centric direction: request-time assembly; retrieval references on context"
   - id: code-model-types
     path: dare_framework/model/types.py
@@ -53,7 +53,7 @@ sources:
     path: dare_framework/tool/interfaces.py
     why: "IToolProvider.list_tools provides tool instances for ToolManager; tool defs are derived from ToolManager registry"
   - id: code-agent-simple-chat
-    path: dare_framework/agent/_internal/simple_chat.py
+    path: dare_framework/agent/adapters/simple_chat.py
     why: "Context usage: stm_add -> assemble -> ModelInput(messages+tools+metadata)"
 
   - id: code-arch-entrypoints
@@ -160,7 +160,7 @@ claims:
 
   - id: C-DOMAIN-001
     type: design_decision
-    statement: "Domain layout uses: types.py + kernel.py + __init__.py per domain; pluggable/composed interfaces in interfaces.py; default implementations in _internal/."
+    statement: "Domain layout uses: types.py + kernel.py + __init__.py per domain; pluggable/composed interfaces in interfaces.py; default implementations in adapters/."
     rationale: "Aligns with DDD boundaries, uses Python underscore convention to mark non-public implementation, and enables convergence to a single dare_framework package layout."
     refs: [doc-arch-compare]
     anchors:

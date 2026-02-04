@@ -27,7 +27,6 @@ class IContext(Protocol):
     budget: Budget
     long_term_memory: IRetrievalContext | None
     knowledge: IRetrievalContext | None
-    toollist: list[dict[str, Any]] | None
     config: dict[str, Any] | None
 
     # Short-term memory methods
@@ -49,8 +48,7 @@ class IContext(Protocol):
     # Compress (core)
     def compress(self, **options: Any) -> None: ...
 
-    # Config
-    def config_update(self, patch: dict[str, Any]) -> None: ...
+
 
 
 __all__ = ["IContext", "IRetrievalContext"]

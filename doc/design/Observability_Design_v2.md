@@ -1249,7 +1249,7 @@ __all__ = [
 
 ### 5.1 修改点
 
-在 `dare_framework/agent/_internal/five_layer.py` 中进行最小化集成：
+在 `dare_framework/agent/five_layer.py` 中进行最小化集成：
 
 ```python
 # 在 DareAgent.__init__ 中添加

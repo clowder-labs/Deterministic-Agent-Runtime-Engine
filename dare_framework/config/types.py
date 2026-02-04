@@ -6,9 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-# Skill loading mode: persistent = one skill full content at build; auto = catalog at build + search_skill tool loads full content into dict, assemble merges dict into context.
-SkillMode = Literal["persistent_skill_mode", "auto_skill_mode"]
-
 from dare_framework.infra.component import ComponentType
 from dare_framework.infra.component import IComponent
 
@@ -297,12 +294,10 @@ class Config:
     user_dir: str = field(default_factory=_default_user_dir)
     prompt_store_path_pattern: str = ".dare/_prompts.json"
     default_prompt_id: str | None = None
-    skill_mode: SkillMode = "persistent_skill_mode"
     initial_skill_path: str | None = None
+    skill_mode: str | None = None
     skill_paths: list[str] = field(default_factory=list)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
-    a2a: dict[str, Any] = field(default_factory=dict)
-    """Optional A2A server config: name, description, provider, capabilities (for AgentCard)."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Config":
@@ -333,20 +328,14 @@ class Config:
         default_prompt_id = data.get("default_prompt_id")
         if default_prompt_id is not None:
             default_prompt_id = str(default_prompt_id)
-        skill_mode_raw = data.get("skill_mode", "persistent_skill_mode")
-        skill_mode: SkillMode = (
-            skill_mode_raw
-            if skill_mode_raw in ("persistent_skill_mode", "auto_skill_mode")
-            else "persistent_skill_mode"
-        )
         initial_skill_path_raw = data.get("initial_skill_path")
         initial_skill_path = str(initial_skill_path_raw) if initial_skill_path_raw else None
+        skill_mode_raw = data.get("skill_mode")
+        skill_mode = str(skill_mode_raw) if skill_mode_raw else None
+        if skill_mode not in {None, "agent", "search_tool"}:
+            skill_mode = None
         skill_paths_raw = data.get("skill_paths")
-        skill_paths = (
-            [str(p) for p in skill_paths_raw]
-            if isinstance(skill_paths_raw, list)
-            else []
-        )
+        skill_paths = [str(p) for p in skill_paths_raw] if isinstance(skill_paths_raw, list) else []
         workspace_dir_raw = data.get("workspace_dir")
         if isinstance(workspace_dir_raw, str):
             workspace_dir = workspace_dir_raw
@@ -364,7 +353,6 @@ class Config:
             if isinstance(observability_raw, dict)
             else ObservabilityConfig()
         )
-        a2a = data.get("a2a") if isinstance(data.get("a2a"), dict) else {}
         return cls(
             llm=llm,
             mcp=mcp,
@@ -379,11 +367,10 @@ class Config:
             user_dir=user_dir,
             prompt_store_path_pattern=prompt_store_path_pattern,
             default_prompt_id=default_prompt_id,
-            skill_mode=skill_mode,
             initial_skill_path=initial_skill_path,
+            skill_mode=skill_mode,
             skill_paths=skill_paths,
             observability=observability,
-            a2a=a2a,
         )
 
     def component_settings(self, component_type: ComponentType | str) -> ComponentConfig:
@@ -431,17 +418,12 @@ class Config:
             "user_dir": self.user_dir,
             "prompt_store_path_pattern": self.prompt_store_path_pattern,
             "default_prompt_id": self.default_prompt_id,
-            "skill_mode": self.skill_mode,
             "initial_skill_path": self.initial_skill_path,
+            "skill_mode": self.skill_mode,
             "skill_paths": list(self.skill_paths),
             "observability": self.observability.to_dict(),
-            "a2a": dict(self.a2a),
         }
-
-
 __all__ = [
-    "SkillMode",
-    "ComponentType",
     "ProxyConfig",
     "LLMConfig",
     "ComponentConfig",
