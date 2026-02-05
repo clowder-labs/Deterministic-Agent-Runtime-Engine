@@ -1,6 +1,6 @@
 # Design TODO Index
 
-> Status: generated from module docs (2026-01-31).
+> Status: generated from module docs (2026-02-05).
 >
 > 用途：集中查看当前架构/模块设计文档中的 TODO，便于分工与追踪。
 
@@ -12,9 +12,14 @@
 - [ ] 对齐 EventLog / HITL 事件链（pause → wait → resume）。(`docs/design/module_design/agent/README.md`)
 
 ## context
-- [ ] 规范 `AssembledContext.metadata` 最小字段（context_id / tool_snapshot_hash）。(`docs/design/module_design/context/README.md`)
-- [ ] 定义 LTM/Knowledge 融合策略与预算归因。(`docs/design/module_design/context/README.md`)
-- [ ] 对齐工具快照记录与 EventLog 审计链。(`docs/design/module_design/context/README.md`)
+- [ ] 为 `assemble()` 定义标准化 options（`query/top_k/budget_alloc/compression_hint`）。(`docs/design/module_design/context/README.md`)
+- [ ] 规范 `AssembledContext.metadata` 审计字段与哈希计算口径。(`docs/design/module_design/context/README.md`)
+- [ ] 在默认 Agent 调用链接入“预算检查 -> 压缩 -> 组装”的统一顺序。(`docs/design/module_design/context/README.md`)
+- [ ] 明确 LTM 与 Knowledge 的冲突消解与证据优先级规则。(`docs/design/module_design/context/README.md`)
+- [ ] 统一 `get(**kwargs)` 的可选参数协议（`top_k/min_similarity/filters`）。(`docs/design/module_design/context/README.md`)
+- [ ] 给 LTM/Knowledge 定义统一去重 key 与冲突消解规则。(`docs/design/module_design/context/README.md`)
+- [ ] 明确知识写入的权限、审计与成本计量策略（tool 与非 tool 路径一致性）。(`docs/design/module_design/context/README.md`)
+- [ ] 增加“召回质量 + 压缩损失”观测指标，支持线下评估。(`docs/design/module_design/context/README.md`)
 
 ## tool
 - [ ] 将 policy/hitl gate 接入 ToolLoop（与 `ISecurityBoundary` 结合）。(`docs/design/module_design/tool/README.md`)
@@ -57,11 +62,6 @@
 - [ ] 增加环境变量或多格式配置支持（YAML/TOML）。(`docs/design/module_design/config/README.md`)
 - [ ] enforce allowlists（allowtools/allowmcps）。(`docs/design/module_design/config/README.md`)
 - [ ] 配置热更新与订阅机制。(`docs/design/module_design/config/README.md`)
-
-## memory / knowledge
-- [ ] 提供默认 LTM/Knowledge 实现（或接入外部向量库）。(`docs/design/module_design/memory_knowledge/README.md`)
-- [ ] 统一检索融合策略（排序、去重、预算控制）。(`docs/design/module_design/memory_knowledge/README.md`)
-- [ ] 知识作为 Tool 的统一策略（权限、计费、审计）。(`docs/design/module_design/memory_knowledge/README.md`)
 
 ## skill
 - [ ] 标准化“技能注入上下文”的默认路径与安全边界。(`docs/design/module_design/skill/README.md`)

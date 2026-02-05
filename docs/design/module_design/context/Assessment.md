@@ -1,6 +1,6 @@
 # Context Domain Assessment
 
-> Status: draft (2026-02-03). Scope: `dare_framework/context` only.
+> Status: draft (2026-02-05). Scope: `dare_framework/context` (including memory/knowledge integration notes).
 
 ## 1. Scope & Responsibilities
 
@@ -75,3 +75,29 @@
 - Should STM capabilities (`add/clear/compress`) be formalized in a context‑local
   protocol to avoid `type: ignore`, or remain implied via memory domain?
 - Do we want a formal `ContextFactory` to avoid exposing `Context` directly?
+
+## 9. Memory / Knowledge Integration Notes (merged)
+
+> Scope: `dare_framework/memory` + `dare_framework/knowledge` as Context dependencies.
+
+### 9.1 Public Surface (current)
+
+- `dare_framework.memory`: `IShortTermMemory`, `ILongTermMemory`, `LongTermMemoryConfig`, `create_long_term_memory`, `InMemorySTM`
+- `dare_framework.knowledge`: `IKnowledge`, `IKnowledgeTool`, `KnowledgeConfig`, `create_knowledge`
+
+### 9.2 Dependency Highlights
+
+- Context defaults STM to `InMemorySTM` when not injected.
+- Agent builder resolves LTM/Knowledge via factories from config.
+- Knowledge capabilities are exposed as internal tools (`knowledge_get` / `knowledge_add`).
+- Vector LTM/Knowledge depend on embedding adapter; missing adapter yields `None` from factory.
+
+### 9.3 Additional Gaps
+
+1. Retrieval kwargs contract is not standardized across implementations.
+2. Cross-source dedup/ranking/conflict policy is not yet formalized at Context boundary.
+3. Recall-quality and compression-loss observability is still missing.
+
+### 9.4 Doc Sync
+
+- Keep memory/knowledge integration details in `docs/design/module_design/context/README.md`.

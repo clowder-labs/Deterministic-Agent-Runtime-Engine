@@ -392,7 +392,7 @@ sequenceDiagram
 | hook | 生命周期扩展点；best-effort hooks | `dare_framework/hook/*` | `docs/design/module_design/hook/README.md` |
 | observability | 运行时可观测（traces/metrics/logs） | `dare_framework/observability/*` | `docs/design/module_design/observability/README.md` |
 | config | 配置快照与确定性装配 | `dare_framework/config/*` | `docs/design/module_design/config/README.md` |
-| memory/knowledge | 统一检索面与跨域组合接口位 | `dare_framework/memory/*`, `dare_framework/knowledge/*` | `docs/design/module_design/memory_knowledge/README.md` |
+| memory/knowledge | 统一检索面与跨域组合接口位 | `dare_framework/memory/*`, `dare_framework/knowledge/*` | `docs/design/module_design/context/README.md` |
 | skill | Skill 解析与脚本执行能力 | `dare_framework/skill/*` | `docs/design/module_design/skill/README.md` |
 | embedding | Embedding 接口与适配器 | `dare_framework/embedding/*` | `docs/design/module_design/embedding/README.md` |
 | transport | Client ↔ Agent 交互协议 | `dare_framework/transport/*` | `docs/design/module_design/transport/transport_mvp.md` |
@@ -431,7 +431,7 @@ class IToolGateway(Protocol):
 - hook: `docs/design/module_design/hook/README.md`
 - observability: `docs/design/module_design/observability/README.md`
 - config: `docs/design/module_design/config/README.md`
-- memory/knowledge: `docs/design/module_design/memory_knowledge/README.md`
+- memory/knowledge（并入 context）: `docs/design/module_design/context/README.md`
 - skill: `docs/design/module_design/skill/README.md`
 - embedding: `docs/design/module_design/embedding/README.md`
 - transport（设计中）：`docs/design/module_design/transport/transport_mvp.md`

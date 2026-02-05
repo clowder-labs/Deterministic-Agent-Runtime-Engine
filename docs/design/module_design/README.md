@@ -1,6 +1,6 @@
 # Modules Design Index
 
-> Status: updated (2026-01-31).
+> Status: updated (2026-02-05).
 >
 > This directory holds per-module design documents aligned with `dare_framework/`.
 > TODO markers indicate gaps or ambiguity that need module owners to confirm.
@@ -22,7 +22,6 @@
 - hook: `docs/design/module_design/hook/README.md`
 - config: `docs/design/module_design/config/README.md` (assessment: `docs/design/module_design/config/Assessment.md`)
 - observability: `docs/design/module_design/observability/README.md`
-- memory / knowledge: `docs/design/module_design/memory_knowledge/README.md` (assessment: `docs/design/module_design/memory_knowledge/Assessment.md`)
 - skill: `docs/design/module_design/skill/README.md` (assessment: `docs/design/module_design/skill/Assessment.md`)
 - mcp: `docs/design/module_design/mcp/README.md` (assessment: `docs/design/module_design/mcp/Assessment.md`)
 - embedding: `docs/design/module_design/embedding/README.md`
