@@ -6,15 +6,17 @@ This module declares non-kernel contracts; core tool interfaces live in
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
 from dare_framework.tool.types import ExecutionSignal
 
 
 @runtime_checkable
-class IExecutionControl(Protocol):
+class IExecutionControl(ABC):
     """Control plane for pause/resume/checkpoints (HITL)."""
 
+    @abstractmethod
     def poll(self) -> ExecutionSignal: ...
 
     def poll_or_raise(self) -> None: ...

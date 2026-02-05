@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
@@ -23,7 +24,7 @@ class ComponentType(Enum):
 
 
 @runtime_checkable
-class IComponent(Protocol):
+class IComponent(ABC):
     """Cross-domain component identity contract.
 
     This contract exists so configuration and orchestration code can treat all pluggable
@@ -31,11 +32,13 @@ class IComponent(Protocol):
     """
 
     @property
+    @abstractmethod
     def name(self) -> str:
         """Stable name used for config lookups."""
         ...
 
     @property
+    @abstractmethod
     def component_type(self) -> ComponentType:
         """Component category used for config scoping."""
         ...

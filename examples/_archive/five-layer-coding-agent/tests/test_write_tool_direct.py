@@ -4,7 +4,7 @@ from pathlib import Path
 from dare_framework.plan.types import Envelope
 from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
 from dare_framework.tool._internal.tools import WriteFileTool
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 
 async def test_write_tool_direct():

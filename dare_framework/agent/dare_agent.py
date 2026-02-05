@@ -121,7 +121,6 @@ class DareAgent(BaseAgent):
         short_term_memory: IShortTermMemory | None = None,
         long_term_memory: ILongTermMemory | None = None,
         # Tool components (optional)
-        tools: IToolProvider | None = None,
         tool_gateway: IToolGateway | None = None,
         execution_control: IExecutionControl | None = None,
         # Plan components (optional - enables full five-layer mode)
@@ -185,8 +184,6 @@ class DareAgent(BaseAgent):
                 long_term_memory=long_term_memory,
                 budget=budget or BudgetClass(),
             )
-            if tools is not None:
-                self._context._tool_provider = tools
         else:
             self._context = context
 

@@ -29,7 +29,7 @@ from dare_framework.plan import ProposedPlan, ProposedStep
 from dare_framework.plan._internal.registry_validator import RegistryPlanValidator
 from dare_framework.tool._internal.tools import EchoTool, ReadFileTool, SearchCodeTool
 from dare_framework.tool.types import RunContext
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
 API_KEY = os.getenv("CHAT_API_KEY", "")

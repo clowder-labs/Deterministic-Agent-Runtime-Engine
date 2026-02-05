@@ -165,6 +165,10 @@ async def test_tool_requires_approval_triggers_checkpoint_events(tmp_path):
         def is_work_unit(self) -> bool:
             return False
 
+        @property
+        def capability_kind(self) -> CapabilityKind:
+            return CapabilityKind.TOOL
+
         async def execute(self, input: dict[str, Any], context: RunContext) -> ToolResult:
             return ToolResult(success=True, output={"status": "ok"}, evidence=[])
 

@@ -40,8 +40,8 @@ class OpenRouterModelAdapter(IModelAdapter):
         return self._name
 
     @property
-    def component_type(self) -> Literal[ComponentType.MODEL_ADAPTER]:
-        return ComponentType.MODEL_ADAPTER
+    def model(self) -> str:
+        return self._model
 
     @property
     def model_name(self) -> str:

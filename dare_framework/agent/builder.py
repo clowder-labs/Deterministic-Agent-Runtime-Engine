@@ -37,13 +37,13 @@ from dare_framework.knowledge._internal.knowledge_tools import (
     KnowledgeGetTool,
 )
 from dare_framework.memory import ILongTermMemory, IShortTermMemory, create_long_term_memory
-from dare_framework.model.kernel import IModelAdapter
-from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
-from dare_framework.model.types import Prompt
 from dare_framework.model.factories import (
     create_default_model_adapter_manager,
     create_default_prompt_store,
 )
+from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
+from dare_framework.model.kernel import IModelAdapter
+from dare_framework.model.types import Prompt
 from dare_framework.observability.kernel import ITelemetryProvider
 from dare_framework.plan._internal.composite_validator import CompositeValidator
 from dare_framework.plan.interfaces import (
@@ -54,9 +54,9 @@ from dare_framework.plan.interfaces import (
     IValidator,
     IValidatorManager,
 )
-from dare_framework.tool.default_tool_manager import ToolManager
 from dare_framework.tool.interfaces import IExecutionControl
 from dare_framework.tool.kernel import ITool, IToolGateway, IToolManager, IToolProvider
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.types import RunContext
 from dare_framework.transport.kernel import AgentChannel
 
@@ -90,13 +90,11 @@ class _BaseAgentBuilder(Generic[TAgent]):
         self._embedding_adapter: Any = None
         """Optional; used with config.knowledge to create vector knowledge from config."""
         self._prompt_store: IPromptStore | None = None
-        self._prompt_override: Prompt | None = None
-        self._prompt_id_override: str | None = None
-
+        self._prompt: tuple[str | None, Prompt | None] | None = None
         # Tool wiring (shared across variants).
         self._tools: list[ITool] = []
         self._tool_gateway: IToolGateway | None = None
-        self._tool_provider: IToolProvider | None = None
+        self._tool_providers: list[IToolProvider] = []
         self._run_context_factory: Callable[[], RunContext[Any]] = self._default_run_context
 
         # MCP tool provider (optional, provides MCP-backed tools).
@@ -124,13 +122,13 @@ class _BaseAgentBuilder(Generic[TAgent]):
         return self
 
     def with_managers(
-        self: TBuilder,
-        *,
-        model_adapter_manager: IModelAdapterManager | None = None,
-        planner_manager: IPlannerManager | None = None,
-        validator_manager: IValidatorManager | None = None,
-        remediator_manager: IRemediatorManager | None = None,
-        hook_manager: IHookManager | None = None,
+            self: TBuilder,
+            *,
+            model_adapter_manager: IModelAdapterManager | None = None,
+            planner_manager: IPlannerManager | None = None,
+            validator_manager: IValidatorManager | None = None,
+            remediator_manager: IRemediatorManager | None = None,
+            hook_manager: IHookManager | None = None,
     ) -> TBuilder:
         """Inject component managers for config-driven resolution.
 
@@ -158,13 +156,11 @@ class _BaseAgentBuilder(Generic[TAgent]):
         return self
 
     def with_prompt(self: TBuilder, prompt: Prompt) -> TBuilder:
-        self._prompt_override = prompt
-        self._prompt_id_override = None
+        self._prompt = (None, prompt)
         return self
 
     def with_prompt_id(self: TBuilder, prompt_id: str) -> TBuilder:
-        self._prompt_id_override = prompt_id
-        self._prompt_override = None
+        self._prompt = (prompt_id, None)
         return self
 
     def with_context(self: TBuilder, context: Context) -> TBuilder:
@@ -204,8 +200,8 @@ class _BaseAgentBuilder(Generic[TAgent]):
         self._tool_gateway = gateway
         return self
 
-    def with_tool_provider(self: TBuilder, provider: IToolProvider) -> TBuilder:
-        self._tool_provider = provider
+    def add_tool_provider(self: TBuilder, provider: IToolProvider) -> TBuilder:
+        self._tool_providers.append(provider)
         return self
 
     def with_run_context_factory(self: TBuilder, factory: Callable[[], RunContext[Any]]) -> TBuilder:
@@ -305,88 +301,59 @@ class _BaseAgentBuilder(Generic[TAgent]):
         return create_default_prompt_store(self._effective_config())
 
     def _resolve_sys_prompt(self, model: IModelAdapter) -> Prompt | None:
-        if self._prompt_override is not None:
-            return self._prompt_override
-
-        model_name = getattr(model, "name", None)
-        if not model_name:
-            raise ValueError("Model adapter must define a stable name for prompt resolution")
-
-        store = self._resolve_prompt_store()
-
-        prompt_id = self._prompt_id_override
+        prompt = None
+        prompt_id = None
+        if self._prompt is not None:
+            prompt = self._prompt[1]
+            prompt_id = self._prompt[0]
+        if prompt is not None:
+            return prompt
         if prompt_id is None:
             prompt_id = self._effective_config().default_prompt_id
         if prompt_id is None:
             prompt_id = "base.system"
 
+        model_name = getattr(model, "model", None) or getattr(model, "name", None)
+        if not model_name:
+            raise ValueError("Model adapter must define a stable name for prompt resolution")
         try:
+            store = self._resolve_prompt_store()
             return store.get(prompt_id, model=model_name)
         except KeyError as exc:
             raise ValueError(f"Prompt not found: {prompt_id}") from exc
-    def _ensure_tool_gateway(self, tools: list[ITool]) -> IToolGateway | None:
+
+    def _ensure_tool_gateway(
+            self,
+            config: Config,
+            tools: list[ITool],
+            tool_providers: list[IToolProvider],
+    ) -> IToolGateway | None:
         """Return a ToolGateway if tool wiring requires one."""
         if self._tool_gateway is not None:
-            return self._tool_gateway
-        if tools:
-            self._tool_gateway = ToolManager(context_factory=self._run_context_factory)
-            return self._tool_gateway
-        return None
+            gateway = self._tool_gateway
+        else:
+            gateway = ToolManager(config=config)
+            self._tool_gateway = gateway
+        if not isinstance(gateway, IToolManager):
+            return gateway
 
-    def _ensure_tool_provider(
-        self,
-        manager: IToolManager | None,
-        explicit_tools: list[ITool],
-    ) -> IToolProvider | None:
-        """Return a tool provider for Context.listing_tools()."""
-        if self._tool_provider is not None:
-            return self._tool_provider
-        if manager is not None:
-            if self._config is None:
-                return manager
-            explicit_names = {tool.name for tool in explicit_tools}
-            # Include knowledge tool names so they are always listed when knowledge is set.
-            if self._resolved_knowledge() is not None:
-                explicit_names = explicit_names | {"knowledge_get", "knowledge_add"}
-            return _ConfiguredToolProvider(
-                manager=manager,
-                config=self._config,
-                explicit_names=explicit_names,
-            )
-        if isinstance(self._tool_gateway, IToolProvider):
-            return self._tool_gateway
-        return None
-
-    def _ensure_tool_manager(self, tools: list[ITool]) -> IToolManager | None:
-        gateway = self._ensure_tool_gateway(tools)
-        if tools and gateway is not None and not isinstance(gateway, IToolManager):
-            raise TypeError(
-                "tool_gateway must implement IToolManager when tools are injected. "
-                "Provide ToolManager or avoid add_tools()."
-            )
-        return gateway if isinstance(gateway, IToolManager) else None
-
-    def _register_tools_with_manager(self, manager: IToolManager | None, tools: list[ITool]) -> None:
-        """将合并后的工具列表（含本地 + MCP）全部注册进 ToolManager，供 invoke 按 name 查找。"""
-        if manager is None:
-            return
+        providers = list(tool_providers)
+        if self._mcp_toolkit is not None and self._mcp_toolkit not in providers:
+            providers.append(self._mcp_toolkit)
+        for provider in providers:
+            gateway.register_provider(provider)
         for tool in tools:
-            manager.register_tool(tool)
-        # Register knowledge_get / knowledge_add when knowledge is set so agent can call them as tools.
-        knowledge = self._resolved_knowledge()
-        if knowledge is not None:
-            manager.register_tool(KnowledgeGetTool(knowledge))
-            manager.register_tool(KnowledgeAddTool(knowledge))
+            gateway.register_tool(tool)
+        return gateway
 
-    def _resolved_model(self) -> IModelAdapter:
+    def _resolve_model(self, config: Config | None) -> IModelAdapter:
         if self._model is not None:
             return self._model
-
-        manager = self._model_adapter_manager or create_default_model_adapter_manager(self._manager_config())
+        manager = self._model_adapter_manager or create_default_model_adapter_manager(config)
         if manager is None:
             raise ValueError("Builder requires a model adapter (explicit or manager-resolved)")
 
-        candidate = manager.load_model_adapter(config=self._manager_config())
+        candidate = manager.load_model_adapter(config=config)
         if candidate is None:
             raise ValueError("Model adapter manager did not return an IModelAdapter")
         return candidate
@@ -420,102 +387,58 @@ class _BaseAgentBuilder(Generic[TAgent]):
             return None
         from dare_framework.skill.defaults import (
             FileSystemSkillLoader,
-            KeywordSkillSelector,
-            SkillSearchTool,
+            SearchSkillTool,
             SkillStore,
         )
-
         loader = FileSystemSkillLoader(*[Path(p) for p in paths])
-        store = SkillStore(loader, KeywordSkillSelector())
-        return SkillSearchTool(store)
+        store = SkillStore([loader])
+        return SearchSkillTool(store)
 
-    def _resolved_tools(self) -> list[ITool]:
-        """Resolve and merge all tools: 本地(explicit) + MCP(mcp_toolkit.list_tools) + manager-discovered.
-
-        MCP 工具在此处与本地 add_tools() 注入的 tool 合并为同一 list，
-        随后由 _register_tools_with_manager() 统一注册进 ToolManager。
-        """
+    def _resolve_tools(self, knowledge: IKnowledge) -> list[ITool]:
+        """Resolve explicit tools (local + skill + knowledge) for registration."""
         explicit = list(self._tools)
         explicit_names = {tool.name for tool in explicit}
         skill_tool = self._resolved_skill_search_tool()
+
         if skill_tool is not None and skill_tool.name not in explicit_names:
             explicit.append(skill_tool)
             explicit_names.add(skill_tool.name)
-
-        # MCP: 从 mcp_toolkit 拉取工具列表，与 explicit 合并（按 allowmcps 过滤、去重）
-        mcp_tools: list[ITool] = []
-        if self._mcp_toolkit is not None:
-            config = self._effective_config()
-            allowmcps = set(config.allowmcps) if config.allowmcps else None
-
-            for tool in self._mcp_toolkit.list_tools():
-                # Extract MCP server name from tool name (format: "server:tool")
-                if allowmcps is not None:
-                    server_name = tool.name.split(":")[0] if ":" in tool.name else tool.name
-                    if server_name not in allowmcps:
-                        continue
-
-                if tool.name not in explicit_names:
-                    mcp_tools.append(tool)
-                    explicit_names.add(tool.name)
-
-            if mcp_tools:
-                logger.debug(f"Loaded {len(mcp_tools)} MCP tools")
-
-        # Add manager-discovered tools
-        manager = self._tool_gateway if isinstance(self._tool_gateway, IToolManager) else None
-        if manager is None:
-            return [*explicit, *mcp_tools]
-
-        discovered = manager.load_tools(config=self._manager_config())
-        manager_tools = [
-            tool
-            for tool in discovered
-            if tool.name not in explicit_names
-            and (self._config is None or self._config.is_component_enabled(tool))
-        ]
-        return [*explicit, *mcp_tools, *manager_tools]
+        if knowledge is not None:
+            explicit.append(KnowledgeGetTool(knowledge))
+            explicit.append(KnowledgeAddTool(knowledge))
+        return explicit
 
 
 class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
     """Builder for SimpleChatAgent."""
 
     def _build_impl(self) -> SimpleChatAgent:
-        model = self._resolved_model()
+        config = self._manager_config()
+        model = self._resolve_model(config)
         sys_prompt = self._resolve_sys_prompt(model)
-
-        tools = self._resolved_tools()
-        manager = self._ensure_tool_manager(tools)
-        self._register_tools_with_manager(manager, tools)
-        tool_gateway = self._ensure_tool_gateway(tools)
-
-        tool_provider = self._ensure_tool_provider(manager, tools)
+        knowledge = self._resolved_knowledge()
+        tools = self._resolve_tools(knowledge)
+        tool_gateway = self._ensure_tool_gateway(config, tools, self._tool_providers)
 
         if self._context is None:
             context = Context(
                 id=f"context_{self._name}",
                 short_term_memory=self._short_term_memory,
                 long_term_memory=self._resolved_long_term_memory(),
-                knowledge=self._resolved_knowledge(),
+                knowledge=knowledge,
                 budget=self._budget or Budget(),
             )
-            if tool_provider is not None:
-                context._tool_provider = tool_provider
+            context._tool_gateway = tool_gateway
             context._sys_prompt = sys_prompt
-            self._load_initial_skill_and_mount(context)
-            return SimpleChatAgent(
-                name=self._name,
-                model=model,
-                context=context,
-                agent_channel=self._agent_channel,
-            )
+            self._context = context
+        else:
+            # todo 后面这个context的覆盖策略需要考虑
+            self._apply_context_overrides(self._context)
+            if tool_gateway is not None:
+                setattr(self._context, "_tool_gateway", tool_gateway)
+            setattr(self._context, "_sys_prompt", sys_prompt)
 
-        self._apply_context_overrides(self._context)
-        if tool_provider is not None:
-            setattr(self._context, "_tool_provider", tool_provider)
-        setattr(self._context, "_sys_prompt", sys_prompt)
         self._load_initial_skill_and_mount(self._context)
-
         return SimpleChatAgent(
             name=self._name,
             model=model,
@@ -528,14 +451,13 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
     """Builder for ReactAgent (ReAct tool loop)."""
 
     def _build_impl(self) -> ReactAgent:
-        model = self._resolved_model()
-        sys_prompt = self._resolve_sys_prompt(model)
 
-        tools = self._resolved_tools()
-        manager = self._ensure_tool_manager(tools)
-        self._register_tools_with_manager(manager, tools)
-        self._ensure_tool_gateway(tools)
-        tool_provider = self._ensure_tool_provider(manager, tools)
+        config = self._manager_config()
+        model = self._resolve_model(config)
+        sys_prompt = self._resolve_sys_prompt(model)
+        knowledge = self._resolved_knowledge()
+        tools = self._resolve_tools(knowledge)
+        tool_gateway = self._ensure_tool_gateway(tools, self._tool_providers)
 
         if self._context is None:
             context = Context(
@@ -545,23 +467,17 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
-            if tool_provider is not None:
-                context._tool_provider = tool_provider
+            context._tool_gateway = tool_gateway
             context._sys_prompt = sys_prompt
-            self._load_initial_skill_and_mount(context)
-            return ReactAgent(
-                name=self._name,
-                model=model,
-                context=context,
-                agent_channel=self._agent_channel,
-            )
+            self._context = context
+        else:
+            # todo 后面这个context的覆盖策略需要考虑
+            self._apply_context_overrides(self._context)
+            if tool_gateway is not None:
+                setattr(self._context, "_tool_gateway", tool_gateway)
+            setattr(self._context, "_sys_prompt", sys_prompt)
 
-        self._apply_context_overrides(self._context)
-        if tool_provider is not None:
-            setattr(self._context, "_tool_provider", tool_provider)
-        setattr(self._context, "_sys_prompt", sys_prompt)
         self._load_initial_skill_and_mount(self._context)
-
         return ReactAgent(
             name=self._name,
             model=model,
@@ -619,30 +535,26 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         return self
 
     def _build_impl(self) -> DareAgent:
-        model = self._resolved_model()
+        config = self._manager_config()
+        model = self._resolve_model(config)
         sys_prompt = self._resolve_sys_prompt(model)
-
-        tools = self._resolved_tools()
-        manager = self._ensure_tool_manager(tools)
-        self._register_tools_with_manager(manager, tools)
-        tool_gateway = self._ensure_tool_gateway(tools)
-        tool_provider = self._ensure_tool_provider(manager, tools)
+        knowledge = self._resolved_knowledge()
+        tools = self._resolve_tools(knowledge)
+        tool_gateway = self._ensure_tool_gateway(tools, self._tool_providers)
 
         planner = self._planner
         if planner is None:
             manager = self._planner_manager
             if manager is not None:
-                candidate = manager.load_planner(config=self._manager_config())
+                candidate = manager.load_planner(config=config)
                 if candidate is not None:
                     planner = candidate
 
         validators = list(self._validators)
         manager = self._validator_manager
         if manager is not None:
-            discovered = manager.load_validators(config=self._manager_config())
-            validators.extend(
-                [v for v in discovered if self._config is None or self._config.is_component_enabled(v)]
-            )
+            discovered = manager.load_validators(config=config)
+            validators.extend([v for v in discovered if self._config is None or self._config.is_component_enabled(v)])
 
         validator: IValidator | None
         if not validators:
@@ -681,38 +593,21 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
                 knowledge=self._resolved_knowledge(),
                 budget=self._budget or Budget(),
             )
-            if tool_provider is not None:
-                context._tool_provider = tool_provider
+            context._tool_gateway = tool_gateway
             context._sys_prompt = sys_prompt
-            self._load_initial_skill_and_mount(context)
-            return DareAgent(
-                name=self._name,
-                model=model,
-                context=context,
-                tools=tool_provider,
-                tool_gateway=tool_gateway,
-                execution_control=self._execution_control,
-                planner=planner,
-                validator=validator,
-                remediator=remediator,
-                event_log=self._event_log,
-                hooks=hooks,
-                telemetry=telemetry,
-                agent_channel=self._agent_channel,
-                verbose=self._verbose,
-            )
-
-        self._apply_context_overrides(self._context)
-        if tool_provider is not None:
-            setattr(self._context, "_tool_provider", tool_provider)
-        setattr(self._context, "_sys_prompt", sys_prompt)
-        self._load_initial_skill_and_mount(self._context)
-
+            self._context = context
+        else:
+            # todo 后面这个context的覆盖策略需要考虑
+            self._apply_context_overrides(self._context)
+            if tool_gateway is not None:
+                setattr(self._context, "_tool_gateway", tool_gateway)
+            setattr(self._context, "_sys_prompt", sys_prompt)
+            context = self._context
+        self._load_initial_skill_and_mount(context)
         return DareAgent(
             name=self._name,
             model=model,
-            context=self._context,
-            tools=tool_provider,
+            context=context,
             tool_gateway=tool_gateway,
             execution_control=self._execution_control,
             planner=planner,
@@ -730,9 +625,9 @@ __all__ = ["DareAgentBuilder", "ReactAgentBuilder", "SimpleChatAgentBuilder"]
 
 
 async def load_mcp_toolkit(
-    config: Config | None = None,
-    *,
-    paths: list[str | Path] | None = None,
+        config: Config | None = None,
+        *,
+        paths: list[str | Path] | None = None,
 ) -> IToolProvider:
     """Load and initialize an MCP tool provider from configuration.
 
@@ -765,6 +660,7 @@ async def load_mcp_toolkit(
     if paths is None:
         paths = config.mcp_paths if config.mcp_paths else None
 
+    # todo 这后面的内容都可以放到mcp manager的位置去搞定的 然后还有重新加载某个mcp或者全部mcp mcp的管理应该都放到那边的
     # Load MCP server configurations
     mcp_configs = load_mcp_configs(
         paths=paths,
@@ -798,39 +694,3 @@ async def load_mcp_toolkit(
     )
 
     return provider
-
-
-class _ConfiguredToolProvider(IToolProvider):
-    """Filter tool listings based on config while honoring explicit injections."""
-
-    def __init__(
-        self,
-        *,
-        manager: IToolManager,
-        config: Config,
-        explicit_names: set[str],
-    ) -> None:
-        self._manager = manager
-        self._config = config
-        self._explicit_names = explicit_names
-
-    def list_tools(self) -> list[ITool]:
-        tools = self._manager.load_tools(config=self._config)
-        return [tool for tool in tools if self._is_enabled_name(tool.name)]
-
-    def list_tool_defs(self) -> list[dict[str, Any]]:  # type: ignore[override]
-        tool_defs = self._manager.list_tool_defs()
-        filtered: list[dict[str, Any]] = []
-        for tool_def in tool_defs:
-            name = None
-            metadata = tool_def.get("metadata")
-            if isinstance(metadata, dict):
-                name = metadata.get("display_name")
-            if name is None or self._is_enabled_name(str(name)):
-                filtered.append(tool_def)
-        return filtered
-
-    def _is_enabled_name(self, name: str) -> bool:
-        if name in self._explicit_names:
-            return True
-        return self._config.is_component_enabled_name(ComponentType.TOOL, name)

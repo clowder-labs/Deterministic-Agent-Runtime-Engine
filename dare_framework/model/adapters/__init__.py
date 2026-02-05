@@ -1,0 +1,6 @@
+"""Model adapters."""
+
+from dare_framework.model.adapters.openai_adapter import OpenAIModelAdapter
+from dare_framework.model.adapters.openrouter_adapter import OpenRouterModelAdapter
+
+__all__ = ["OpenAIModelAdapter", "OpenRouterModelAdapter"]

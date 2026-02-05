@@ -7,8 +7,8 @@ from typing import Any
 from dare_framework.config.types import Config, LLMConfig
 from dare_framework.model.interfaces import IModelAdapterManager
 from dare_framework.model.kernel import IModelAdapter
-from dare_framework.model.openai_adapter import OpenAIModelAdapter
-from dare_framework.model.openrouter_adapter import OpenRouterModelAdapter
+from dare_framework.model.adapters.openai_adapter import OpenAIModelAdapter
+from dare_framework.model.adapters.openrouter_adapter import OpenRouterModelAdapter
 
 
 class DefaultModelAdapterManager(IModelAdapterManager):

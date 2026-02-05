@@ -8,7 +8,7 @@ from dare_framework.agent import FiveLayerAgent
 from dare_framework.context import Message
 from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
 from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 
 async def test_assembled_tools():
@@ -49,7 +49,7 @@ async def test_assembled_tools():
 
     print("\n🔍 Checking agent setup...")
     print(f"Agent._context type: {type(agent._context)}")
-    print(f"Agent._context._tool_provider: {agent._context._tool_provider}")
+    print(f"Agent._context._tool_provider: {agent._context._tool_providers}")
     print(f"Agent._tool_gateway: {agent._tool_gateway}")
 
     # Add a test message
@@ -74,7 +74,7 @@ async def test_assembled_tools():
 
     # Test listing_tools directly
     print(f"\n🔍 Calling context.listing_tools() directly...")
-    tools = agent._context.listing_tools()
+    tools = agent._context.list_tools()
     print(f"  Result: {len(tools)} tools")
     if tools:
         for i, tool in enumerate(tools, 1):

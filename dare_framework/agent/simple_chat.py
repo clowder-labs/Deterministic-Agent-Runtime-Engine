@@ -77,7 +77,7 @@ class SimpleChatAgent(BaseAgent):
             )
             # Set tool provider if provided
             if tools is not None:
-                self._context._tool_provider = tools
+                self._context._tool_gateway = tools
         else:
             self._context = context
 

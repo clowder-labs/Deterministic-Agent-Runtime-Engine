@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import Literal
 
 from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.tool.kernel import ITool
 
 
-@runtime_checkable
-class ISkill(IComponent, Protocol):
+class ISkill(IComponent, ABC):
     """Pluggable skill capability for higher-level operations (core)."""
 
     @property
+    @abstractmethod
     def name(self) -> str:
         """Unique skill identifier."""
         ...
@@ -20,15 +21,16 @@ class ISkill(IComponent, Protocol):
     @property
     def component_type(self) -> Literal[ComponentType.SKILL]:
         """Component category used for config scoping."""
-        ...
+        return ComponentType.SKILL
 
     @property
+    @abstractmethod
     def description(self) -> str:
         """Human-readable description."""
         ...
 
-@runtime_checkable
-class ISkillTool(ITool, Protocol):
+
+class ISkillTool(ITool, ABC):
     """Marker interface for tool wrappers that execute skills."""
 
 

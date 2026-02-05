@@ -28,7 +28,7 @@ from dare_framework.tool._internal.tools import (
 )
 from dare_framework.tool._internal.tools.noop_tool import NoopTool
 from dare_framework.tool.types import RunContext
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 MODEL = os.getenv("CHAT_MODEL", "qwen-plus")
 API_KEY = os.getenv("CHAT_API_KEY", "")
@@ -125,7 +125,7 @@ async def main() -> None:
         .add_tools(*tools)
         .build()
     )
-    _log_tool_defs(agent.context.listing_tools())
+    _log_tool_defs(agent.context.list_tools())
 
     print("Tool Management Chat - Type your message (or /quit to exit):", flush=True)
     while True:

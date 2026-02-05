@@ -59,7 +59,7 @@ class ReactAgent(BaseAgent):
                 budget=budget or Budget(),
             )
             if tools is not None:
-                self._context._tool_provider = tools
+                self._context._tool_gateway = tools
         else:
             self._context = context
 
@@ -71,7 +71,7 @@ class ReactAgent(BaseAgent):
         user_message = Message(role="user", content=task)
         self._context.stm_add(user_message)
 
-        gateway = getattr(self._context, "_tool_provider", None)
+        gateway = getattr(self._context, "_tool_gateway", None)
         has_invoke = gateway is not None and hasattr(gateway, "invoke")
 
         for _ in range(self._max_tool_rounds):

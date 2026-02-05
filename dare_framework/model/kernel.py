@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod, ABC
 from typing import Literal, Protocol, runtime_checkable
 
 from dare_framework.infra.component import ComponentType, IComponent
@@ -9,7 +10,7 @@ from dare_framework.model.types import GenerateOptions, ModelInput, ModelRespons
 
 
 @runtime_checkable
-class IModelAdapter(IComponent, Protocol):
+class IModelAdapter(IComponent, ABC):
     """[Component] Model adapter contract for LLM invocation.
 
     Usage: Called by the agent to generate model responses.
@@ -17,8 +18,25 @@ class IModelAdapter(IComponent, Protocol):
 
     @property
     def component_type(self) -> Literal[ComponentType.MODEL_ADAPTER]:
+        return ComponentType.MODEL_ADAPTER
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """
+        Returns the name of the model adapter.
+        """
         ...
 
+    @property
+    @abstractmethod
+    def model(self) -> str:
+        """
+        Returns the name of the model.
+        """
+        ...
+
+    @abstractmethod
     async def generate(
         self,
         model_input: ModelInput,

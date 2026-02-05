@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from dare_framework.skill.interfaces import ISkillStore
 
 
-class SkillSearchTool(ISkillTool, IComponent):
+class SearchSkillTool(ISkillTool):
     """Select a skill by query or id and return its prompt content."""
 
     def __init__(self, skill_store: ISkillStore) -> None:
@@ -21,11 +21,7 @@ class SkillSearchTool(ISkillTool, IComponent):
 
     @property
     def name(self) -> str:
-        return "search_skill"
-
-    @property
-    def component_type(self) -> ComponentType:
-        return ComponentType.TOOL
+        return "skill"
 
     @property
     def description(self) -> str:
@@ -110,7 +106,7 @@ class SkillSearchTool(ISkillTool, IComponent):
         )
 
 
-def _resolve_skill(skill_store: "ISkillStore", input_data: dict[str, Any]) -> Skill | None:
+def _resolve_skill(skill_store: ISkillStore, input_data: dict[str, Any]) -> Skill | None:
     skill_id = input_data.get("skill_id")
     if isinstance(skill_id, str) and skill_id.strip():
         return skill_store.get_skill(skill_id.strip())
@@ -121,4 +117,4 @@ def _resolve_skill(skill_store: "ISkillStore", input_data: dict[str, Any]) -> Sk
     return matches[0] if matches else None
 
 
-__all__ = ["SkillSearchTool"]
+__all__ = ["SearchSkillTool"]

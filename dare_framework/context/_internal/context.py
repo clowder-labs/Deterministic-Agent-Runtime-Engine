@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 import uuid
 
+from dare_framework.tool import IToolGateway
+
 if TYPE_CHECKING:
     from dare_framework.model.types import Prompt
     from dare_framework.skill.types import Skill
@@ -42,8 +44,8 @@ class Context(IContext):
     long_term_memory: IRetrievalContext | None = None
     knowledge: IRetrievalContext | None = None
 
-    # Tool provider (internal, for listing_tools)
-    _tool_provider: IToolProvider | IToolManager | None = field(default=None, repr=False)
+    # Tool gateway (internal, for listing_tools and invoke)
+    _tool_gateway: IToolGateway | None = field(default=None, repr=False)
 
     # System prompt definition (internal, for context assembly)
     _sys_prompt: Prompt | None = field(default=None, repr=False)
@@ -124,10 +126,10 @@ class Context(IContext):
 
     # ========== Tool Methods ==========
 
-    def listing_tools(self) -> list[dict[str, Any]]:
+    def list_tools(self) -> list[dict[str, Any]]:
         """Get tool list from a ToolManager or provider (cached)."""
-        if self._tool_provider is not None:
-            provider = self._tool_provider
+        if self._tool_gateway is not None:
+            provider = self._tool_gateway
             list_tool_defs = getattr(provider, "list_tool_defs", None)
             if callable(list_tool_defs):
                 self._tool_list = list_tool_defs()
@@ -159,7 +161,7 @@ class Context(IContext):
     def assemble(self, **options) -> AssembledContext:
         """Assemble context for LLM call. Can be overridden by subclasses."""
         messages = self.stm_get()
-        tools = self.listing_tools()
+        tools = self.list_tools()
         sys_prompt = self._sys_prompt
         if self._current_skill is not None and sys_prompt is not None:
             from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill

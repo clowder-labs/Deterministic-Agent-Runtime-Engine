@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from abc import ABC
 from typing import TYPE_CHECKING, Any, Literal
 
 from dare_framework.model.kernel import IModelAdapter
@@ -38,6 +39,7 @@ class OpenAIModelAdapter(IModelAdapter):
         http_client_options: Optional HTTP client configuration
     """
 
+
     _logger = logging.getLogger(__name__)
 
     def __init__(
@@ -57,9 +59,15 @@ class OpenAIModelAdapter(IModelAdapter):
         self._extra: dict[str, Any] = dict(extra or {})
         self._client: Any = None
 
+
+
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def model(self) -> str:
+        return self._model or "gpt-4o-mini"
 
     @property
     def component_type(self) -> Literal[ComponentType.MODEL_ADAPTER]:

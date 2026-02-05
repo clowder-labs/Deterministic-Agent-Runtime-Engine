@@ -7,7 +7,7 @@ import pytest
 from dare_framework.plan._internal.registry_validator import RegistryPlanValidator
 from dare_framework.plan.types import Envelope, ProposedPlan, ProposedStep
 from dare_framework.security.types import RiskLevel
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import CapabilityKind, ToolResult, ToolType
 from dare_framework.infra.component import ComponentType

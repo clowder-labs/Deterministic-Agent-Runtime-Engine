@@ -2,7 +2,7 @@
 
 from dare_framework.tool.interfaces import IExecutionControl
 from dare_framework.tool.kernel import ITool, IToolGateway, IToolManager, IToolProvider
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,

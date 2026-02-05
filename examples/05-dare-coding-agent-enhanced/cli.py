@@ -136,18 +136,33 @@ class CLIDisplay:
 
     def show_tool_lists(self, agent: Any) -> None:
         """打印 MCP 工具列表与本地工具列表。"""
-        provider = getattr(getattr(agent, "context", None), "_tool_provider", None)
-        if provider is None:
+        gateway = getattr(getattr(agent, "context", None), "_tool_gateway", None)
+        if gateway is None:
             self.info("tools: (none)")
             return
         try:
-            tools = provider.list_tools()
+            list_tool_defs = getattr(gateway, "list_tool_defs", None)
+            if callable(list_tool_defs):
+                tools = list_tool_defs()
+            else:
+                tools = gateway.list_tools()
         except Exception:
             self.info("tools: (unable to list)")
             return
-        mcp = [t for t in tools if ":" in getattr(t, "name", "")]
-        local = [t for t in tools if ":" not in getattr(t, "name", "")]
-        names = lambda lst: [getattr(t, "name", str(t)) for t in lst]
+        def _tool_name(tool: Any) -> str:
+            if isinstance(tool, dict):
+                metadata = tool.get("metadata")
+                if isinstance(metadata, dict) and isinstance(metadata.get("display_name"), str):
+                    return metadata["display_name"]
+                function = tool.get("function")
+                if isinstance(function, dict) and isinstance(function.get("name"), str):
+                    return function["name"]
+                return str(tool.get("capability_id", tool))
+            return getattr(tool, "name", str(tool))
+
+        mcp = [t for t in tools if ":" in _tool_name(t)]
+        local = [t for t in tools if ":" not in _tool_name(t)]
+        names = lambda lst: [_tool_name(t) for t in lst]
         self.info(f"MCP tools ({len(mcp)}): {names(mcp) if mcp else []}")
         self.info(f"Local tools ({len(local)}): {names(local) if local else []}")
 

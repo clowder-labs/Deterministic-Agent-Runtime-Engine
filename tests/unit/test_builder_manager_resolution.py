@@ -12,7 +12,7 @@ from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.interfaces import IValidator
 from dare_framework.plan.types import ProposedPlan
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import ToolResult
 
@@ -24,6 +24,10 @@ class DummyModelAdapter(IModelAdapter):
     @property
     def name(self) -> str:
         return "dummy_model_adapter"
+
+    @property
+    def model(self) -> str:
+        return "dummy-model"
 
     @property
     def component_type(self) -> ComponentType:
@@ -43,6 +47,7 @@ class FixedModelAdapterManager:
 
 class DummyTool(ITool):
     input_schema = {"type": "object", "properties": {}}
+    output_schema = {"type": "object", "properties": {}}
 
     def __init__(self, name: str) -> None:
         self._name = name
@@ -54,6 +59,38 @@ class DummyTool(ITool):
     @property
     def component_type(self) -> ComponentType:
         return ComponentType.TOOL
+
+    @property
+    def description(self) -> str:
+        return "dummy tool"
+
+    @property
+    def tool_type(self) -> str:
+        from dare_framework.tool.types import ToolType
+
+        return ToolType.ATOMIC
+
+    @property
+    def risk_level(self) -> str:
+        return "read_only"
+
+    @property
+    def requires_approval(self) -> bool:
+        return False
+
+    @property
+    def timeout_seconds(self) -> int:
+        return 5
+
+    @property
+    def is_work_unit(self) -> bool:
+        return False
+
+    @property
+    def capability_kind(self) -> str:
+        from dare_framework.tool.types import CapabilityKind
+
+        return CapabilityKind.TOOL
 
     async def execute(self, input: dict[str, Any], context: Any) -> ToolResult:
         return ToolResult(success=True, output=input)
@@ -160,7 +197,7 @@ def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:
         .build()
     )
 
-    tool_defs = agent.context.listing_tools()
+    tool_defs = agent.context.list_tools()
     names = {tool_def.get("metadata", {}).get("display_name") for tool_def in tool_defs}
     assert "explicit_tool" in names
     assert "enabled_tool" in names

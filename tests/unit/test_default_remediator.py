@@ -21,6 +21,10 @@ class DummyModelAdapter(IModelAdapter):
         return "dummy"
 
     @property
+    def model(self) -> str:
+        return "dummy-model"
+
+    @property
     def component_type(self) -> ComponentType:
         return ComponentType.MODEL_ADAPTER
 

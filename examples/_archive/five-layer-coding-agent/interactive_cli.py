@@ -30,7 +30,7 @@ from dare_framework.plan.types import (
 from enhanced_agent import EnhancedFiveLayerAgent
 from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
 from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.infra.component import ComponentType
 
 from validators import SimpleValidator

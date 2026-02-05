@@ -9,7 +9,7 @@ from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.infra.component import ComponentType
 from dare_framework.plan.types import Envelope
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.types import ToolResult
 
 
@@ -17,6 +17,10 @@ class DummyModelAdapter(IModelAdapter):
     @property
     def name(self) -> str:
         return "dummy"
+
+    @property
+    def model(self) -> str:
+        return "dummy-model"
 
     @property
     def component_type(self) -> ComponentType:
@@ -68,7 +72,7 @@ def test_agent_builder_derives_tool_defs_from_gateway() -> None:
         .build()
     )
 
-    tools = agent.context.listing_tools()
+    tools = agent.context.list_tools()
 
     assert tools
     tool_def = tools[0]

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dare_framework.skill import ISkillLoader
 from dare_framework.skill.types import Skill
 from dare_framework.skill._internal._skill_parser import parse_skill_md
 
 
-class FileSystemSkillLoader:
+class FileSystemSkillLoader(ISkillLoader):
     """Loads skills from directories containing SKILL.md files."""
 
     def __init__(self, *paths: str | Path) -> None:
