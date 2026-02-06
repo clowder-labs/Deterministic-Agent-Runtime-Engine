@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
+from dare_framework.agent._internal.output_normalizer import normalize_run_output
 from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.context import AssembledContext, Context, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
@@ -388,6 +389,10 @@ class DareAgent(BaseAgent):
                 task_id=uuid4().hex[:8],
             )
         result = await self.run_task(task_obj, deps, transport=transport)
+        normalized_output_text = result.output_text
+        if normalized_output_text is None:
+            normalized_output_text = normalize_run_output(result.output)
+        result = replace(result, output_text=normalized_output_text)
         await self._send_transport_result(result, task=task_obj.description, transport=transport)
         return result
 
@@ -402,6 +407,8 @@ class DareAgent(BaseAgent):
         Internally delegates to run_task() and converts result to string.
         """
         result = await self.run(task)
+        if result.output_text:
+            return result.output_text
         if result.output is not None:
             return str(result.output)
         if result.errors:

@@ -110,6 +110,18 @@ def test_run_result_to_artifact_parts_text_only() -> None:
     assert parts[0]["text"] == "done"
 
 
+def test_run_result_to_artifact_parts_prefers_output_text() -> None:
+    result = RunResult(
+        success=True,
+        output={"content": "[\"line1\\n\", \"line2\\n\"]"},
+        output_text="line1\nline2\n",
+    )
+    parts = run_result_to_artifact_parts(result)
+    assert len(parts) == 1
+    assert parts[0]["type"] == "text"
+    assert parts[0]["text"] == "line1\nline2"
+
+
 def test_run_result_to_artifact_parts_with_a2a_output_files() -> None:
     with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
         f.write(b"file content")

@@ -4,8 +4,10 @@ This CLI is demo-friendly and supports both interactive and scripted runs.
 """
 from __future__ import annotations
 
+import ast
 import argparse
 import asyncio
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -261,11 +263,90 @@ async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: C
     return plan
 
 
+def _try_parse_serialized_container(text: str) -> Any | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if not (
+        (stripped.startswith("[") and stripped.endswith("]"))
+        or (stripped.startswith("{") and stripped.endswith("}"))
+    ):
+        return None
+
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            parsed = parser(stripped)
+        except Exception:
+            continue
+        if isinstance(parsed, (list, dict)):
+            return parsed
+    return None
+
+
+def _extract_text_payload(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if not value.strip():
+            return None
+        # Some models return serialized list/dict text; parse and normalize it.
+        parsed = _try_parse_serialized_container(value)
+        if parsed is not None:
+            parsed_text = _extract_text_payload(parsed)
+            if parsed_text:
+                return parsed_text
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            part = _extract_text_payload(item)
+            if part:
+                parts.append(part)
+        if not parts:
+            return None
+        merged = "".join(parts)
+        return merged if merged.strip() else None
+    if isinstance(value, dict):
+        for key in ("content", "text", "output", "message", "result"):
+            if key in value:
+                extracted = _extract_text_payload(value.get(key))
+                if extracted:
+                    return extracted
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _format_result_output(output: Any) -> str | None:
+    """Extract displayable text from RunResult.output."""
+    text = _extract_text_payload(output)
+    if text:
+        return text
+    if isinstance(output, dict):
+        try:
+            return json.dumps(output, ensure_ascii=False, indent=2)
+        except TypeError:
+            pass
+    normalized = str(output).strip()
+    return normalized or None
+
+
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
-    result = await agent.run(Task(description=task_text))
+    try:
+        result = await agent.run(Task(description=task_text))
+    except Exception as exc:
+        display.error(f"execution error: {exc}")
+        return
+
     if result.success:
         display.ok("task completed")
+        # Some tasks only produce natural-language output; print it explicitly.
+        reply = _format_result_output(result.output)
+        if reply:
+            print("\n--- result ---\n", flush=True)
+            print(reply, flush=True)
+            print(flush=True)
     else:
         display.error("task failed")
         if result.errors:
@@ -334,7 +415,12 @@ async def run_cli_loop(
 
         if state.mode == ExecutionMode.PLAN:
             state.pending_task_description = task_text
-            state.pending_plan = await preview_plan(task_text, model, display)
+            try:
+                state.pending_plan = await preview_plan(task_text, model, display)
+            except Exception as exc:
+                state.reset_task()
+                display.error(f"plan preview failed: {exc}")
+                continue
             state.status = SessionStatus.AWAITING_APPROVAL
             display.info("type /approve to execute or /reject to cancel")
         else:

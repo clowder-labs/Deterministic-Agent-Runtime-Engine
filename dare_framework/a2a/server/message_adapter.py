@@ -161,10 +161,12 @@ def run_result_to_artifact_parts(
     from urllib.parse import quote
 
     out_parts: list[PartDict] = []
-    if result.output is not None:
+    text = result.output_text
+    if text is None and result.output is not None:
         text = result.output
         if not isinstance(text, str):
             text = str(text)
+    if text is not None:
         if text.strip():
             out_parts.append(text_part(text.strip()))
     if result.errors:

@@ -156,6 +156,7 @@ class RunResult:
 
     success: bool
     output: Any | None = None
+    output_text: str | None = None
     errors: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     session_id: str | None = None

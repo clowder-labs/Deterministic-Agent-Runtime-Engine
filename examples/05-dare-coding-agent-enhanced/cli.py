@@ -486,4 +486,10 @@ async def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nInterrupted. Exiting.")
+    except asyncio.CancelledError:
+        # Cancellation can bubble up during shutdown (e.g. Ctrl+C mid-request).
+        print("\nCancelled. Exiting.")

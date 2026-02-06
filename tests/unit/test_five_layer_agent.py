@@ -217,6 +217,23 @@ class TestDareAgentExecution:
         assert len(model.generate_calls) == 1
 
     @pytest.mark.asyncio
+    async def test_run_result_output_text_normalizes_serialized_list_content(self) -> None:
+        """RunResult.output_text decodes serialized list-style model content."""
+        serialized = "[\"\\u4efb\\u52a1\\u6807\\u9898\\n\", \"print(\\\"ok\\\")\\n\"]"
+        model = MockModelAdapter([
+            ModelResponse(content=serialized, tool_calls=[])
+        ])
+        agent = DareAgent(name="test-agent", model=model)
+
+        result = await agent.run("Generate python file")
+
+        assert isinstance(result.output, dict)
+        assert result.output.get("content") == serialized
+        assert result.output_text is not None
+        assert "任务标题" in result.output_text
+        assert 'print("ok")' in result.output_text
+
+    @pytest.mark.asyncio
     async def test_event_logging(self) -> None:
         """Events are logged when event_log is provided."""
         model = MockModelAdapter()
