@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from dare_framework.transport import DefaultAgentChannel, TransportEnvelope, new_envelope_id
+from dare_framework.transport import AgentChannel, TransportEnvelope, new_envelope_id
 
 
 class DummyClientChannel:
@@ -27,7 +27,7 @@ async def test_outbox_backpressure_blocks() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, max_outbox=1, max_inbox=1)
+    channel = AgentChannel.build(client, max_outbox=1, max_inbox=1)
 
     await channel.send(_envelope("one"))
     with pytest.raises(asyncio.TimeoutError):
@@ -40,7 +40,7 @@ async def test_inbox_backpressure_blocks_sender() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, max_outbox=1, max_inbox=1)
+    channel = AgentChannel.build(client, max_outbox=1, max_inbox=1)
 
     sender = client.sender
     assert sender is not None
@@ -55,7 +55,7 @@ async def test_start_stop_idempotent() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     await channel.start()
     first_task = channel._out_pump_task
@@ -71,7 +71,7 @@ async def test_stop_drops_outbox() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, max_outbox=10)
+    channel = AgentChannel.build(client, max_outbox=10)
 
     await channel.send(_envelope("one"))
     await channel.send(_envelope("two"))
@@ -89,7 +89,7 @@ async def test_interrupt_cancels_running_task() -> None:
         await asyncio.sleep(1)
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     task = asyncio.create_task(channel.run_interruptible(long_task()))
     await asyncio.sleep(0)
@@ -111,7 +111,7 @@ async def test_receiver_errors_are_swallowed() -> None:
         event.set()
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     await channel.start()
     await channel.send(_envelope("first"))
@@ -127,7 +127,7 @@ async def test_sender_errors_are_swallowed() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     async def broken_enqueue(_: TransportEnvelope) -> None:
         raise RuntimeError("boom")
@@ -161,7 +161,7 @@ async def test_encoder_applied_on_send() -> None:
         )
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, encoder=encoder)
+    channel = AgentChannel.build(client, encoder=encoder)
 
     await channel.start()
     await channel.send(_envelope("ping"))
@@ -189,7 +189,7 @@ async def test_decoder_applied_on_poll() -> None:
         )
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, decoder=decoder)
+    channel = AgentChannel.build(client, decoder=decoder)
 
     sender = client.sender
     assert sender is not None

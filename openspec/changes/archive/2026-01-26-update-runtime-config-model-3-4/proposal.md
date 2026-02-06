@@ -8,7 +8,7 @@
 ## What Changes
 - Define typed config models in `dare_framework3_4/config/types.py` (LLMConfig, ComponentConfig, Config, ComponentType, plus proxy support) with `from_dict`/`to_dict` helpers.
 - Update ConfigSnapshot to wrap the effective, immutable Config built from merged layers.
-- Expand the config schema to cover runtime settings: llm (adapter/endpoint/api_key/model/proxy incl. no_proxy/use_system_proxy/disabled), mcp, tools, allowtools, allowmcps, components (type-scoped enable/disable + per-component config), workspace_dir, and user_dir.
+- Expand the config schema to cover runtime settings: llm (adapter/endpoint/api_key/model/proxy incl. no_proxy/use_system_proxy/disabled), mcp, tools, allow_tools, allow_mcps, components (type-scoped enable/disable + per-component config), workspace_dir, and user_dir.
 - Managers consume components.<type>.disabled and per-component config to determine load behavior.
 
 ## Impact

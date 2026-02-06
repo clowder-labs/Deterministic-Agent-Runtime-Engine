@@ -576,7 +576,7 @@ async def load_mcp_toolkit(
     connects to servers, and returns an initialized MCPToolProvider.
 
     Args:
-        config: Configuration with mcp_paths and allowmcps settings.
+        config: Configuration with mcp_paths and allow_mcps settings.
                 Must be non-null.
         paths: Explicit list of paths to scan. Overrides config.mcp_paths.
 
@@ -612,13 +612,13 @@ async def load_mcp_toolkit(
         logger.debug("No MCP configurations found")
         return MCPToolProvider([])
 
-    # Filter by allowmcps if specified
-    if config.allowmcps:
-        allowed = set(config.allowmcps)
+    # Filter by allow_mcps if specified
+    if config.allow_mcps:
+        allowed = set(config.allow_mcps)
         mcp_configs = [c for c in mcp_configs if c.name in allowed]
 
     if not mcp_configs:
-        logger.debug("No MCP configurations matched allowmcps filter")
+        logger.debug("No MCP configurations matched allow_mcps filter")
         return MCPToolProvider([])
 
     # Create and connect clients

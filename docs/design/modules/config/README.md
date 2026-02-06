@@ -35,12 +35,12 @@
 ## 6. 约束与限制
 
 - 仅支持 JSON 配置文件。
-- `allowtools` / `allowmcps` 未在 ToolManager 中强制执行（TODO）。
+- `allow_tools` / `allow_mcps` 未在 ToolManager 中强制执行（TODO）。
 
 ## 7. TODO / 未决问题
 
 - TODO: 增加环境变量或多格式配置支持（YAML/TOML）。
-- TODO: enforce allowlists（allowtools/allowmcps）。
+- TODO: enforce allowlists（allow_tools/allow_mcps）。
 - TODO: 配置热更新与订阅机制。
 
 ## 8. Design Clarifications (2026-02-03)

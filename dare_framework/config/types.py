@@ -283,8 +283,8 @@ class Config:
     mcp: dict[str, dict[str, Any]] = field(default_factory=dict)
     mcp_paths: list[str] = field(default_factory=list)
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
-    allowtools: list[str] = field(default_factory=list)
-    allowmcps: list[str] = field(default_factory=list)
+    allow_tools: list[str] = field(default_factory=list)
+    allow_mcps: list[str] = field(default_factory=list)
     components: dict[str, ComponentConfig] = field(default_factory=dict)
     knowledge: dict[str, Any] = field(default_factory=dict)
     """Knowledge backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
@@ -309,8 +309,8 @@ class Config:
             else []
         )
         tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
-        allowtools = data.get("allowtools") if isinstance(data.get("allowtools"), list) else []
-        allowmcps = data.get("allowmcps") if isinstance(data.get("allowmcps"), list) else []
+        allow_tools = [str(item) for item in data.get("allow_tools", [])] if isinstance(data.get("allow_tools"), list) else []
+        allow_mcps = [str(item) for item in data.get("allow_mcps", [])] if isinstance(data.get("allow_mcps"), list) else []
         components_raw = data.get("components") if isinstance(data.get("components"), dict) else {}
         components = {
             key: ComponentConfig.from_dict(value)
@@ -347,8 +347,8 @@ class Config:
             mcp=mcp,
             mcp_paths=mcp_paths,
             tools=tools,
-            allowtools=allowtools,
-            allowmcps=allowmcps,
+            allow_tools=allow_tools,
+            allow_mcps=allow_mcps,
             components=components,
             knowledge=knowledge,
             long_term_memory=long_term_memory,
@@ -395,8 +395,8 @@ class Config:
             "mcp": dict(self.mcp),
             "mcp_paths": list(self.mcp_paths),
             "tools": dict(self.tools),
-            "allowtools": list(self.allowtools),
-            "allowmcps": list(self.allowmcps),
+            "allow_tools": list(self.allow_tools),
+            "allow_mcps": list(self.allow_mcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
             "knowledge": dict(self.knowledge),
             "long_term_memory": dict(self.long_term_memory),

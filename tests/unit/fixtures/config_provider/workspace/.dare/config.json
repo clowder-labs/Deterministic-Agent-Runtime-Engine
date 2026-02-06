@@ -2,7 +2,7 @@
   "llm": {
     "model": "workspace-fixture-model"
   },
-  "allowmcps": [
+  "allow_mcps": [
     "fixture_mcp_workspace"
   ],
   "tools": {

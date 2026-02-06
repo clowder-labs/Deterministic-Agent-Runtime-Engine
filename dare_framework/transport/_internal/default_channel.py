@@ -51,25 +51,6 @@ class DefaultAgentChannel(AgentChannel):
 
         client_channel.attach_agent_envelope_sender(sender)
 
-    @staticmethod
-    def build(
-        client_channel: ClientChannel,
-        *,
-        max_inbox: int = 100,
-        max_outbox: int = 100,
-        encoder: EnvelopeEncoder | None = None,
-        decoder: EnvelopeDecoder | None = None,
-    ) -> AgentChannel:
-        """Build the default AgentChannel implementation."""
-
-        return DefaultAgentChannel(
-            client_channel,
-            max_inbox=max_inbox,
-            max_outbox=max_outbox,
-            encoder=encoder,
-            decoder=decoder,
-        )
-
     async def start(self) -> None:
         if self._started:
             return

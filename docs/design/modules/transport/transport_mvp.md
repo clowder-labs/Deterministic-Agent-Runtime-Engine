@@ -76,7 +76,7 @@
   - 向 ClientChannel 注入 sender（用于将输入写入 `AgentChannel.inbox`）
   - 返回 `AgentChannel` 给 AgentBuilder/Agent 使用
 
-> MVP 默认实现为 `DefaultAgentChannel.build`，对外以 `AgentChannel.build` 作为构建入口。
+> MVP 默认实现为 `DefaultAgentChannel(...)`，对外以 `AgentChannel.build` 作为唯一构建入口。
 
 **对外只返回一个对象：`AgentChannel`**。
 AgentChannel 内部不暴露 endpoint pair；“输出是另一个的输入”的连接关系通过函数引用注册 + 队列投递完成。

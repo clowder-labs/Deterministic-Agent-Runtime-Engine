@@ -60,7 +60,7 @@ class AgentChannel(Protocol):
 
         from dare_framework.transport._internal.default_channel import DefaultAgentChannel
 
-        return DefaultAgentChannel.build(
+        return DefaultAgentChannel(
             client_channel,
             max_inbox=max_inbox,
             max_outbox=max_outbox,

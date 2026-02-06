@@ -55,7 +55,7 @@
 
 ## config
 - [ ] 增加环境变量或多格式配置支持（YAML/TOML）。(`docs/design/modules/config/README.md`)
-- [ ] enforce allowlists（allowtools/allowmcps）。(`docs/design/modules/config/README.md`)
+- [ ] enforce allowlists（allow_tools/allow_mcps）。(`docs/design/modules/config/README.md`)
 - [ ] 配置热更新与订阅机制。(`docs/design/modules/config/README.md`)
 
 ## memory / knowledge
