@@ -2,7 +2,7 @@
 
 ## 文档范围与约束
 
-- **依据**：`dare_framework/` 与 `examples/05-dare-coding-agent-enhanced/` 源码分析。
+- **依据**：`dare_framework/` 与 `examples/05-dare-coding-agent-enhanced/` 源码分析；Context 与 STM/LTM/Knowledge 的深度联动方案见 `docs/design/module_design/context/CONTEXT_STM_LTM_KNOWLEDGE_INTEGRATION_PLAN.md`。
 - **输出**：Markdown，可导出 PDF；含架构说明、算法、设计原理、流程图/类图/时序图/状态图。
 
 ---
@@ -16,7 +16,8 @@ DARE Framework 是一个**可插拔的 Agent 运行时引擎**：用 Builder 将
 ### 1.2 核心设计原则
 
 - **分层边界清晰**：Builder（装配）/ Agent（编排）/ 域组件（能力）/ Kernel（边界接口）。
-- **可插拔**：Planner/Validator/Remediator/Tool/Memory/Knowledge/Model/Hook/MCP 都以接口或 provider 形式注入。
+- **可插拔**：Planner/Validator/Remediator/Tool/Memory/Knowledge/Model/Hook/MCP 都以接口或 provider 形式注入；Context 的组装策略（IContextAssemblyStrategy）可插拔，默认仅 STM，RAG 策略可启用 LTM/Knowledge 自动注入。
+- **Context 为上下文中枢**：Context 不存对话/知识，只持有 STM/LTM/Knowledge 引用；assemble 时按策略决定“本窗格”从哪来（STM + 可选 enrichment 写回的 LTM/Knowledge 结果），与压缩、marks、query 协同。
 - **可信/不可信分离**：LLM 输出的计划为 Proposed（不可信），Validator 基于注册表派生 Validated（可信字段如 risk_level）。
 - **预算与治理**：Context.Budget 统一做 tokens/cost/tool_calls/time 的 usage & check；Tool Loop 进一步按 Envelope 限制。
 - **失败隔离**（五层模版）：milestone 尝试使用 STM 快照 sandbox；失败回滚，反思（remediator）不污染主上下文。
@@ -131,9 +132,13 @@ sequenceDiagram
 
   U->>A: task
   A->>C: stm_add(user message)
+  opt 若配置 RAG 策略
+    Note over C: enrichment: LTM.retrieve → stm_add, Knowledge.get → stm_add
+  end
   loop until no tool_calls
-    A->>C: compress_context()
-    A->>C: assemble()
+    A->>C: compress() if over threshold
+    A->>C: assemble(query?, **options)
+    Note over C: 策略从 STM.get(...) 取 messages，拼 tools + sys_prompt
     C-->>A: AssembledContext
     A->>M: generate()
     M-->>A: response
@@ -143,6 +148,9 @@ sequenceDiagram
       A->>C: stm_add(tool result)
     else no tool_calls
       A->>C: stm_add(assistant)
+      opt 若 LTM static_control
+        A->>C: ltm.record(stm_get(exclude_mark=compressed))
+      end
       A-->>U: final response
     end
   end
@@ -308,6 +316,7 @@ sequenceDiagram
   participant B as Builder
   participant KF as KnowledgeFactory
   participant K as IKnowledge
+  participant C as Context
   participant TM as ToolManager
 
   B->>KF: create_knowledge(config)
@@ -317,19 +326,20 @@ sequenceDiagram
     KF->>KF: requires embedding_adapter
     KF-->>B: VectorKnowledge
   end
-  B->>TM: register(knowledge_get)
-  B->>TM: register(knowledge_add)
+  B->>C: context.knowledge = K
+  B->>TM: register(knowledge_get), register(knowledge_add)
+  Note over C: 若配置 RAG 策略，assemble 前 enrichment 调 K.get() 写 STM
 ```
 
 #### 要点说明
 
 | 项目 | 说明 |
 |------|------|
-| **输入** | Config.knowledge；（vector 需 embedding_adapter） |
-| **输出** | IKnowledge；并自动暴露 knowledge_get / knowledge_add 工具 |
-| **关键步骤** | Builder._register_tools_with_manager() 在 knowledge 存在时注册工具 |
-| **上下游衔接** | 上游：Builder.with_knowledge 或 config 驱动；下游：ToolManager.invoke、模型工具调用 |
-| **扩展点** | 新 IKnowledge 实现；自定义 storage/vector_store |
+| **输入** | Config.knowledge；（vector 需 embedding_adapter）；可选 assembly.include_knowledge、enable_rewrite_query、knowledge_limit、knowledge_score_threshold |
+| **输出** | IKnowledge；并自动暴露 knowledge_get / knowledge_add 工具；RAG 策略下 enrichment 将检索结果写 STM |
+| **关键步骤** | Builder 创建 knowledge 并注入 Context、注册工具；若启用 RAG 策略，assemble 前按 query 调用 knowledge.get，结果包成 `<retrieved_knowledge>` Message 写 STM |
+| **上下游衔接** | 上游：Builder.with_knowledge 或 config；下游：Context 组装策略（enrichment）、ToolManager.invoke（工具路径） |
+| **扩展点** | 新 IKnowledge 实现；多知识库合并；query_rewrite；自定义 storage/vector_store |
 
 ### 3.4 Model 挂载（模型适配 + Prompt 叠加）
 
@@ -456,11 +466,11 @@ sequenceDiagram
 
 | 项目 | 说明 |
 |------|------|
-| **输入** | Config.long_term_memory；（vector 需 embedding_adapter） |
-| **输出** | ILongTermMemory；STM 作为会话消息容器 |
-| **关键步骤** | STM 负责“对话历史”；LTM 负责“跨会话检索与持久化” |
-| **上下游衔接** | 上游：Builder 注入；下游：Context 持有（默认 assemble 不自动检索） |
-| **扩展点** | 自定义 LTM 检索/写回策略；不同存储后端 |
+| **输入** | Config.long_term_memory；（vector 需 embedding_adapter）；可选 assembly.ltm_mode（static_control/agent_control/both）、compression_config |
+| **输出** | ILongTermMemory；STM 作为会话消息容器（含对话流与可选 enrichment 注入） |
+| **关键步骤** | STM 负责对话历史、marks、prepend_summary、compress；LTM 提供 retrieve(→str)/record，及可选工具 record_to_memory/retrieve_from_memory；若配置 RAG 组装策略，assemble 前 enrichment 会调 LTM.retrieve 并将结果写 STM，每轮结束可调 LTM.record(msgs) |
+| **上下游衔接** | 上游：Builder 注入 STM/LTM，可选注入组装策略；下游：Context.assemble 使用 STM.get()，策略可选调用 LTM.retrieve/record |
+| **扩展点** | 自定义 STM/LTM；STM 的 marks/get(mark, exclude_mark, prepend_summary)；LTM 的 retrieve/record 与 ltm_mode；压缩策略 |
 
 ---
 
@@ -605,31 +615,132 @@ sequenceDiagram
 
 ### 4.4 context（上下文域）
 
+Context 是框架的**上下文中枢**：不存对话或知识内容，只持有 STM/LTM/Knowledge 的引用与 Budget、Prompt、Tools 等；在每次模型调用前**按策略 assemble**，决定“喂给模型的这一窗格”从哪来、怎么排、是否注入 LTM/Knowledge。详细联动方案见 `docs/design/module_design/context/CONTEXT_STM_LTM_KNOWLEDGE_INTEGRATION_PLAN.md`。
+
 #### 设计思想
 
-Context 是“引用聚合器”（STM/LTM/Knowledge/Budget/Tools/Prompt），在每次模型调用前**按需 assemble**，避免把上下文耦死在 Agent 内。
+- **Context 是聚合器，不是存储器**：存放的是对 STM、LTM、Knowledge 的**引用**，以及 Budget、当前 sys_prompt、当前 skill、tool 列表来源（ToolManager）、可选 config 快照、可选「当前 query」槽位。对话与知识内容只存在于 STM、LTM、Knowledge 三个存储中。
+- **按需 assemble**：`assemble(**options)` 的“消息从哪来、怎么排”由**组装策略**（IContextAssemblyStrategy）决定；无策略或默认策略时行为与当前一致（仅 STM 全量 + tools + sys_prompt + skill），保证与现有 Agent/Plan/Compression 兼容。
+- **与 STM/LTM/Knowledge 的联动**：采用与 AgentScope 一致的**模式 A**——在 assemble 前先做 **enrichment**（取当前 query → LTM 检索 → Knowledge 检索），将检索结果以带 source 标记的 Message **写入 STM**，再 assemble 只从 STM 取消息；这样“当前要喂给模型的全部内容”统一来自 STM，压缩与 marks 也作用在同一 STM 上。
 
-#### 设计方案
+#### 核心概念：STM / LTM / Knowledge / Context 各自职责
 
-- STM 默认 InMemorySTM，可替换。
-- `listing_tools()` 优先走 ToolManager.list_tool_defs 输出模型可用 schema。
-- Skill 在 persistent 模式 build 时合并；auto 模式运行时合并。
+| 组件 | 放什么 | 谁在何时写入 |
+|------|--------|--------------|
+| **Context** | 不存对话/知识；存对 STM/LTM/Knowledge 的引用、Budget、sys_prompt、skill、tool 来源、可选 current_query。 | Builder 注入引用与 prompt；Agent 更新 Budget、current_query。 |
+| **STM** | 本会话的对话流（用户/助手/工具消息）+ 当轮注入的 LTM/Knowledge 检索结果（Message，带 source/mark）；压缩后可有 _compressed_summary、compressed mark。 | Agent：stm_add(用户/助手/工具消息)。Enrichment：stm_add(LTM/Knowledge 检索结果)。Compress：更新 mark 与摘要。 |
+| **LTM** | 跨会话持久记忆（事实、经历、偏好等）。 | static_control：每轮结束 ltm.record(msgs)。agent_control：模型通过 record_to_memory 工具写入。 |
+| **Knowledge** | 领域文档/知识（与对话无关）。 | 构建时或 knowledge_add 工具写入；检索结果不写回 Knowledge，只写进 STM。 |
 
-#### 工作逻辑图
+**数据流（存与取）**：用户/助手/工具消息 → STM；LTM/Knowledge 检索结果 → STM（enrichment）；本轮 STM 快照 → LTM（每轮结束，static_control）；assemble 时 ← STM（get，含 marks 与 prepend_summary）；enrichment 时 LTM.retrieve(query)、Knowledge.get(query)。
+
+#### 数据流图（存与取 + 压缩与注入的影响）
+
+下图为 Context 与 STM/LTM/Knowledge 之间的**存与取**流向，以及**压缩**、**注入**对各存储的影响。
+
+```mermaid
+flowchart TB
+  subgraph 写入
+    A1[用户/助手/工具消息] --> STM[(STM)]
+    A2[LTM 检索结果] --> STM
+    A3[Knowledge 检索结果] --> STM
+    A4[本轮 STM 快照] --> LTM[(LTM)]
+  end
+
+  subgraph 读取
+    STM --> B1[assemble 时 get]
+    LTM --> B2[enrichment 时 retrieve]
+    KB[(Knowledge)] --> B3[enrichment 时 get]
+  end
+
+  compress[compress] --> STM
+  style compress fill:#f9f,stroke:#333
+```
+
+- **压缩**：仅改写 STM（内容 / marks / _compressed_summary）；LTM 与 Knowledge 不参与、不变。
+
+- **注入生命周期**（可选）：若每轮 assemble 前对 STM 执行 delete_by_mark("ltm_injected"/"knowledge_injected")，则注入结果在下一轮前卸载；否则一直留在 STM 中累积。
+
+#### 组装策略（IContextAssemblyStrategy）
+
+- **职责**：给定 Context 只读视图与当前 query、options，输出本次 assemble 使用的 messages 及可选 metadata（各来源条数、是否触发压缩等）。
+- **DefaultAssemblyStrategy**：仅从 STM 取消息（等价于当前 `stm_get()`），不调 LTM/Knowledge，与现有行为完全一致。
+- **RAGAssemblyStrategy**：在返回 messages 前执行 **enrichment**——取 query（最后一条 user 或 Context 槽位）→ 可选 query_rewrite → 若 static_control 则 LTM.retrieve(msg, limit) 得 str，包成 `<long_term_memory>...</long_term_memory>` 的 Message 写 STM → Knowledge.get(query, limit, score_threshold) 按 score 排序，包成 `<retrieved_knowledge>...</retrieved_knowledge>` 的 Message 写 STM；再从 STM.get(mark=..., exclude_mark=..., prepend_summary=...) 取消息返回。
+- **assemble 触发顺序**（与压缩协同）：Budget 检查（可选）→ **Compress**（若配置触发，更新 STM 的 compressed_summary 与 marks）→ **Enrichment**（LTM/Knowledge 检索并写 STM）→ **Assemble messages**（策略从 STM 取）→ 拼 tools、sys_prompt、skill → 返回 AssembledContext。
+
+#### STM 的扩展语义（marks 与 get）
+
+- **marks**：用于区分消息类型与生命周期。`hint`：一次性提示，用后可由 delete_by_mark("hint") 清理。`compressed`：已被压缩为摘要的旧消息，get 时可通过 exclude_mark 排除（摘要通过 prepend_summary 提供）。可选 `ltm_injected`/`knowledge_injected`：当轮注入的检索结果，可每轮 assemble 前清理以免堆积。
+- **get**：STM.get(query="", mark=None, exclude_mark=None, prepend_summary=False, **kwargs) → list[Message]。prepend_summary=True 时，若 STM 维护了 _compressed_summary，则在返回列表前插入一条摘要 Message。
+- **Message 来源标记**：检索结果写入 STM 时带 metadata.source="ltm" 或 "knowledge"，便于观测与排序。
+
+#### 当前 query 与 LTM 模式
+
+- **query 来源**：Context 槽位 set_current_query / get_current_query、Task.query 或 Task.summary、或从 STM 最后一条 user 消息抽取；传入 assemble(options) 或策略。
+- **LTM 模式**（与 AgentScope 对齐）：`static_control`（每轮开始 retrieve 注入 STM、每轮结束 record(msgs)）；`agent_control`（仅通过 record_to_memory / retrieve_from_memory 工具）；`both`。由配置 assembly.ltm_mode 或 long_term_memory_mode 决定。
+
+#### 写入的触发方式
+
+- **STM**：全部由**框架代码**完成（用户/助手/工具消息由 Agent 调 stm_add；LTM/Knowledge 检索结果由 enrichment 调 stm_add）；不经过模型的 function call。
+- **LTM**：static_control 下每轮结束由框架调 ltm.record(msgs)；agent_control 下由模型的 record_to_memory 工具调用触发写入。
+- **Knowledge**：通常由脚本/API 灌库；若提供 knowledge_add 工具，则由模型的 tool 调用触发写入。
+
+#### 压缩与注入对各存储的影响
+
+- **压缩后谁变、谁不变**：  
+  - **STM**：会变。压缩只作用在 STM 上——要么把一段旧消息折叠成摘要后写回 STM（或打 `compressed` mark），并更新 STM 的 `_compressed_summary`；之后 get(prepend_summary=True) 时在列表前插入该摘要。  
+  - **LTM**：不变。压缩不读、不写 LTM；LTM 仅在每轮结束 record(msgs) 或模型调用 record_to_memory 时被写。  
+  - **Knowledge**：不变。压缩不读、不写 Knowledge。  
+- **小结**：压缩只改 **STM**（内容/标记/摘要）；**LTM 与 Knowledge 均不变**。
+
+#### LTM/Knowledge 检索注入在 STM 中的生命周期
+
+- **默认行为**：enrichment 将 LTM/Knowledge 检索结果作为 Message append 进 STM（带 source、可选 mark 如 ltm_injected/knowledge_injected）。若不额外约定，这些消息**一直留在 STM**，与普通对话一样参与后续 get/压缩，会**多轮累积**。
+- **可选策略**：约定「每轮 assemble 前清掉上轮的 ltm_injected / knowledge_injected」——在下一轮开始或本轮 enrichment 前对 STM 做按 mark 删除（如 delete_by_mark("ltm_injected")、delete_by_mark("knowledge_injected")），则注入结果**仅当轮有效、下一轮前卸载**，不在 STM 中堆积。
+- **小结**：不清理则**一直存在于 STM**；若实现按 mark 每轮清理则**下一轮之前卸载**；由策略/配置决定。
+
+#### 与现有组件的兼容性
+
+- **IContext**：assemble(**options) 签名不变；无策略或默认策略时行为与当前一致。stm_get() 可扩展为带可选参数（mark、exclude_mark、prepend_summary），**无参调用**保持当前语义。
+- **Agent / Builder / Compression / Plan / Sandbox**：均不依赖“assemble 内调 LTM/Knowledge”；未注入 RAG 策略时无行为变化。详见集成计划文档第 10 节。
+
+#### 工作逻辑图（含 enrichment 与策略）
+
+下图体现**固定顺序**：Budget 检查（Agent 内）→ compress（若超阈值，仅改 STM）→ assemble；assemble 内：策略可选先清理上轮注入、再 enrichment 写 STM、再从 STM.get 取消息。
 
 ```mermaid
 sequenceDiagram
   participant A as Agent
   participant C as Context
+  participant S as AssemblyStrategy
   participant STM as ShortTermMemory
+  participant LTM as LongTermMemory
+  participant KB as Knowledge
   participant TM as ToolManager
 
-  A->>C: assemble()
-  C->>STM: get_messages()
-  STM-->>C: List[Message]
+  Note over A: Budget 检查（可选）
+  A->>C: compress() if over threshold
+  Note over C,STM: 仅改 STM：marks / _compressed_summary
+  A->>C: assemble(query?, **options)
+  C->>S: assemble_messages(view, query, options)
+
+  alt RAG strategy
+    opt 每轮清理上轮注入（可选）
+      S->>STM: delete_by_mark(ltm_injected, knowledge_injected)
+    end
+    S->>LTM: retrieve(msg, limit) -> str
+    S->>C: stm_add(<long_term_memory>..., source=ltm)
+    S->>KB: get(query, limit, score_threshold)
+    S->>C: stm_add(<retrieved_knowledge>..., source=knowledge)
+  end
+
+  S->>STM: get(mark?, exclude_mark?, prepend_summary?)
+  Note over STM: 若 prepend_summary 则列表前插 _compressed_summary
+  STM-->>S: List[Message]
+  S-->>C: AssemblyResult(messages, metadata)
   C->>TM: list_tool_defs()
   TM-->>C: List[ToolDefinition]
-  C->>C: merge sys_prompt + skills
+  C->>C: merge sys_prompt + skill
   C-->>A: AssembledContext
 ```
 
@@ -637,9 +748,9 @@ sequenceDiagram
 
 | 项目 | 说明 |
 |------|------|
-| **输入/输出** | 输入 STM/技能/工具；输出 AssembledContext |
-| **关键步骤** | budget_check 在 Agent 中触发；compress 统一转发 compression.compress_context |
-| **扩展点** | assemble 拼接 LTM/Knowledge 的策略（当前默认不自动检索） |
+| **输入/输出** | 输入：Context（STM/LTM/Knowledge 引用、Budget、query 槽位）、assemble 的 options（query、max_tokens、phase 等）。输出：AssembledContext（messages、sys_prompt、tools、metadata）。 |
+| **关键步骤** | Budget 检查在 Agent 中；compress 在 assemble 前按配置触发；enrichment（LTM→Knowledge 写 STM）由策略在 assemble 内完成；assemble 从 STM 取消息再拼 tools/sys_prompt。 |
+| **扩展点** | 可插拔 IContextAssemblyStrategy（Default / RAG / 自定义）；STM 的 marks 与 get(mark, exclude_mark, prepend_summary)；LTM 的 retrieve/record 与 ltm_mode；Knowledge 的自动注入与 query_rewrite。 |
 
 ### 4.5 tool（工具域）
 
@@ -728,7 +839,7 @@ sequenceDiagram
 
 - **IConfigProvider**：`current()`、`reload()` 返回 `Config`。
 - **FileConfigProvider**：从 `user_dir`（默认 home）与 `workspace_dir`（默认从 cwd 向上找含 .git 的根）加载同名文件（默认 `.dare/config.json`）；`_load_layer` 读 JSON，不存在则创建空 `{}`；`_merge_layers([user_layer, workspace_layer])` 深合并，workspace 覆盖 user；合并后补齐 `workspace_dir`、`user_dir` 字段。
-- **Config**：不可变数据结构，承载 llm（LLMConfig）、mcp_paths、allowmcps、skill_mode、observability、components（按 ComponentType 的 disabled/entries）、long_term_memory、knowledge、proxy 等；`Config.from_dict` 从合并后的 dict 构造。
+- **Config**：不可变数据结构，承载 llm（LLMConfig）、mcp_paths、allowmcps、skill_mode、observability、components（按 ComponentType 的 disabled/entries）、long_term_memory、knowledge、proxy 等；`Config.from_dict` 从合并后的 dict 构造。与 Context 组装及压缩对齐的可选字段：**assembly**（strategy、include_ltm、include_knowledge、ltm_mode、enable_rewrite_query、ltm_limit、knowledge_limit、knowledge_score_threshold）、**compression** 或 **compression_config**（enable、trigger_threshold、keep_recent、summary_template、summary_schema 等），详见 Context 集成计划文档。
 - **LLMConfig**：adapter、endpoint、api_key、model、proxy（ProxyConfig）、extra。
 - **Component 配置**：`Config.components[component_type]` 含 disabled 列表与 entries，供 `is_component_enabled(component)` 等使用。
 
@@ -766,14 +877,14 @@ sequenceDiagram
 
 #### 设计思想
 
-短期记忆（STM）作为当前会话消息容器；长期记忆（LTM）提供跨会话检索与持久化。STM 支持压缩以控制上下文长度；LTM 支持 rawdata（子串检索）与 vector（向量相似检索），vector 依赖 IEmbeddingAdapter。
+短期记忆（STM）作为当前会话消息容器，支持对话流与当轮注入的 LTM/Knowledge 检索结果（模式 A）；长期记忆（LTM）提供跨会话检索与持久化。STM 支持 marks、prepend_summary 与压缩以控制上下文长度；LTM 支持 **retrieve/record**（与 AgentScope 对齐）及可选的 get/persist，并可通过工具 record_to_memory/retrieve_from_memory 由模型主动读写。LTM 实现支持 rawdata（子串检索）与 vector（向量相似检索），vector 依赖 IEmbeddingAdapter。
 
 #### 设计方案
 
-- **IShortTermMemory**：继承 IRetrievalContext 与 IComponent；`add(Message)`、`get(query)`（STM 通常忽略 query 返回全部）、`clear()`、`compress(max_messages, **kwargs)` 返回移除条数。默认实现 InMemorySTM：列表存储，compress 时调用 compression 域或按 max_messages 截断。
-- **ILongTermMemory**：`get(query, **kwargs)` 检索；`async persist(messages)` 持久化。实现：RawDataLongTermMemory（RawDataStorage，子串检索）；VectorLongTermMemory（VectorStore + IEmbeddingAdapter，相似检索）。
-- **LongTermMemoryConfig**：type（"rawdata" | "vector"）、storage（"in_memory" | "sqlite" | "chromadb"，chromadb 仅 vector）、options。create_long_term_memory(config) 根据 type/storage 构造对应实现；vector 需注入 embedding_adapter。
-- **与 Context 关系**：Context.short_term_memory 持有 STM；Context.long_term_memory 可选持有 LTM。assemble 时 STM.get() 提供消息列表；LTM 是否在 assemble 中自动检索由上层策略决定（当前默认不自动注入）。
+- **IShortTermMemory**：继承 IRetrievalContext 与 IComponent。`add(Message)`、`clear()`、`compress(max_messages, **kwargs)` 返回移除条数。**get** 扩展为 `get(query="", mark=None, exclude_mark=None, prepend_summary=False, **kwargs) -> list[Message]`：mark/exclude_mark 用于过滤（如 hint、compressed、ltm_injected）；prepend_summary=True 时在列表前插入 _compressed_summary 对应的摘要 Message。默认实现 InMemorySTM：列表存储，可扩展为 (Message, list[str] marks) 及 _compressed_summary；compress 时由 compression 域或按 max_messages 截断，并可打 compressed mark、更新摘要。
+- **ILongTermMemory**：保留 `get(query, **kwargs) -> list[Message]`、`async persist(messages)`。为与 AgentScope 及 Context 组装策略对齐，**新增**：**retrieve(msg_or_query, limit=5, **kwargs) -> str**（开发者/static 用，返回拼好的文本，由 enrichment 包成 Message 写 STM）；**record(msgs)**（每轮结束 static_control 时由框架调用）；**record_to_memory(thinking, content: list[str])**、**retrieve_from_memory(keywords, limit)** 为工具接口（agent_control 时注册）。实现：RawDataLongTermMemory、VectorLongTermMemory；retrieve/record 可薄封装 get/persist 或由适配器提供。
+- **LongTermMemoryConfig**：type（"rawdata" | "vector"）、storage、options。create_long_term_memory(config) 根据 type/storage 构造；vector 需注入 embedding_adapter。
+- **与 Context 关系**：Context.short_term_memory 持有 STM；Context.long_term_memory 可选持有 LTM。assemble 时由组装策略决定是否在**前**执行 enrichment（LTM.retrieve → 写 STM、Knowledge.get → 写 STM），再 STM.get() 提供消息列表；默认策略仅 STM.get()，RAG 策略则先 enrichment 再 STM.get()。
 
 #### 工作逻辑图
 
@@ -786,41 +897,50 @@ sequenceDiagram
   participant Comp as Compression
 
   Note over A,STM: 会话内
-  A->>C: assemble()
-  C->>STM: get()
+  A->>C: assemble() [策略可先 enrichment 写 STM]
+  C->>STM: get(mark?, exclude_mark?, prepend_summary?)
   STM-->>C: List[Message]
   opt 压缩
-    A->>STM: compress(max_messages)
-    STM->>Comp: 或内置截断/去重
+    A->>C: compress() / STM.compress(...)
+    STM->>Comp: 或内置截断/摘要
+    Note over STM: update_messages_mark(compressed), _compressed_summary
   end
 
-  Note over A,LTM: 跨会话（可选）
-  A->>LTM: get(query) / persist(messages)
-  LTM-->>A: List[Message] / void
+  Note over A,LTM: 跨会话
+  opt static_control 每轮开始
+    C->>LTM: retrieve(msg, limit) -> str
+    C->>STM: stm_add(<long_term_memory>...)
+  end
+  opt static_control 每轮结束
+    A->>LTM: record(msgs from STM)
+  end
+  opt agent_control
+    M->>LTM: record_to_memory / retrieve_from_memory (tool)
+  end
 ```
 
 #### 要点说明
 
 | 项目 | 说明 |
 |------|------|
-| **输入** | STM：Message 序列；LTM：Config.long_term_memory（type、storage、options）；vector 需 embedding_adapter |
-| **输出** | STM：get() 返回消息列表；LTM：get() 返回检索结果，persist() 无返回值 |
-| **关键步骤** | STM 负责对话历史与 compress；LTM 负责持久化与按 query 检索 |
-| **上下游** | 上游：Builder 注入 STM/LTM；下游：Context.assemble 使用 STM.get() |
-| **扩展点** | 自定义 STM/LTM 实现；新 storage/vector_store；compress 策略与 LTM 检索策略 |
+| **输入** | STM：Message 序列（含可选 marks）；LTM：Config.long_term_memory；vector 需 embedding_adapter。 |
+| **输出** | STM：get() 返回消息列表（可选 prepend 摘要、按 mark 过滤）；LTM：retrieve() 返回 str，record()/persist() 无返回值；工具返回 ToolResponse。 |
+| **关键步骤** | STM 负责对话历史、enrichment 注入结果、compress 与 marks；LTM 负责 retrieve（enrichment 用）、record（轮结束或工具）。 |
+| **上下游** | 上游：Builder 注入 STM/LTM；下游：Context 组装策略使用 STM.get()、可选调用 LTM.retrieve/record。 |
+| **扩展点** | 自定义 STM/LTM；STM 的 marks/delete_by_mark/update_messages_mark；LTM 的 retrieve/record 与 ltm_mode；压缩 trigger_threshold、keep_recent、summary_schema。 |
 
 ### 4.9 knowledge（知识域）
 
 #### 设计思想
 
-知识以 IKnowledge（检索与可选写入）能力存在，通过 IRetrievalContext 与 Context 集成；同时以工具形式（knowledge_get、knowledge_add）暴露给模型，由模型决定何时检索或写入，工具为可信注册来源。
+知识以 IKnowledge（检索与可选写入）能力存在，通过 IRetrievalContext 与 Context 集成。**两条使用路径**：（1）**工具路径**：knowledge_get、knowledge_add 暴露给模型，由模型决定何时检索或写入；（2）**自动 RAG 路径**：在 Context 组装策略（RAGAssemblyStrategy）的 enrichment 阶段，按当前 query 调用 knowledge.get(query, limit, score_threshold)，将结果按 score 排序后包成 `<retrieved_knowledge>...</retrieved_knowledge>` 的 Message 写入 STM，供本轮模型使用；可选 **query_rewrite**（LLM 改写后再检索）。两条路径可并存，由配置控制是否启用自动注入。
 
 #### 设计方案
 
-- **IKnowledge**：继承 IRetrievalContext；get(query, **kwargs) 返回检索结果；部分实现支持 add/写入（如 RawDataKnowledge、VectorKnowledge 的存储写入）。
-- **实现**：RawDataKnowledge + RawDataStorage（in_memory / sqlite）；VectorKnowledge + VectorStore（in_memory / sqlite / chromadb），依赖 IEmbeddingAdapter。
-- **Knowledge 工具**：Builder 在存在 IKnowledge 时通过 _register_tools_with_manager 注册 knowledge_get、knowledge_add（或仅 get）；工具内部调用 IKnowledge.get/add，参数与返回格式符合模型可用的 ToolDefinition。
-- **配置**：Config.knowledge 指定 type、storage、options；create_knowledge(config) 工厂构造对应实现，vector 需注入 embedding_adapter。
+- **IKnowledge**：继承 IRetrievalContext；get(query, **kwargs) 返回检索结果（支持 limit、score_threshold 等）；部分实现支持 add/写入。与 Context 关系：Context.knowledge 持有引用；enrichment 时策略调 get()，结果写 STM，不写回 Knowledge。
+- **实现**：RawDataKnowledge + RawDataStorage；VectorKnowledge + VectorStore（in_memory / sqlite / chromadb），依赖 IEmbeddingAdapter。可支持多实例（list[IKnowledge]），enrichment 时合并检索结果再按 score 排序。
+- **Knowledge 工具**：Builder 在存在 IKnowledge 时注册 knowledge_get、knowledge_add；工具内部调用 IKnowledge.get/add。
+- **配置**：Config.knowledge（type、storage、options）；assembly.include_knowledge、assembly.enable_rewrite_query、assembly.knowledge_limit、assembly.knowledge_score_threshold 控制自动 RAG 行为；create_knowledge(config) 工厂构造，vector 需注入 embedding_adapter。
 
 #### 工作逻辑图
 
@@ -830,29 +950,40 @@ sequenceDiagram
   participant KF as KnowledgeFactory
   participant K as IKnowledge
   participant TM as ToolManager
+  participant C as Context
   participant A as Agent
   participant M as Model
 
   B->>KF: create_knowledge(config)
   KF-->>B: IKnowledge
   B->>TM: register(knowledge_get), register(knowledge_add)
-  Note over A,M: 运行时
-  M->>A: tool_calls(knowledge_get / knowledge_add)
-  A->>TM: invoke(capability_id, params)
-  TM->>K: get(query) / add(...)
-  K-->>TM: 结果
-  TM-->>A: ToolResult
+  B->>C: context.knowledge = K
+
+  Note over C,M: 运行时
+  alt 自动 RAG（enrichment）
+    C->>K: get(query, limit, score_threshold)
+    K-->>C: List[Message] or docs
+    C->>C: stm_add(<retrieved_knowledge>...)
+  end
+  alt 模型调用工具
+    M->>A: tool_calls(knowledge_get / knowledge_add)
+    A->>TM: invoke(capability_id, params)
+    TM->>K: get(query) / add(...)
+    K-->>TM: 结果
+    TM-->>A: ToolResult
+    A->>C: stm_add(tool result)
+  end
 ```
 
 #### 要点说明
 
 | 项目 | 说明 |
 |------|------|
-| **输入** | Config.knowledge；vector 需 embedding_adapter；工具入参由模型传入 |
-| **输出** | IKnowledge 实例；工具返回 ToolResult（内容为检索/写入结果） |
-| **关键步骤** | Builder 统一注册知识工具；invoke 时转调 IKnowledge |
-| **上下游** | 上游：Builder.with_knowledge 或 config；下游：ToolManager.invoke、模型工具调用 |
-| **扩展点** | 新 IKnowledge 实现；自定义 storage/vector_store；工具参数 schema 扩展 |
+| **输入** | Config.knowledge；vector 需 embedding_adapter；enrichment 时 query 来自 Context/Task/最后 user 消息；工具入参由模型传入。 |
+| **输出** | IKnowledge 实例；get 返回检索结果；工具返回 ToolResult；enrichment 结果以 Message 写 STM。 |
+| **关键步骤** | Builder 注册知识工具并注入 Context；RAG 策略在 assemble 前可选执行 Knowledge 检索并写 STM；invoke 时转调 IKnowledge。 |
+| **上下游** | 上游：Builder.with_knowledge 或 config、assembly.include_knowledge；下游：Context 组装策略、ToolManager.invoke。 |
+| **扩展点** | 新 IKnowledge 实现；多知识库合并检索；query_rewrite；工具参数 schema 扩展。 |
 
 ### 4.10 skill（技能域）
 
@@ -906,13 +1037,40 @@ sequenceDiagram
 
 #### 设计思想
 
-将上下文压缩策略集中在本域，避免各 Agent 自实现截断/去重/摘要导致行为不一致。提供同步轻量策略（不调 LLM）与异步语义摘要策略（调 LLM），由调用方按需选择。
+将上下文压缩策略集中在本域，避免各 Agent 自实现截断/去重/摘要导致行为不一致。提供同步轻量策略（不调 LLM）与异步语义摘要策略（调 LLM），由调用方按需选择。与 Context 组装协同：压缩在 **assemble 前**执行，可更新 STM 的 _compressed_summary 与 marks（如 compressed），STM.get(prepend_summary=True) 时在列表前插入摘要；与 AgentScope 对齐时可配置 trigger_threshold（token 数）、keep_recent（保留最近 N 条，且保证 tool_use/tool_result 成对）、summary_schema/summary_template，详见 Context 集成计划文档。
 
 #### 设计方案
 
-- **compress_context(context, phase, max_messages, **options)**：同步、就地压缩 Context 的短期记忆。策略由 options['strategy'] 指定：`truncate`（仅保留最近 max_messages 条）；`dedup_then_truncate`（先按 (role, content) 去重再截断）；`summary_preview`（将较早历史折叠为一条 system 摘要消息 + 若干尾部原始消息，摘要为启发式无 LLM）。未传 max_messages 时不执行压缩。
+- **compress_context(context, phase, max_messages, **options)**：同步、就地压缩 Context 的短期记忆。策略由 options['strategy'] 指定：`truncate`（仅保留最近 max_messages 条）；`dedup_then_truncate`（先按 (role, content) 去重再截断）；`summary_preview`（将较早历史折叠为一条 system 摘要消息 + 若干尾部原始消息，摘要为启发式无 LLM）。未传 max_messages 时不执行压缩。若 STM 支持 marks，压缩后可对被折叠消息打 `compressed` mark、更新 _compressed_summary，供 get(prepend_summary=True) 使用。
 - **compress_context_llm_summary(...)**：异步，调用 IModelAdapter 对历史消息做语义摘要，再写回 STM；用于高价值、可接受延迟与成本的场景。
-- **依赖**：compress_context 仅依赖 Context 与可选 IContext；llm_summary 需注入 IModelAdapter。Agent 在需要时显式调用并传入 max_messages/strategy。
+- **依赖**：compress_context 仅依赖 Context 与可选 IContext；llm_summary 需注入 IModelAdapter。Agent 在 assemble 前按配置或 Budget 判断是否调用 compress，并传入 max_messages/strategy。
+
+#### 对 msg list 的操作与压缩后的存储方式
+
+STM 底层是**一条条的 Message 列表**；不同压缩策略对这份 list 的**操作方式**和**压缩后的存法**可分为两类。
+
+**做法 1：直接改 list（替换/截断）**
+
+- 压缩时根据策略算出一个**新 list**，令 STM 的 list **整体替换**为该新 list（原 list 被丢弃）。
+- 例如：**truncate** → 新 list = 原 list 最后 N 条；**dedup_then_truncate** → 去重后再取最后 N 条；**summary_preview / LLM 摘要（一种实现）** → 新 list = `[摘要 msg, *尾部若干条]`。
+- **存**：STM 只存**这一份 list**，长度变短；无单独摘要字段，摘要即 list 内第一条（或几条）消息。
+
+**做法 2：不改 list 长度，只打 mark + 单独存摘要**
+
+- 压缩时**不删、不缩短** list，仅给被压掉的消息**打 mark**（如 `compressed`），并把压出的内容存到**单独字段**（如 `_compressed_summary`）。
+- **存**：STM 仍为**同一份 list**（条数不变，部分带 mark）+ `_compressed_summary`。**读**：get(exclude_mark="compressed", prepend_summary=True) 时排除带 compressed 的条，再在返回 list **前**插一条摘要 msg（内容来自 _compressed_summary），呈现为「摘要 + 最近未压缩的几条」。
+
+**按策略的对应关系**
+
+| 策略 | 对 list 的操作 | 压缩后怎么存 |
+|------|----------------|--------------|
+| **truncate** | 只保留最后 N 条，其余丢弃 | 存**更短的 list**，替换原 list。 |
+| **dedup_then_truncate** | 去重后再保留最后 N 条 | 存**去重并截断后的 list**，替换原 list。 |
+| **summary_preview / 启发式摘要** | 前段压成 1 条摘要 msg，后段保留 | 做法 1：新 list = `[摘要 msg, *尾部]` 替换；或做法 2：前段打 mark，摘要进 _compressed_summary。 |
+| **LLM 摘要** | 用模型把一段历史压成 1 条（或几条）摘要 msg | 同上：做法 1 替换为新 list，或做法 2 打 mark + _compressed_summary。 |
+| **AgentScope 式（结构化摘要 + keep_recent）** | 不删消息，仅给被压掉的消息打 compressed，摘要单独存 | list **不截断**，仅部分 msg 加 mark；摘要存 **_compressed_summary**；get 时 exclude_mark + prepend_summary 拼出「摘要 + 未压缩的几条」。 |
+
+实现时可按策略选用「替换 list」或「mark + _compressed_summary」之一，或二者并存（如 truncate 用替换，LLM 摘要用 mark+摘要）。
 
 #### 工作逻辑图
 
