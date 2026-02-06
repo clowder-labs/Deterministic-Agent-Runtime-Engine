@@ -14,7 +14,10 @@ when not provided, the agent degrades gracefully to a ReAct-style loop.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import hashlib
+import json
 import logging
+from numbers import Real
 import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -39,7 +42,9 @@ from dare_framework.plan.types import (
     Envelope,
     Evidence,
     Milestone,
+    MilestoneSummary,
     RunResult,
+    SessionSummary,
     StepResult,
     Task,
     ToolLoopRequest,
@@ -65,6 +70,7 @@ class MilestoneResult:
 
 
 if TYPE_CHECKING:
+    from dare_framework.config.kernel import IConfigProvider
     from dare_framework.context import Budget
     from dare_framework.context.kernel import IContext
     from dare_framework.event.kernel import IEventLog
@@ -139,6 +145,7 @@ class DareAgent(BaseAgent):
         evidence_collector: IEvidenceCollector | None = None,
         # Configuration
         budget: Budget | None = None,
+        config_provider: IConfigProvider | None = None,
         execution_mode: str = "model_driven",  # "model_driven" or "step_driven"
         max_milestone_attempts: int = 3,
         max_plan_attempts: int = 3,
@@ -164,6 +171,7 @@ class DareAgent(BaseAgent):
             hooks: Hook implementations invoked at lifecycle phases (optional).
             telemetry: Telemetry provider for traces/metrics/logs (optional).
             budget: Resource budget (optional).
+            config_provider: Optional config provider for config-aware session metadata.
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
             max_tool_iterations: Max tool call iterations per execute loop.
@@ -225,6 +233,7 @@ class DareAgent(BaseAgent):
         self._max_plan_attempts = max_plan_attempts
         self._max_tool_iterations = max_tool_iterations
         self._verbose = verbose
+        self._config_provider = config_provider
 
 
         # Runtime state (set during execution)
@@ -547,11 +556,25 @@ class DareAgent(BaseAgent):
             "run_id": self._session_state.run_id,
         })
 
+        config_hash = self._current_config_hash()
+
         # Log session start
-        await self._log_event("session.start", {
+        session_start_payload = {
             "task_id": self._session_state.task_id,
             "run_id": self._session_state.run_id,
-        })
+        }
+        if config_hash:
+            session_start_payload["config_hash"] = config_hash
+        await self._log_event("session.start", session_start_payload)
+
+        # Inject prior run summary before user input to preserve continuity.
+        if task.previous_session_summary is not None:
+            self._context.stm_add(
+                Message(
+                    role="system",
+                    content=self._format_previous_session_summary(task.previous_session_summary),
+                )
+            )
 
         # Add user message to STM
         user_message = Message(role="user", content=task.description)
@@ -564,7 +587,7 @@ class DareAgent(BaseAgent):
             await self._log_event("session.milestones_predefined", {
                 "count": len(milestones),
             })
-        elif self._planner is not None:
+        elif self._planner is not None and hasattr(self._planner, "decompose"):
             # Decompose task into milestones using planner
             self._log("Decomposing task into milestones...")
             decomposition = await self._planner.decompose(task, self._context)
@@ -574,7 +597,8 @@ class DareAgent(BaseAgent):
                 "reasoning": decomposition.reasoning,
             })
         else:
-            # Fall back to single milestone
+            # Fall back to default milestone derivation for planner implementations
+            # that only implement plan() (legacy tests/mocks).
             milestones = task.to_milestones()
             await self._log_event("session.milestones_default", {
                 "count": len(milestones),
@@ -588,6 +612,7 @@ class DareAgent(BaseAgent):
 
         # Run milestone loop for each milestone
         milestone_results = []
+        milestone_summaries: list[MilestoneSummary] = []
         errors: list[str] = []
 
         for idx, milestone in enumerate(milestones):
@@ -606,6 +631,9 @@ class DareAgent(BaseAgent):
             result = await self._run_milestone_loop(milestone)
             milestone_results.append(result)
             print(f"[DEBUG] Milestone {idx + 1} result: success={result.success}", flush=True)
+            milestone_summaries.append(
+                self._build_milestone_summary(milestone, result, self._session_state.current_milestone_state)
+            )
 
             if not result.success:
                 errors.extend(result.errors or ["milestone failed"])
@@ -631,10 +659,26 @@ class DareAgent(BaseAgent):
             if last_result.outputs:
                 output = last_result.outputs[-1]
 
+        session_end = time.perf_counter()
+        session_summary = SessionSummary(
+            session_id=self._session_state.run_id,
+            task_id=self._session_state.task_id,
+            success=success,
+            started_at=session_start,
+            ended_at=session_end,
+            duration_ms=(session_end - session_start) * 1000.0,
+            milestones=milestone_summaries,
+            final_output=output,
+            errors=list(errors),
+            metadata={"config_hash": config_hash} if config_hash else {},
+        )
+
         return RunResult(
             success=success,
             output=output,
             errors=errors,
+            session_id=self._session_state.run_id,
+            session_summary=session_summary,
         )
 
     # =========================================================================
@@ -656,6 +700,8 @@ class DareAgent(BaseAgent):
 
         for attempt in range(self._max_milestone_attempts):
             print(f"[DEBUG] Milestone attempt {attempt + 1}/{self._max_milestone_attempts}", flush=True)
+            if milestone_state is not None:
+                milestone_state.attempts = attempt + 1
             # Budget check
             self._context.budget_check()
 
@@ -957,8 +1003,8 @@ class DareAgent(BaseAgent):
 
             for tool_call in response.tool_calls:
                 name = tool_call.get("name") or ""
+                capability_id = tool_call.get("capability_id") or name or "unknown_tool"
                 tool_call_id = tool_call.get("id") or f"{capability_id}_{iteration + 1}_{uuid4().hex[:6]}"
-                capability_id = tool_call.get("capability_id") or name
                 descriptor = capability_index.get(capability_id) or capability_index.get(name)
 
                 # Check for plan tool (registry kind preferred, prefix supported)
@@ -1478,23 +1524,93 @@ class DareAgent(BaseAgent):
         except (TypeError, ValueError):
             return 0
 
+    def _build_milestone_summary(
+        self,
+        milestone: Milestone,
+        result: MilestoneResult,
+        state: MilestoneState | None,
+    ) -> MilestoneSummary:
+        attempts = state.attempts if state is not None else 0
+        evidence_count = len(state.evidence_collected) if state is not None else 0
+        reflections_count = len(state.reflections) if state is not None else 0
+        return MilestoneSummary(
+            milestone_id=milestone.milestone_id,
+            description=milestone.description,
+            attempts=attempts,
+            success=result.success,
+            outputs=list(result.outputs),
+            errors=list(result.errors),
+            evidence_count=evidence_count,
+            reflections_count=reflections_count,
+        )
+
+    def _format_previous_session_summary(self, summary: SessionSummary) -> str:
+        payload = summary.to_dict()
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+        return f"Previous session summary:\n{serialized}"
+
+    def _current_config_hash(self) -> str | None:
+        if self._config_provider is None:
+            return None
+        try:
+            config = self._config_provider.current()
+        except Exception:
+            return None
+        if config is None:
+            return None
+        if hasattr(config, "to_dict"):
+            payload = config.to_dict()
+        elif isinstance(config, dict):
+            payload = dict(config)
+        else:
+            payload = {"repr": repr(config)}
+        serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _coerce_number(self, value: Any) -> float | int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, Real):
+            return value
+        return None
+
+    def _safe_budget_remaining(self, resource: str) -> float | int | None:
+        getter = getattr(self._context, "budget_remaining", None)
+        if not callable(getter):
+            return None
+        try:
+            remaining = self._coerce_number(getter(resource))
+        except Exception:
+            return None
+        if remaining is None:
+            return None
+        if remaining == float("inf"):
+            return None
+        return remaining
+
     def _budget_stats(self) -> dict[str, Any]:
-        budget = self._context.budget
-        tokens_remaining = self._context.budget_remaining("tokens")
-        tool_calls_remaining = self._context.budget_remaining("tool_calls")
+        budget = getattr(self._context, "budget", None)
+        tokens_remaining = self._safe_budget_remaining("tokens")
+        tool_calls_remaining = self._safe_budget_remaining("tool_calls")
+        used_time_seconds = self._coerce_number(getattr(budget, "used_time_seconds", None))
+        max_time_seconds = self._coerce_number(getattr(budget, "max_time_seconds", None))
+        if max_time_seconds is None:
+            time_remaining_seconds = None
+        elif used_time_seconds is None:
+            time_remaining_seconds = max(0.0, float(max_time_seconds))
+        else:
+            time_remaining_seconds = max(0.0, float(max_time_seconds) - float(used_time_seconds))
         return {
-            "tokens_used": budget.used_tokens,
-            "tokens_limit": budget.max_tokens,
-            "cost_used": budget.used_cost,
-            "tokens_remaining": None if tokens_remaining == float("inf") else tokens_remaining,
-            "tool_calls_used": budget.used_tool_calls,
-            "tool_calls_remaining": None
-            if tool_calls_remaining == float("inf")
-            else tool_calls_remaining,
-            "time_used_seconds": budget.used_time_seconds,
-            "time_remaining_seconds": None
-            if budget.max_time_seconds is None
-            else max(0.0, budget.max_time_seconds - budget.used_time_seconds),
+            "tokens_used": self._coerce_number(getattr(budget, "used_tokens", None)),
+            "tokens_limit": self._coerce_number(getattr(budget, "max_tokens", None)),
+            "cost_used": self._coerce_number(getattr(budget, "used_cost", None)),
+            "tokens_remaining": tokens_remaining,
+            "tool_calls_used": self._coerce_number(getattr(budget, "used_tool_calls", None)),
+            "tool_calls_remaining": tool_calls_remaining,
+            "time_used_seconds": used_time_seconds,
+            "time_remaining_seconds": time_remaining_seconds,
         }
 
     async def _finalize_execute(self, start_time: float, result: dict[str, Any]) -> dict[str, Any]:
