@@ -66,7 +66,7 @@ class DefaultStepExecutor:
 
     def __init__(
         self,
-        tool_gateway: "IToolGateway",
+        tool_gateway: IToolGateway,
         evidence_collector: DefaultEvidenceCollector | None = None,
     ) -> None:
         """Initialize step executor.
@@ -81,7 +81,7 @@ class DefaultStepExecutor:
     async def execute_step(
         self,
         step: ValidatedStep,
-        ctx: "IContext",
+        ctx: IContext,
         previous_results: list[StepResult],
     ) -> StepResult:
         """Execute a single validated step.

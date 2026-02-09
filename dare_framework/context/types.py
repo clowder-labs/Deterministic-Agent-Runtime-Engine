@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from dare_framework.tool import CapabilityDescriptor
+
 if TYPE_CHECKING:
     from dare_framework.model.types import Prompt
 
@@ -47,7 +49,7 @@ class AssembledContext:
 
     messages: list[Message]
     sys_prompt: Prompt | None = None
-    tools: list[dict[str, Any]] = field(default_factory=list)
+    tools: list[CapabilityDescriptor] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

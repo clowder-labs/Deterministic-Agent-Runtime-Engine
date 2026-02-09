@@ -32,7 +32,7 @@ from dare_framework.tool._internal.tools import (
 )
 from dare_framework.tool._internal.tools.noop_tool import NoopTool
 from dare_framework.tool.types import RunContext
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 
 # BaseAgent builder requires a model adapter even when this example only exercises tools.
@@ -93,7 +93,7 @@ async def run_read_file(workspace_root: str, read_path: str):
     )
     agent = builder.build()
 
-    tool_defs = agent.context.listing_tools()
+    tool_defs = agent.context.list_tools()
     read_tool_id = next(
         tool_def["capability_id"]
         for tool_def in tool_defs

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from dare_framework.agent import DareAgent
+from dare_framework.config import Config
 from dare_framework.context import Budget, Context, Message
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.types import SessionSummary, Task
@@ -142,7 +143,7 @@ class TestDareAgentInit:
     def test_init_with_context(self) -> None:
         """Agent can use a provided context."""
         model = MockModelAdapter()
-        context = Context(id="custom-context", budget=Budget(max_tokens=1000))
+        context = Context(id="custom-context", budget=Budget(max_tokens=1000), config=Config())
         agent = DareAgent(name="test-agent", model=model, context=context)
 
         assert agent.context.id == "custom-context"

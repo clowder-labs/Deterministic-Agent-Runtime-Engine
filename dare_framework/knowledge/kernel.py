@@ -29,7 +29,7 @@ class IKnowledge(IRetrievalContext, Protocol):
     Inherits IRetrievalContext.get(); adds add() for ingesting content.
     """
 
-    def get(self, query: str, **kwargs: Any) -> list["Message"]:
+    def get(self, query: str, **kwargs: Any) -> list[Message]:
         """Retrieve relevant knowledge based on query.
 
         Args:

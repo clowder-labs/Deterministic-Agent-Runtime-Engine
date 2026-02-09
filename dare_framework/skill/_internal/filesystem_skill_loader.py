@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dare_framework.skill import ISkillLoader
 from dare_framework.skill.types import Skill
 from dare_framework.skill._internal._skill_parser import parse_skill_md
 
 
-class FileSystemSkillLoader:
+class FileSystemSkillLoader(ISkillLoader):
     """Loads skills from directories containing SKILL.md files."""
 
     def __init__(self, *paths: str | Path) -> None:
@@ -17,7 +18,7 @@ class FileSystemSkillLoader:
         Each path can be a directory containing skill subdirs, or a direct skill dir
         with SKILL.md.
         """
-        self._paths = [Path(p) for p in paths]
+        self._paths = [Path(path) for path in paths]
 
     def load(self) -> list[Skill]:
         """Load and parse all skills from configured paths."""

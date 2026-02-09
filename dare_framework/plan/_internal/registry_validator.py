@@ -36,8 +36,8 @@ class RegistryPlanValidator(IValidator):
     def __init__(
         self,
         *,
-        tool_gateway: "IToolGateway | None" = None,
-        tool_manager: "IToolManager | None" = None,
+        tool_gateway: IToolGateway | None = None,
+        tool_manager: IToolManager | None = None,
         name: str = "registry_plan_validator",
     ) -> None:
         if tool_gateway is None and tool_manager is None:
@@ -92,7 +92,7 @@ class RegistryPlanValidator(IValidator):
 
     async def _capability_index(
         self,
-    ) -> tuple[dict[str, "CapabilityDescriptor"], dict[str, list["CapabilityDescriptor"]]]:
+    ) -> tuple[dict[str, CapabilityDescriptor], dict[str, list[CapabilityDescriptor]]]:
         capabilities: list[CapabilityDescriptor] = []
         if self._tool_gateway is not None:
             capabilities = list(await self._tool_gateway.list_capabilities())
@@ -114,8 +114,8 @@ class RegistryPlanValidator(IValidator):
     def _validate_step(
         self,
         step: ProposedStep,
-        capability_index: dict[str, "CapabilityDescriptor"],
-        alias_index: dict[str, list["CapabilityDescriptor"]],
+        capability_index: dict[str, CapabilityDescriptor],
+        alias_index: dict[str, list[CapabilityDescriptor]],
         errors: list[str],
     ) -> ValidatedStep | None:
         if step.capability_id.startswith("plan:"):
@@ -170,9 +170,9 @@ def _derive_envelope(
 
 
 def _add_alias(
-    alias_index: dict[str, list["CapabilityDescriptor"]],
+    alias_index: dict[str, list[CapabilityDescriptor]],
     alias: str,
-    capability: "CapabilityDescriptor",
+    capability: CapabilityDescriptor,
 ) -> None:
     if not alias:
         return
@@ -181,10 +181,10 @@ def _add_alias(
 
 def _resolve_capability(
     raw_id: str,
-    capability_index: dict[str, "CapabilityDescriptor"],
-    alias_index: dict[str, list["CapabilityDescriptor"]],
+    capability_index: dict[str, CapabilityDescriptor],
+    alias_index: dict[str, list[CapabilityDescriptor]],
     errors: list[str],
-) -> tuple[str, "CapabilityDescriptor | None"]:
+) -> tuple[str, CapabilityDescriptor | None]:
     capability = capability_index.get(raw_id)
     if capability is not None:
         return capability.id, capability

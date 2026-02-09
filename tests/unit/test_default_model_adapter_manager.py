@@ -31,6 +31,12 @@ def test_default_manager_unsupported_adapter_raises() -> None:
         manager.load_model_adapter(config=config)
 
 
+def test_default_manager_requires_config_when_none_provided() -> None:
+    manager = create_default_model_adapter_manager()
+    with pytest.raises(ValueError, match="requires a Config"):
+        manager.load_model_adapter()
+
+
 def test_builder_uses_default_manager_when_missing() -> None:
     config = Config()
     agent = BaseAgent.simple_chat_agent_builder("default-manager-test").with_config(config).build()

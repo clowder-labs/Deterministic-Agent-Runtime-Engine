@@ -20,14 +20,14 @@ if TYPE_CHECKING:
     from dare_framework.model import IModelAdapter
 
 
-def _dedup_messages(messages: List["Message"]) -> Tuple[List["Message"], int]:
+def _dedup_messages(messages: List[Message]) -> Tuple[List[Message], int]:
     """Lightweight de-duplication on (role, content).
 
     保留首次出现的 `(role, content)` 组合，后续完全相同的消息视为冗余并移除。
     不考虑 metadata/name 差异，保持实现简单且性能可接受。
     """
     seen: set[int] = set()
-    result: List["Message"] = []
+    result: List[Message] = []
     removed = 0
 
     for msg in messages:
@@ -43,10 +43,10 @@ def _dedup_messages(messages: List["Message"]) -> Tuple[List["Message"], int]:
 
 
 def _build_summary_preview(
-    messages: List["Message"],
+    messages: List[Message],
     max_messages: int,
     tail_max: int = 10,
-) -> Tuple[List["Message"], int]:
+) -> Tuple[List[Message], int]:
     """Heuristic, model-free summary strategy.
 
     - 将较早的历史折叠为一条 system 消息（对话预览）；
@@ -87,13 +87,13 @@ def _build_summary_preview(
         metadata={"compressed": True, "strategy": "summary_preview"},
     )
 
-    new_messages: List["Message"] = [summary_message, *tail]
+    new_messages: List[Message] = [summary_message, *tail]
     removed = total - len(new_messages)
     return new_messages, removed
 
 
 def compress_context(
-    context: "IContext",
+    context: IContext,
     *,
     phase: str | None = None,
     max_messages: int | None = None,
@@ -125,7 +125,7 @@ def compress_context(
     if not callable(stm_get) or not callable(stm_clear) or not callable(stm_add):
         return
 
-    messages: List["Message"] = list(stm_get())
+    messages: List[Message] = list(stm_get())
     if not messages:
         return
 
@@ -163,9 +163,9 @@ def compress_context(
 
 
 async def compress_context_llm_summary(
-    context: "IContext",
+    context: IContext,
     *,
-    model: "IModelAdapter",
+    model: IModelAdapter,
     max_messages: int,
     keep_tail: int = 8,
     system_prompt: str | None = None,
@@ -191,7 +191,7 @@ async def compress_context_llm_summary(
     if not callable(stm_get) or not callable(stm_clear) or not callable(stm_add):
         return
 
-    messages: List["Message"] = list(stm_get())
+    messages: List[Message] = list(stm_get())
     total = len(messages)
     if total <= max_messages:
         return
@@ -280,4 +280,3 @@ async def compress_context_llm_summary(
 
 
 __all__ = ["compress_context", "compress_context_llm_summary"]
-

@@ -2,7 +2,7 @@
 
 ## 1. Scope and Method
 This assessment reviews the current `dare_framework/` domains against the
-existing design docs under `docs/design/module_design/` and `docs/design/Interfaces.md`.
+existing design docs under `docs/design/modules/` and `docs/design/Interfaces.md`.
 It focuses on:
 - Domain responsibilities and boundaries (kernel/interfaces/types vs _internal)
 - Type correctness and API signatures (forward refs, `Any`, return types)

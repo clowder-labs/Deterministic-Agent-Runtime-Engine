@@ -22,10 +22,11 @@ import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
 from dare_framework.agent._internal.output_normalizer import normalize_run_output
+from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent.interfaces import IAgentOrchestration
+from dare_framework.config import Config
 from dare_framework.context import AssembledContext, Context, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
 from dare_framework.hook.types import HookPhase
@@ -36,28 +37,25 @@ from dare_framework.observability._internal.otel_provider import (
     OTelTelemetryProvider,
 )
 from dare_framework.observability._internal.tracing_hook import ObservabilityHook
-from dare_framework.plan.types import (
-    DecompositionResult,
-    DonePredicate,
-    Envelope,
-    Evidence,
-    Milestone,
-    MilestoneSummary,
-    RunResult,
-    SessionSummary,
-    StepResult,
-    Task,
-    ToolLoopRequest,
-    ValidatedPlan,
-    VerifyResult,
-)
-from dare_framework.transport.types import TransportEnvelope, new_envelope_id
 from dare_framework.plan.interfaces import (
     IEvidenceCollector,
     IPlanAttemptSandbox,
     IStepExecutor,
 )
+from dare_framework.plan.types import (
+    DonePredicate,
+    Envelope,
+    Milestone,
+    MilestoneSummary,
+    RunResult,
+    SessionSummary,
+    Task,
+    ToolLoopRequest,
+    ValidatedPlan,
+    VerifyResult,
+)
 from dare_framework.tool.types import CapabilityKind
+from dare_framework.transport.types import TransportEnvelope, new_envelope_id
 
 
 @dataclass
@@ -78,7 +76,6 @@ if TYPE_CHECKING:
     from dare_framework.observability.kernel import ITelemetryProvider
     from dare_framework.memory import ILongTermMemory, IShortTermMemory
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
-    from dare_framework.tool import IToolProvider
     from dare_framework.tool.interfaces import IExecutionControl
     from dare_framework.tool.kernel import IToolGateway
     from dare_framework.transport.kernel import AgentChannel
@@ -128,7 +125,6 @@ class DareAgent(BaseAgent):
         short_term_memory: IShortTermMemory | None = None,
         long_term_memory: ILongTermMemory | None = None,
         # Tool components (optional)
-        tools: IToolProvider | None = None,
         tool_gateway: IToolGateway | None = None,
         execution_control: IExecutionControl | None = None,
         # Plan components (optional - enables full five-layer mode)
@@ -193,9 +189,8 @@ class DareAgent(BaseAgent):
                 short_term_memory=short_term_memory,
                 long_term_memory=long_term_memory,
                 budget=budget or BudgetClass(),
+                config=Config(),
             )
-            if tools is not None:
-                self._context._tool_provider = tools
         else:
             self._context = context
 

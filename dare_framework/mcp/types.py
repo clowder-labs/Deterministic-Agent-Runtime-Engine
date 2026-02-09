@@ -57,7 +57,7 @@ class MCPServerConfig:
     cwd: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *, source_path: str = "") -> "MCPServerConfig":
+    def from_dict(cls, data: dict[str, Any], *, source_path: str = "") -> MCPServerConfig:
         """Create MCPServerConfig from a dictionary.
 
         Args:
@@ -175,7 +175,7 @@ class MCPConfigFile:
     servers: list[MCPServerConfig] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], source_path: str = "") -> "MCPConfigFile":
+    def from_dict(cls, data: dict[str, Any], source_path: str = "") -> MCPConfigFile:
         """Parse configuration from dictionary.
 
         Supports two formats:

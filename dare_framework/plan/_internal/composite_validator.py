@@ -15,6 +15,10 @@ from dare_framework.plan.interfaces import IValidator
 class CompositeValidator(IValidator):
     """Run validators in order and stop early on failure."""
 
+    @property
+    def name(self) -> str:
+        return "composite-validator"
+
     def __init__(self, validators: list[IValidator]) -> None:
         self._validators = list(validators)
 
@@ -27,7 +31,7 @@ class CompositeValidator(IValidator):
         return current
 
     async def verify_milestone(
-        self, result: Any, ctx: Any, *, plan: Any = None
+            self, result: Any, ctx: Any, *, plan: Any = None
     ) -> Any:
         last = None
         for validator in self._validators:
@@ -38,4 +42,3 @@ class CompositeValidator(IValidator):
 
 
 __all__ = ["CompositeValidator"]
-

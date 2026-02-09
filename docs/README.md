@@ -54,7 +54,7 @@
 | `design/Architecture.md` | **架构设计**<br/>不变量、分层/分域、核心流程与关键约束、清理计划 | ⭐ 最终架构设计 |
 | `design/Interfaces.md` | **接口设计**<br/>按 domain 的接口位与数据结构（权威签名/类型） | ⭐ 权威接口 |
 | `design/DARE_Formal_Design.md` | **正式设计文档**<br/>面向整体架构与核心流程的最终设计 | ⭐ 最终设计 |
-| `design/module_design/README.md` | **模块级设计索引**<br/>按 Agent/模块分区的详细设计入口（含 Agent 示例） | ✅ 详细设计 |
+| `design/modules/README.md` | **模块级设计索引**<br/>按 Agent/模块分区的详细设计入口（含 Agent 示例） | ✅ 详细设计 |
 | `design/DARE_alignment.md` | **对齐清单**<br/>当前架构/接口的 claim → 证据/实现映射 | ✅ 对齐与追溯 |
 | `design/DARE_evidence.yaml` | **证据索引**<br/>claims + sources + anchors（用于文档一致性与回归） | ✅ 对齐与追溯 |
 

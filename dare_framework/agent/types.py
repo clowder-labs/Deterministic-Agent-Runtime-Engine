@@ -17,7 +17,7 @@ AgentDeps: TypeAlias = Any
 class ISessionSummaryStore(Protocol):
     """Persistent store for session summaries."""
 
-    async def save(self, summary: "SessionSummary") -> None:
+    async def save(self, summary: SessionSummary) -> None:
         """Persist a session summary."""
         ...
 

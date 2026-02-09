@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 def create_long_term_memory(
     config: dict[str, Any] | LongTermMemoryConfig,
-    embedding_adapter: "IEmbeddingAdapter | None" = None,
+    embedding_adapter: IEmbeddingAdapter | None = None,
 ) -> ILongTermMemory | None:
     """Build ILongTermMemory from config.
 
@@ -59,7 +59,7 @@ def _create_rawdata_ltm(cfg: LongTermMemoryConfig) -> ILongTermMemory:
 
 def _create_vector_ltm(
     cfg: LongTermMemoryConfig,
-    embedding_adapter: "IEmbeddingAdapter | None",
+    embedding_adapter: IEmbeddingAdapter | None,
 ) -> ILongTermMemory | None:
     if embedding_adapter is None:
         return None

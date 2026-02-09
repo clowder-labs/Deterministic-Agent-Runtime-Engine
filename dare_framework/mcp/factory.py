@@ -56,7 +56,7 @@ class MCPClientFactory:
         )
         return client
 
-    def _create_transport(self, config: MCPServerConfig) -> "ITransport":
+    def _create_transport(self, config: MCPServerConfig) -> ITransport:
         """Create transport based on configuration.
 
         Args:

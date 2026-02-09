@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 def create_knowledge(
     config: dict[str, Any] | KnowledgeConfig,
-    embedding_adapter: "IEmbeddingAdapter | None" = None,
+    embedding_adapter: IEmbeddingAdapter | None = None,
 ) -> IKnowledge | None:
     """Build IKnowledge from config.
 
@@ -59,7 +59,7 @@ def _create_rawdata_knowledge(cfg: KnowledgeConfig) -> IKnowledge:
 
 def _create_vector_knowledge(
     cfg: KnowledgeConfig,
-    embedding_adapter: "IEmbeddingAdapter | None",
+    embedding_adapter: IEmbeddingAdapter | None,
 ) -> IKnowledge | None:
     if embedding_adapter is None:
         return None

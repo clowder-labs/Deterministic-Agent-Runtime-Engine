@@ -66,7 +66,7 @@ class VectorKnowledge(IKnowledge):
         doc = Document(content=content, metadata=metadata)
         self.add_document(doc, auto_embed=auto_embed)
 
-    def get(self, query: str, **kwargs) -> list["Message"]:
+    def get(self, query: str, **kwargs) -> list[Message]:
         """Retrieve relevant knowledge based on query.
 
         Args:
@@ -102,7 +102,7 @@ class VectorKnowledge(IKnowledge):
         )
 
         # Convert documents to messages
-        messages: list["Message"] = []
+        messages: list[Message] = []
         for doc, similarity in search_results:
             message = doc.to_message()
             # Add similarity score to metadata

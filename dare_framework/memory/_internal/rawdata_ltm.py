@@ -34,7 +34,7 @@ def _record_to_message(record: Any) -> Message:
     )
 
 
-class RawDataLongTermMemory(ILongTermMemory, IComponent):
+class RawDataLongTermMemory(ILongTermMemory):
     """Long-term memory backed by knowledge raw data storage (substring search, no embedding).
 
     Persists Message as content + metadata (role, name, etc.); get() searches by substring

@@ -51,7 +51,7 @@ def enrich_prompt_with_skill(base_prompt: Prompt, skill: Skill) -> Prompt:
     )
 
 
-def enrich_prompt_with_skill_summaries(base_prompt: Prompt, skills: list["Skill"]) -> Prompt:
+def enrich_prompt_with_skill_summaries(base_prompt: Prompt, skills: list[Skill]) -> Prompt:
     """Append brief catalog of skills (id, name, description) for auto_skill_mode. Use search_skill(skill_id) to load full content into dict; assemble merges dict into context for next LLM input."""
     if not skills:
         return base_prompt

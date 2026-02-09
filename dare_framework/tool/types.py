@@ -135,10 +135,10 @@ class RunContext(Generic[DepsT]):
     """Invocation context passed into tools."""
 
     deps: DepsT | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     run_id: str = ""
     task_id: str | None = None
     milestone_id: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
     config: Any | None = None
 
 

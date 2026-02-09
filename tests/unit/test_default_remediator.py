@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from dare_framework.config import Config
 from dare_framework.context import Context, Message
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.kernel import IModelAdapter
@@ -21,6 +22,10 @@ class DummyModelAdapter(IModelAdapter):
         return "dummy"
 
     @property
+    def model(self) -> str:
+        return "dummy-model"
+
+    @property
     def component_type(self) -> ComponentType:
         return ComponentType.MODEL_ADAPTER
 
@@ -35,7 +40,7 @@ class DummyModelAdapter(IModelAdapter):
 async def test_default_remediator_uses_model_input() -> None:
     model = DummyModelAdapter()
     remediator = DefaultRemediator(model)
-    ctx = Context(id="remediator-test")
+    ctx = Context(id="remediator-test", config=Config())
     ctx.stm_add(Message(role="user", content="do something"))
 
     verify_result = VerifyResult(success=False, errors=["bad"])

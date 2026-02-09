@@ -7,8 +7,8 @@ from typing import Any
 from dare_framework.config.types import Config, LLMConfig
 from dare_framework.model.interfaces import IModelAdapterManager
 from dare_framework.model.kernel import IModelAdapter
-from dare_framework.model.openai_adapter import OpenAIModelAdapter
-from dare_framework.model.openrouter_adapter import OpenRouterModelAdapter
+from dare_framework.model.adapters.openai_adapter import OpenAIModelAdapter
+from dare_framework.model.adapters.openrouter_adapter import OpenRouterModelAdapter
 
 
 class DefaultModelAdapterManager(IModelAdapterManager):
@@ -18,7 +18,9 @@ class DefaultModelAdapterManager(IModelAdapterManager):
         self._config = config
 
     def load_model_adapter(self, *, config: Config | None = None) -> IModelAdapter | None:
-        effective = config or self._config or Config()
+        effective = config or self._config
+        if effective is None:
+            raise ValueError("DefaultModelAdapterManager requires a Config (in constructor or load_model_adapter).")
         llm = effective.llm
         adapter_name = _normalize_adapter_name(llm.adapter)
         if adapter_name == "openai":

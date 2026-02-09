@@ -1,8 +1,8 @@
 """context domain facade."""
 
-from dare_framework.context.kernel import IContext, IRetrievalContext
+from dare_framework.context.kernel import IContext, IAssembleContext, IRetrievalContext
 from dare_framework.context.types import AssembledContext, Budget, Message
-from dare_framework.context._internal.context import Context
+from dare_framework.context.context import Context
 
 __all__ = [
     "Context",
@@ -11,4 +11,5 @@ __all__ = [
     "IContext",
     "IRetrievalContext",
     "Message",
+    "IAssembleContext"
 ]

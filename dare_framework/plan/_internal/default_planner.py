@@ -141,7 +141,7 @@ class DefaultPlanner:
 
     def __init__(
         self,
-        model: "IModelAdapter",
+        model: IModelAdapter,
         *,
         system_prompt: str | None = None,
         verbose: bool = False,
@@ -167,7 +167,7 @@ class DefaultPlanner:
         """Component name."""
         return "default-planner"
 
-    async def plan(self, ctx: "IContext") -> ProposedPlan:
+    async def plan(self, ctx: IContext) -> ProposedPlan:
         """Generate a plan using LLM.
 
         Args:
@@ -285,7 +285,7 @@ Output ONLY valid JSON following the structure defined in your instructions."""
                 ],
             )
 
-    async def decompose(self, task: Task, ctx: "IContext") -> DecompositionResult:
+    async def decompose(self, task: Task, ctx: IContext) -> DecompositionResult:
         """Decompose a task into milestones.
 
         Default implementation returns a single milestone from task description.
@@ -313,4 +313,3 @@ Output ONLY valid JSON following the structure defined in your instructions."""
 
 
 __all__ = ["DefaultPlanner", "DEFAULT_PLAN_SYSTEM_PROMPT"]
-

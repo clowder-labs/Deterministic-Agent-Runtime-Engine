@@ -6,7 +6,7 @@ from dare_framework.agent import FiveLayerAgent
 from dare_framework.plan.types import ProposedPlan, ProposedStep, Task
 from dare_framework.tool._internal.native_tool_provider import NativeToolProvider
 from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 from planners import DeterministicPlanner
 from validators import SimpleValidator

@@ -23,7 +23,7 @@ from dare_framework.plan import Envelope
 from dare_framework.tool._internal.control.default_execution_control import DefaultExecutionControl
 from dare_framework.tool._internal.tools import EchoTool, NoopTool
 from dare_framework.tool.types import RunContext
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 
 # Configuration (consistent with examples/base_tool)
 WORKSPACE_ROOT = os.getenv("TOOL_WORKSPACE_ROOT", ".")

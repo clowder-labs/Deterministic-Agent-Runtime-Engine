@@ -72,7 +72,7 @@ class Task:
     task_id: str | None = None
     milestones: list[Milestone] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    previous_session_summary: "SessionSummary | None" = None
+    previous_session_summary: SessionSummary | None = None
     resume_from_checkpoint: str | None = None
 
     def to_milestones(self) -> list[Milestone]:
@@ -168,7 +168,7 @@ class ProposedPlan:
     """Untrusted plan proposal produced by a planner."""
 
     plan_description: str
-    steps: list["ProposedStep"] = field(default_factory=list)
+    steps: list[ProposedStep] = field(default_factory=list)
     attempt: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -178,7 +178,7 @@ class ValidatedPlan:
     """Trusted plan derived from registries and policy/trust checks."""
 
     plan_description: str
-    steps: list["ValidatedStep"] = field(default_factory=list)
+    steps: list[ValidatedStep] = field(default_factory=list)
     success: bool = True
     errors: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -199,7 +199,7 @@ class VerifyResult:
     success: bool
     errors: list[str] = field(default_factory=list)
     evidence_required: list[str] = field(default_factory=list)
-    evidence_collected: list["Evidence"] = field(default_factory=list)
+    evidence_collected: list[Evidence] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

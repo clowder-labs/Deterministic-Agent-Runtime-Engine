@@ -112,7 +112,7 @@ flowchart TB
 
 ## 2. 编排层模板 Agent 设计（Template Agents）
 
-编排层内置两类“模板 Agent”，作为默认的可复用编排实现：`DareAgent` 与 `ReactAgent`。模板设计所需的 Prompt/Skill/Tool 模板已下沉至模块文档（见 `docs/design/module_design/model/Model_Prompt_Management.md`、`docs/design/module_design/skill/README.md`、`docs/design/module_design/tool/README.md`）。
+编排层内置两类“模板 Agent”，作为默认的可复用编排实现：`DareAgent` 与 `ReactAgent`。模板设计所需的 Prompt/Skill/Tool 模板已下沉至模块文档（见 `docs/design/modules/model/Model_Prompt_Management.md`、`docs/design/modules/skill/README.md`、`docs/design/modules/tool/README.md`）。
 
 ### 2.1 DareAgent（五层循环模板）
 - **定位**：完整编排模板，提供 Session → Milestone → Plan → Execute → Tool 的闭环。
@@ -330,21 +330,21 @@ flowchart LR
 
 ## 5. 各核心模块详细设计
 
-详细设计索引见 `docs/design/module_design/README.md`。
+详细设计索引见 `docs/design/modules/README.md`。
 
 ### 5.1 agent
-详细设计：`docs/design/module_design/agent/README.md`。
+详细设计：`docs/design/modules/agent/README.md`。
 - **职责**：运行入口与编排策略（五层循环 + 降级模式）。
 - **关键类型**：`Task` / `Milestone` / `RunResult` / `SessionState`。
 - **核心接口**：`IAgent`、`IAgentOrchestration`（`dare_framework/agent/kernel.py`, `interfaces.py`）。
 - **默认实现**：`DareAgent`、`ReactAgent`、`SimpleChatAgent`（`dare_framework/agent/dare_agent.py`, `react_agent.py`, `simple_chat.py`）。
 - **文档结构**：按 Agent 类型拆分设计文档，且 DareAgent 的 Session/Milestone 设计独立成文档。
-  参考：`docs/design/module_design/agent/DareAgent.md`, `docs/design/module_design/agent/DareAgent_Session.md`, `docs/design/module_design/agent/DareAgent_Milestone.md`, `docs/design/module_design/agent/ReactAgent.md`, `docs/design/module_design/agent/SimpleChatAgent.md`。
+  参考：`docs/design/modules/agent/DareAgent.md`, `docs/design/modules/agent/DareAgent_Session.md`, `docs/design/modules/agent/DareAgent_Milestone.md`, `docs/design/modules/agent/ReactAgent.md`, `docs/design/modules/agent/SimpleChatAgent.md`。
 - **扩展点**：自定义编排策略、执行控制（HITL）、Hook/Telemetry。
 - **现状限制**：ValidatedPlan.steps 未驱动执行；Hook payload schema 仍在收敛；SecurityBoundary 未接入。
 
 ### 5.2 context
-详细设计：`docs/design/module_design/context/README.md`。
+详细设计：`docs/design/modules/context/README.md`。
 - **职责**：上下文核心实体，负责 STM/LTM/Knowledge 组织与组装。
 - **关键类型**：`Message` / `Budget` / `AssembledContext`。
 - **核心接口**：`IContext` / `IRetrievalContext`。
@@ -353,7 +353,7 @@ flowchart LR
 - **现状限制**：默认 assemble 仅合入 STM；LTM/Knowledge 需扩展实现。
 
 ### 5.3 plan
-详细设计：`docs/design/module_design/plan/README.md`。
+详细设计：`docs/design/modules/plan/README.md`。
 - **职责**：计划生成、验证与修复；提供验证结果与证据模型。
 - **关键类型**：`ProposedPlan` / `ValidatedPlan` / `Envelope` / `DonePredicate`。
 - **核心接口**：`IPlanner` / `IValidator` / `IRemediator`。
@@ -362,7 +362,7 @@ flowchart LR
 - **现状限制**：ValidatedPlan.steps 未驱动执行；证据闭环仍在收敛。
 
 ### 5.4 tool
-详细设计：`docs/design/module_design/tool/README.md`。
+详细设计：`docs/design/modules/tool/README.md`。
 - **职责**：能力注册、描述与调用边界；工具调用唯一出口。
 - **关键类型**：`CapabilityDescriptor` / `ToolResult` / `Envelope`。
 - **核心接口**：`ITool` / `IToolProvider` / `IToolGateway` / `IToolManager`。
@@ -371,7 +371,7 @@ flowchart LR
 - **现状限制**：policy gate 未闭环；allowlist 未强制执行（Config 侧 TODO）。
 
 ### 5.5 mcp
-详细设计：`docs/design/module_design/mcp/README.md`。
+详细设计：`docs/design/modules/mcp/README.md`。
 - **职责**：MCP 客户端接入与配置加载，将 MCP tools 暴露为 `IToolProvider` 供 ToolManager 使用。
 - **关键类型**：`MCPServerConfig` / `MCPConfigFile` / `IMCPClient`。
 - **默认实现**：`MCPClient` / `MCPConfigLoader` / `MCPClientFactory` / `MCPToolProvider`（defaults）。
@@ -379,7 +379,7 @@ flowchart LR
 - **现状限制**：风险/审批信息依赖 server 侧提供，策略未在 MCP 层强制。
 
 ### 5.6 model
-详细设计：`docs/design/module_design/model/README.md`（Prompt 管理详见 `docs/design/module_design/model/Model_Prompt_Management.md`）。
+详细设计：`docs/design/modules/model/README.md`（Prompt 管理详见 `docs/design/modules/model/Model_Prompt_Management.md`）。
 - **职责**：统一模型调用入口 + Prompt 管理。
 - **关键类型**：`ModelInput` / `ModelResponse` / `Prompt`。
 - **核心接口**：`IModelAdapter` / `IModelAdapterManager` / `IPromptStore`。
@@ -388,7 +388,7 @@ flowchart LR
 - **现状限制**：无流式输出与多阶段 prompt pack。
 
 ### 5.7 skill
-详细设计：`docs/design/module_design/skill/README.md`。
+详细设计：`docs/design/modules/skill/README.md`。
 - **职责**：解析 SKILL.md、管理技能目录、脚本执行。
 - **关键类型**：`Skill` / `ISkillLoader` / `ISkillStore`。
 - **默认实现**：FileSystemSkillLoader + SkillStore + KeywordSelector。
@@ -396,56 +396,56 @@ flowchart LR
 - **现状限制**：默认注入策略需 Builder/Context 配合；权限审计需完善。
 
 ### 5.8 memory / knowledge
-详细设计：`docs/design/module_design/context/README.md`。
+详细设计：`docs/design/modules/memory_knowledge/README.md`。
 - **职责**：提供 STM/LTM/Knowledge 的检索实现。
 - **关键类型**：`IShortTermMemory` / `ILongTermMemory` / `IKnowledge`。
 - **默认实现**：`InMemorySTM`；LTM/Knowledge 通过工厂支持 rawdata/vector 默认实现。
 - **扩展点**：RAG/GraphRAG、向量库接入、策略排序。
 
 ### 5.9 embedding
-详细设计：`docs/design/module_design/embedding/README.md`。
+详细设计：`docs/design/modules/embedding/README.md`。
 - **职责**：文本向量化适配。
 - **关键类型**：`IEmbeddingAdapter` / `EmbeddingResult`。
 - **默认实现**：OpenAI Embedding Adapter（LangChain）。
 - **扩展点**：本地模型或其他云服务。
 
 ### 5.10 config
-详细设计：`docs/design/module_design/config/README.md`。
+详细设计：`docs/design/modules/config/README.md`。
 - **职责**：统一配置加载与合并（workspace + user）。
 - **关键类型**：`Config` / `LLMConfig` / `ComponentConfig`。
 - **默认实现**：`FileConfigProvider`（`.dare/config.json`）。
 - **扩展点**：多格式配置、热更新、allowlist enforcement。
 
 ### 5.11 observability
-详细设计：`docs/design/module_design/observability/README.md`。
+详细设计：`docs/design/modules/observability/README.md`。
 - **职责**：OpenTelemetry traces/metrics/logs。
 - **关键类型**：`ITelemetryProvider` / `ISpan` / `TelemetryConfig`。
 - **默认实现**：`OTelTelemetryProvider` + `ObservabilityHook`。
 - **扩展点**：自定义 exporter、采样/脱敏策略。
 
 ### 5.12 hook
-详细设计：`docs/design/module_design/hook/README.md`。
+详细设计：`docs/design/modules/hook/README.md`。
 - **职责**：生命周期扩展点（最佳努力执行）。
 - **关键类型**：`IHook` / `HookPhase` / `IExtensionPoint`。
 - **默认实现**：`HookExtensionPoint` + `CompositeExtensionPoint`。
 - **现状限制**：Hook payload schema 仍在收敛，字段规范需统一。
 
 ### 5.13 event
-详细设计：`docs/design/module_design/event/README.md`。
+详细设计：`docs/design/modules/event/README.md`。
 - **职责**：WORM Event Log，审计与重放。
 - **关键类型**：`Event` / `RuntimeSnapshot`。
 - **现状**：接口已定义，默认实现缺失。
 
 ### 5.14 security
-详细设计：`docs/design/module_design/security/README.md`。
+详细设计：`docs/design/modules/security/README.md`。
 - **职责**：Trust/Policy/Sandbox 统一边界。
 - **关键类型**：`RiskLevel` / `PolicyDecision` / `TrustedInput`。
 - **现状**：仅接口定义，未接入主流程。
 
 ### 5.15 transport（设计占位）
-详细设计：`docs/design/module_design/transport/Transport_Domain_Design.md`。
+详细设计：`docs/design/modules/transport/Transport_Domain_Design.md`。
 - **职责**：通道与消息处理管线（Netty 风格 Pipeline）。
-- **现状**：`docs/design/module_design/transport/Transport_Domain_Design.md` 为设计稿，尚未实现。
+- **现状**：`docs/design/modules/transport/Transport_Domain_Design.md` 为设计稿，尚未实现。
 
 ---
 

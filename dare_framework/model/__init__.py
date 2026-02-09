@@ -10,8 +10,7 @@ from dare_framework.model.factories import (
 from dare_framework.model.builtin_prompt_loader import BuiltInPromptLoader
 from dare_framework.model.filesystem_prompt_loader import FileSystemPromptLoader
 from dare_framework.model.layered_prompt_store import LayeredPromptStore
-from dare_framework.model.openai_adapter import OpenAIModelAdapter
-from dare_framework.model.openrouter_adapter import OpenRouterModelAdapter
+from dare_framework.model.adapters import *
 
 __all__ = [
     "IModelAdapter",

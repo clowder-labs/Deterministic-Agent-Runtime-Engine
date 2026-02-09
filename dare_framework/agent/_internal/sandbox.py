@@ -35,9 +35,9 @@ class DefaultPlanAttemptSandbox:
 
     def __init__(self) -> None:
         """Initialize sandbox with empty snapshot store."""
-        self._snapshots: dict[str, list["Message"]] = {}
+        self._snapshots: dict[str, list[Message]] = {}
 
-    def create_snapshot(self, ctx: "IContext") -> str:
+    def create_snapshot(self, ctx: IContext) -> str:
         """Create a snapshot of the current STM state.
 
         Args:
@@ -51,7 +51,7 @@ class DefaultPlanAttemptSandbox:
         self._snapshots[snapshot_id] = list(ctx.stm_get())
         return snapshot_id
 
-    def rollback(self, ctx: "IContext", snapshot_id: str) -> None:
+    def rollback(self, ctx: IContext, snapshot_id: str) -> None:
         """Rollback STM to a previous snapshot state.
 
         Args:

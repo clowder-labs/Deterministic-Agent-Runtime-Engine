@@ -17,6 +17,10 @@ class InMemorySTM(IShortTermMemory):
     Implements IShortTermMemory (which inherits IRetrievalContext).
     """
 
+    @property
+    def name(self) -> str:
+        return "in_memory_stm"
+
     def __init__(self) -> None:
         self._messages: list[Message] = []
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Protocol
+from abc import ABC, abstractmethod
+from typing import Literal
 
 from dare_framework.config.types import Config
 from dare_framework.context.kernel import IContext
@@ -21,7 +22,7 @@ from dare_framework.plan.types import (
 )
 
 
-class IPlanner(IComponent, Protocol):
+class IPlanner(IComponent, ABC):
     """Plan generator that emits untrusted ProposedPlan output.
 
     Implementations can also decompose tasks into milestones via decompose().
@@ -29,8 +30,9 @@ class IPlanner(IComponent, Protocol):
 
     @property
     def component_type(self) -> Literal[ComponentType.PLANNER]:
-        ...
+        return ComponentType.PLANNER
 
+    @abstractmethod
     async def plan(self, ctx: IContext) -> ProposedPlan:
         """Generate a plan for the current milestone."""
         ...
@@ -62,7 +64,7 @@ class IPlanner(IComponent, Protocol):
         )
 
 
-class IValidator(IComponent, Protocol):
+class IValidator(IComponent, ABC):
     """Plan and milestone validator that derives trusted plan state.
 
     Implementations SHOULD derive security-critical fields (e.g., risk metadata)
@@ -71,36 +73,40 @@ class IValidator(IComponent, Protocol):
 
     @property
     def component_type(self) -> Literal[ComponentType.VALIDATOR]:
-        ...
+        return ComponentType.VALIDATOR
 
+    @abstractmethod
     async def validate_plan(self, plan: ProposedPlan, ctx: IContext) -> ValidatedPlan: ...
 
+    @abstractmethod
     async def verify_milestone(
-        self,
-        result: RunResult,
-        ctx: IContext,
-        *,
-        plan: ValidatedPlan | None = None,
+            self,
+            result: RunResult,
+            ctx: IContext,
+            *,
+            plan: ValidatedPlan | None = None,
     ) -> VerifyResult: ...
 
 
-class IRemediator(IComponent, Protocol):
+class IRemediator(IComponent, ABC):
     """Produces reflection text to guide the next planning attempt."""
 
     @property
     def component_type(self) -> Literal[ComponentType.REMEDIATOR]:
-        ...
+        return ComponentType.REMEDIATOR
 
+    @abstractmethod
     async def remediate(self, verify_result: VerifyResult, ctx: IContext) -> str: ...
 
 
-class IPlanAttemptSandbox(Protocol):
+class IPlanAttemptSandbox(ABC):
     """State isolation interface for plan attempts.
 
     Provides snapshot/rollback capability to ensure failed plan attempts
     do not pollute milestone context.
     """
 
+    @abstractmethod
     def create_snapshot(self, ctx: IContext) -> str:
         """Create a snapshot of the current STM state.
 
@@ -112,6 +118,7 @@ class IPlanAttemptSandbox(Protocol):
         """
         ...
 
+    @abstractmethod
     def rollback(self, ctx: IContext, snapshot_id: str) -> None:
         """Rollback STM to a previous snapshot state.
 
@@ -121,6 +128,7 @@ class IPlanAttemptSandbox(Protocol):
         """
         ...
 
+    @abstractmethod
     def commit(self, snapshot_id: str) -> None:
         """Discard a snapshot, keeping current state.
 
@@ -130,18 +138,19 @@ class IPlanAttemptSandbox(Protocol):
         ...
 
 
-class IStepExecutor(Protocol):
+class IStepExecutor(ABC):
     """Executes individual plan steps in step-driven mode.
 
     Used by Execute Loop when execution_mode="step_driven" to execute
     ValidatedPlan.steps sequentially.
     """
 
+    @abstractmethod
     async def execute_step(
-        self,
-        step: ValidatedStep,
-        ctx: IContext,
-        previous_results: list[StepResult],
+            self,
+            step: ValidatedStep,
+            ctx: IContext,
+            previous_results: list[StepResult],
     ) -> StepResult:
         """Execute a single validated step.
 
@@ -156,17 +165,18 @@ class IStepExecutor(Protocol):
         ...
 
 
-class IEvidenceCollector(Protocol):
+class IEvidenceCollector(ABC):
     """Collects structured evidence during execution.
 
     Evidence is used for milestone verification and audit trails.
     """
 
+    @abstractmethod
     def collect(
-        self,
-        source: str,
-        data: dict,
-        evidence_type: str,
+            self,
+            source: str,
+            data: dict,
+            evidence_type: str,
     ) -> Evidence:
         """Create an Evidence object from execution output.
 
@@ -181,21 +191,24 @@ class IEvidenceCollector(Protocol):
         ...
 
 
-class IPlannerManager(Protocol):
+class IPlannerManager(ABC):
     """Loads a planner strategy implementation (single-select)."""
 
+    @abstractmethod
     def load_planner(self, *, config: Config | None = None) -> IPlanner | None: ...
 
 
-class IValidatorManager(Protocol):
+class IValidatorManager(ABC):
     """Loads validator strategy implementations (multi-load)."""
 
+    @abstractmethod
     def load_validators(self, *, config: Config | None = None) -> list[IValidator]: ...
 
 
-class IRemediatorManager(Protocol):
+class IRemediatorManager(ABC):
     """Loads a remediation strategy implementation (single-select)."""
 
+    @abstractmethod
     def load_remediator(self, *, config: Config | None = None) -> IRemediator | None: ...
 
 

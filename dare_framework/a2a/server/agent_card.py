@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from dare_framework.a2a.types import AgentCardDict, AgentSkillDict
 from dare_framework.config.types import Config
-from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
+from dare_framework.skill import SkillStoreBuilder
 from dare_framework.skill.types import Skill
 
 
@@ -24,20 +23,9 @@ def _skill_to_agent_skill(skill: Skill) -> AgentSkillDict:
 
 
 def _load_skills_from_config(config: Config) -> list[Skill]:
-    """Load skills using config workspace and skill paths (read-only, no agent runtime)."""
-    paths: list[Path] = []
-    workspace = Path(config.workspace_dir)
-    if config.initial_skill_path:
-        paths.append(workspace / config.initial_skill_path)
-    for p in config.skill_paths:
-        path = Path(p)
-        if not path.is_absolute():
-            path = workspace / p
-        paths.append(path)
-    if not paths:
-        return []
-    loader = FileSystemSkillLoader(*paths)
-    return loader.load()
+    """Load skills from default config-derived workspace/user skill roots."""
+    store = SkillStoreBuilder.config(config).build()
+    return store.list_skills()
 
 
 def build_agent_card(
@@ -52,7 +40,7 @@ def build_agent_card(
     """Build A2A AgentCard JSON from DARE config and loaded skills.
 
     Args:
-        config: DARE resolved config (workspace_dir, skill_paths, initial_skill_path).
+        config: DARE resolved config (workspace_dir, user_dir).
         base_url: Public base URL for this A2A server (e.g. https://host:port).
         name: Agent display name; default "DARE Agent".
         description: Agent description; default from workspace or generic.

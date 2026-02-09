@@ -10,6 +10,7 @@ import json
 from typing import TYPE_CHECKING
 
 from dare_framework.agent.base_agent import BaseAgent
+from dare_framework.config import Config
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import Envelope
@@ -57,9 +58,10 @@ class ReactAgent(BaseAgent):
                 long_term_memory=long_term_memory,
                 knowledge=knowledge,
                 budget=budget or Budget(),
+                config=Config(),
             )
             if tools is not None:
-                self._context._tool_provider = tools
+                self._context._tool_gateway = tools
         else:
             self._context = context
 
@@ -71,7 +73,7 @@ class ReactAgent(BaseAgent):
         user_message = Message(role="user", content=task)
         self._context.stm_add(user_message)
 
-        gateway = getattr(self._context, "_tool_provider", None)
+        gateway = getattr(self._context, "_tool_gateway", None)
         has_invoke = gateway is not None and hasattr(gateway, "invoke")
 
         for _ in range(self._max_tool_rounds):
@@ -143,9 +145,6 @@ class ReactAgent(BaseAgent):
                 output = getattr(result, "output", {})
                 error = getattr(result, "error", "") or ""
 
-                if success and name == "search_skill":
-                    self._mount_skill_from_output(output)
-
                 tool_content = json.dumps(
                     {"success": success, "output": output, "error": error} if not success
                     else {"success": True, "output": output},
@@ -155,48 +154,6 @@ class ReactAgent(BaseAgent):
                 self._context.stm_add(tool_msg)
 
         return "(Reached max tool rounds without final reply.)"
-
-    def _mount_skill_from_output(self, output: object) -> None:
-        if not isinstance(output, dict):
-            return
-        skill_id = output.get("skill_id")
-        name = output.get("name")
-        content = output.get("content")
-        description = output.get("description", "")
-        if not isinstance(skill_id, str) or not skill_id.strip():
-            return
-        if not isinstance(name, str) or not name.strip():
-            return
-        if not isinstance(content, str) or not content.strip():
-            prompt = output.get("prompt")
-            if isinstance(prompt, str) and prompt.strip():
-                content = prompt
-            else:
-                return
-        if not isinstance(description, str):
-            description = ""
-        skill_path = output.get("skill_path")
-        scripts = output.get("scripts")
-        from pathlib import Path
-
-        skill_dir = Path(skill_path) if isinstance(skill_path, str) and skill_path else None
-        script_map: dict[str, Path] = {}
-        if isinstance(scripts, dict):
-            for key, value in scripts.items():
-                if isinstance(key, str) and isinstance(value, str) and value:
-                    script_map[key] = Path(value)
-        from dare_framework.skill.types import Skill
-
-        self._context.set_skill(
-            Skill(
-                id=skill_id.strip(),
-                name=name.strip(),
-                description=description.strip(),
-                content=content,
-                skill_dir=skill_dir,
-                scripts=script_map,
-            )
-        )
 
 
 __all__ = ["ReactAgent"]

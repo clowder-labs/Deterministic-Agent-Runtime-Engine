@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dare_framework.context.types import Message
+from dare_framework.tool import CapabilityDescriptor
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,7 @@ class Prompt:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Prompt":
+    def from_dict(cls, data: dict[str, Any]) -> Prompt:
         """Create a Prompt from a manifest dictionary."""
         prompt_id = str(data.get("prompt_id", ""))
         role = str(data.get("role", ""))
@@ -58,7 +59,7 @@ class ModelInput:
     """Model input representation for model adapters."""
 
     messages: list[Message]
-    tools: list[dict[str, Any]] = field(default_factory=list)
+    tools: list[CapabilityDescriptor] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -17,9 +17,11 @@ def create_default_model_adapter_manager(config: Config | None = None) -> IModel
     return DefaultModelAdapterManager(config=config)
 
 
-def create_default_prompt_store(config: Config | None = None) -> IPromptStore:
+def create_default_prompt_store(config: Config) -> IPromptStore:
     """Create the default prompt store using layered prompt manifests."""
-    effective = config or Config()
+    if config is None:
+        raise ValueError("create_default_prompt_store requires a non-null Config.")
+    effective = config
     pattern = effective.prompt_store_path_pattern
     workspace_manifest = Path(effective.workspace_dir) / pattern
     user_manifest = Path(effective.user_dir) / pattern

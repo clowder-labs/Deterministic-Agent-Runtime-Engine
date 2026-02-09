@@ -1,61 +1,128 @@
-"""Tool to load a skill's full content into the dict (auto_skill_mode). Tool execution writes to context; assemble merges dict into context for next LLM input."""
+"""Search/resolve skill tool with Claude-style prompt and schema."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import (
     CapabilityKind,
+    RiskLevelName,
     RunContext,
     ToolResult,
     ToolType,
 )
 
 if TYPE_CHECKING:
-    from dare_framework.context._internal.context import Context
     from dare_framework.skill.interfaces import ISkillStore
+    from dare_framework.skill.types import Skill
+
+
+_BASE_DESCRIPTION = """Execute a skill within the main conversation.
+
+When users ask you to perform tasks, check if any available skill can help complete
+the task more effectively. Skills provide specialized capabilities and domain knowledge.
+
+When users ask you to run a slash command or reference "/<something>"
+(for example: "/commit", "/review-pr"), they are referring to a skill.
+Use this tool to invoke the corresponding skill.
+
+Important:
+- When a skill is relevant, invoke this tool immediately as your first action.
+- Never only mention a skill without calling this tool.
+- Only use skills listed in "Available skills" below.
+"""
+
+_MAX_DESCRIPTION_SKILLS = 50
 
 
 def _error_result(message: str) -> ToolResult:
     return ToolResult(success=False, output={}, error=message, evidence=[])
 
 
-class SearchSkillTool(ITool, IComponent):
-    """Load a skill's full content by skill_id (tool execution). Writes skill full content into context's dict; assemble merges dict into context for next LLM input."""
+def _normalize_skill_name(raw_name: str) -> str:
+    """Normalize command-like input to a skill lookup key."""
+    return raw_name.strip().lstrip("/")
 
-    def __init__(self, skill_store: "ISkillStore", context: "Context") -> None:
+
+def _summarize_skill(skill: Skill, max_len: int = 100) -> str:
+    """Build a compact one-line summary for tool description."""
+    text = (skill.description or "").strip().replace("\n", " ")
+    if not text:
+        return "no description"
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3].rstrip() + "..."
+
+
+def _build_dynamic_description(skill_store: ISkillStore) -> str:
+    """Inject available skill names/basic info into the tool description."""
+    skills = sorted(skill_store.list_skills(), key=lambda item: item.id)
+    if not skills:
+        return _BASE_DESCRIPTION + "\nAvailable skills:\n- (none loaded)"
+
+    lines = ["Available skills:"]
+    for skill in skills[:_MAX_DESCRIPTION_SKILLS]:
+        lines.append(f"- {skill.id} ({skill.name}): {_summarize_skill(skill)}")
+    remaining = len(skills) - _MAX_DESCRIPTION_SKILLS
+    if remaining > 0:
+        lines.append(
+            f"- ... {remaining} additional skills are not loaded into this description."
+        )
+    return _BASE_DESCRIPTION + "\n" + "\n".join(lines)
+
+
+def _resolve_skill(skill_store: ISkillStore, skill_name: str) -> Skill | None:
+    """Resolve skill by id/name first, then fallback to selection."""
+    normalized = _normalize_skill_name(skill_name)
+    if not normalized:
+        return None
+
+    by_id = skill_store.get_skill(normalized)
+    if by_id is not None:
+        return by_id
+
+    lowered = normalized.lower()
+    for skill in skill_store.list_skills():
+        if skill.name.strip().lower() == lowered:
+            return skill
+
+    matches = skill_store.select_for_task(normalized, limit=1)
+    return matches[0] if matches else None
+
+
+class SearchSkillTool(ITool):
+    """Resolve a skill and return its full prompt payload."""
+
+    def __init__(self, skill_store: ISkillStore) -> None:
         self._skill_store = skill_store
-        self._context = context
+        self._description = _build_dynamic_description(skill_store)
 
     @property
     def name(self) -> str:
-        return "search_skill"
-
-    @property
-    def component_type(self) -> ComponentType:
-        return ComponentType.TOOL
+        return "skill"
 
     @property
     def description(self) -> str:
-        return (
-            "Load the full instructions for a skill by its skill_id. "
-            "Use when you have decided to use a specific skill from the catalog; "
-            "the skill's full content will be added to context for the next LLM call."
-        )
+        return self._description
 
     @property
     def input_schema(self) -> dict[str, Any]:
         return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
-                "skill_id": {
+                "skill": {
                     "type": "string",
-                    "description": "Skill identifier from the catalog (e.g. 'code-review', 'pdf-helper').",
+                    "description": "The skill name. E.g., 'commit', 'review-pr', or 'pdf'.",
+                },
+                "args": {
+                    "type": "string",
+                    "description": "Optional arguments for the skill.",
                 },
             },
-            "required": ["skill_id"],
+            "required": ["skill"],
+            "additionalProperties": False,
         }
 
     @property
@@ -64,8 +131,14 @@ class SearchSkillTool(ITool, IComponent):
             "type": "object",
             "properties": {
                 "skill_id": {"type": "string"},
-                "skill_name": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "content": {"type": "string"},
+                "skill_path": {"type": "string"},
+                "scripts": {"type": "object", "additionalProperties": {"type": "string"}},
+                "prompt": {"type": "string"},
                 "message": {"type": "string"},
+                "args": {"type": "string"},
             },
         }
 
@@ -74,7 +147,7 @@ class SearchSkillTool(ITool, IComponent):
         return ToolType.ATOMIC
 
     @property
-    def risk_level(self) -> str:
+    def risk_level(self) -> RiskLevelName:
         return "read_only"
 
     @property
@@ -94,24 +167,44 @@ class SearchSkillTool(ITool, IComponent):
         return CapabilityKind.SKILL
 
     async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
-        skill_id = input.get("skill_id")
-        if not isinstance(skill_id, str) or not skill_id.strip():
-            return _error_result("skill_id is required")
+        skill_name = input.get("skill")
+        # Backward compatibility with older callers before schema unification.
+        if not isinstance(skill_name, str) or not skill_name.strip():
+            legacy_id = input.get("skill_id")
+            if isinstance(legacy_id, str) and legacy_id.strip():
+                skill_name = legacy_id
+            else:
+                legacy_query = input.get("query")
+                if isinstance(legacy_query, str) and legacy_query.strip():
+                    skill_name = legacy_query
 
-        skill_id = skill_id.strip()
-        skill = self._skill_store.get_skill(skill_id)
+        if not isinstance(skill_name, str) or not skill_name.strip():
+            return _error_result("skill is required")
+
+        skill = _resolve_skill(self._skill_store, skill_name)
         if skill is None:
-            available = [s.id for s in self._skill_store.list_skills()]
+            available = [f"{s.id} ({s.name})" for s in self._skill_store.list_skills()]
             hint = f" Available: {', '.join(available)}" if available else ""
-            return _error_result(f"skill not found: {skill_id}.{hint}")
+            return _error_result(f"skill not found: {_normalize_skill_name(skill_name)}.{hint}")
 
-        self._context.add_loaded_full_skill(skill)
+        scripts = {name: str(path) for name, path in skill.scripts.items()}
+        args = input.get("args")
+        normalized_args = args.strip() if isinstance(args, str) else ""
         return ToolResult(
             success=True,
             output={
                 "skill_id": skill.id,
-                "skill_name": skill.name,
-                "message": f"Skill '{skill.name}' loaded. Its full instructions will be in context for the next LLM call. You can use run_skill_script when needed.",
+                "name": skill.name,
+                "description": skill.description,
+                "content": skill.content,
+                "skill_path": str(skill.skill_dir) if skill.skill_dir else "",
+                "scripts": scripts,
+                "prompt": skill.to_context_section(),
+                "message": (
+                    f"Skill '{skill.name}' loaded. Its full instructions will be in context for "
+                    "the next LLM call."
+                ),
+                "args": normalized_args,
             },
         )
 

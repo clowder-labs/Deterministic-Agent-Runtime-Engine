@@ -6,7 +6,8 @@ Both inherit from IRetrievalContext (defined in context domain).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from abc import ABC
+from typing import TYPE_CHECKING, Literal, runtime_checkable
 
 from dare_framework.context import IRetrievalContext
 from dare_framework.infra.component import ComponentType, IComponent
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class IShortTermMemory(IComponent, IRetrievalContext, Protocol):
+class IShortTermMemory(IComponent, IRetrievalContext, ABC):
     """[Component] Short-term memory interface (current session).
 
     Usage: Injected into Context.short_term_memory.
@@ -27,17 +28,10 @@ class IShortTermMemory(IComponent, IRetrievalContext, Protocol):
 
     @property
     def component_type(self) -> Literal[ComponentType.MEMORY]:
-        ...
+        return ComponentType.MEMORY
 
-    def add(self, message: "Message") -> None:
+    def add(self, message: Message) -> None:
         """Add a message to short-term memory."""
-        ...
-
-    def get(self, query: str = "", **kwargs) -> list["Message"]:
-        """Get messages (implements IRetrievalContext).
-
-        For STM, query is typically ignored - returns all messages.
-        """
         ...
 
     def clear(self) -> None:
@@ -59,7 +53,7 @@ class IShortTermMemory(IComponent, IRetrievalContext, Protocol):
 
 
 @runtime_checkable
-class ILongTermMemory(IComponent, IRetrievalContext, Protocol):
+class ILongTermMemory(IComponent, IRetrievalContext, ABC):
     """[Component] Long-term memory interface (cross-session persistent).
 
     Usage: Injected into Context.long_term_memory.
@@ -70,21 +64,9 @@ class ILongTermMemory(IComponent, IRetrievalContext, Protocol):
 
     @property
     def component_type(self) -> Literal[ComponentType.MEMORY]:
-        ...
+        return ComponentType.MEMORY
 
-    def get(self, query: str, **kwargs) -> list["Message"]:
-        """Retrieve relevant memories based on query.
-
-        Args:
-            query: Search query for retrieval.
-            **kwargs: Additional parameters (e.g., top_k).
-
-        Returns:
-            List of relevant messages from long-term storage.
-        """
-        ...
-
-    async def persist(self, messages: list["Message"]) -> None:
+    async def persist(self, messages: list[Message]) -> None:
         """Persist messages to long-term storage."""
         ...
 

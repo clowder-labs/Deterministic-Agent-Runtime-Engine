@@ -31,7 +31,7 @@ class Document:
         if not self.content:
             raise ValueError("Document content cannot be empty")
 
-    def to_message(self, role: str = "assistant") -> "Message":
+    def to_message(self, role: str = "assistant") -> Message:
         """Convert document to Message format for context assembly.
 
         Args:

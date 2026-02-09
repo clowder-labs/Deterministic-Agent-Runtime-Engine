@@ -93,8 +93,7 @@ agent = (
 
 一个 agent 同时只支持一个 skill。框架支持：
 
-- **Builder**：`.with_skill(path)` 设置初始 skill
-- **Config**：`initial_skill_path` 设置初始 skill
+- **Builder**：`.with_sys_skill(skill)` 显式设置初始 skill
 - **运行时**：`agent.set_skill(skill)` / `agent.clear_skill()` 动态挂载、替换、删除
 
 Skill prompt 在 context.assemble() 时作为单独一段注入，与 base prompt 解耦。

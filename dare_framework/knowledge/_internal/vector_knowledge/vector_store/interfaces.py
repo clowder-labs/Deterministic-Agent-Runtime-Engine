@@ -28,7 +28,7 @@ class IVectorStore(ABC):
     """
 
     @abstractmethod
-    def add(self, document: "Document") -> None:
+    def add(self, document: Document) -> None:
         """Add a document to the store.
 
         Args:
@@ -40,7 +40,7 @@ class IVectorStore(ABC):
         ...
 
     @abstractmethod
-    def add_batch(self, documents: list["Document"]) -> None:
+    def add_batch(self, documents: list[Document]) -> None:
         """Add multiple documents to the store.
 
         Args:
@@ -52,7 +52,7 @@ class IVectorStore(ABC):
         ...
 
     @abstractmethod
-    def get(self, document_id: str) -> "Document | None":
+    def get(self, document_id: str) -> Document | None:
         """Get a document by ID.
 
         Args:
@@ -95,7 +95,7 @@ class IVectorStore(ABC):
         query_embedding: list[float],
         top_k: int = 5,
         min_similarity: float | None = None,
-    ) -> list[tuple["Document", float]]:
+    ) -> list[tuple[Document, float]]:
         """Search for similar documents (e.g. by cosine similarity).
 
         Args:
@@ -109,7 +109,7 @@ class IVectorStore(ABC):
         ...
 
     @abstractmethod
-    def list_all(self) -> list["Document"]:
+    def list_all(self) -> list[Document]:
         """List all documents in the store.
 
         Returns:

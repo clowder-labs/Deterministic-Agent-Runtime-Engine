@@ -108,7 +108,7 @@ class DefaultRemediator:
 
     def __init__(
         self,
-        model: "IModelAdapter",
+        model: IModelAdapter,
         *,
         system_prompt: str | None = None,
         verbose: bool = False,
@@ -134,7 +134,7 @@ class DefaultRemediator:
         """Component name."""
         return "default-remediator"
 
-    async def remediate(self, verify_result: VerifyResult, ctx: "IContext") -> str:
+    async def remediate(self, verify_result: VerifyResult, ctx: IContext) -> str:
         """Generate reflection text based on verification failure.
 
         Args:

@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import DareAgentBuilder
+from dare_framework.config import Config
 from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
@@ -255,7 +256,10 @@ async def build_agent(
 
 
 async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: CLIDisplay) -> Any:
-    ctx = Context(id="plan-preview")
+    ctx = Context(
+        id="plan-preview",
+        config=Config(workspace_dir=str(PROJECT_ROOT), user_dir=str(Path.home())),
+    )
     ctx.stm_add(Message(role="user", content=task_text))
     planner = DefaultPlanner(model, verbose=False)
     plan = await planner.plan(ctx)

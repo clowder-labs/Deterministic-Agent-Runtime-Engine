@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from dare_framework.tool.default_tool_manager import ToolManager
+from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.types import CapabilityKind, ToolType
 from dare_framework.infra.component import ComponentType
 
@@ -78,7 +78,7 @@ async def test_tool_manager_register_update_unregister() -> None:
     descriptor = manager.register_tool(tool)
     assert descriptor.id == "echo"
 
-    manager.set_capability_enabled(descriptor.id, False)
+    manager.change_capability_status(descriptor.id, False)
     assert manager.list_tool_defs() == []
     assert await manager.list_capabilities() == []
     assert await manager.list_capabilities(include_disabled=True)

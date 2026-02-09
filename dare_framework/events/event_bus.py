@@ -1,6 +1,8 @@
 #/events/eventbus.py
 """Event bus for managing event subscriptions and publishing."""
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import NamedTuple
@@ -39,7 +41,7 @@ class EventBus(EventBusProtocol):
     _instance = None
 
     @classmethod
-    def get_instance(cls) -> "EventBus":
+    def get_instance(cls) -> EventBus:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance

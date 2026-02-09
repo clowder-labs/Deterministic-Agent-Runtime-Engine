@@ -35,7 +35,7 @@ class ProxyConfig:
     disabled: bool = False
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ProxyConfig":
+    def from_dict(cls, data: dict[str, Any]) -> ProxyConfig:
         """Create from a dictionary, enforcing precedence rules."""
         disabled = bool(data.get("disabled", False))
         use_system_proxy = bool(data.get("use_system_proxy", False))
@@ -88,7 +88,7 @@ class LLMConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LLMConfig":
+    def from_dict(cls, data: dict[str, Any]) -> LLMConfig:
         """Create from a dictionary."""
         adapter = data.get("adapter")
         endpoint = data.get("endpoint")
@@ -136,7 +136,7 @@ class ComponentConfig:
     entries: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ComponentConfig":
+    def from_dict(cls, data: dict[str, Any]) -> ComponentConfig:
         """Create from a dictionary."""
         disabled_raw = data.get("disabled", [])
         disabled = [str(item) for item in disabled_raw] if isinstance(disabled_raw, list) else []
@@ -160,7 +160,7 @@ class RedactionConfig:
     replacement: str = "[REDACTED]"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RedactionConfig":
+    def from_dict(cls, data: dict[str, Any]) -> RedactionConfig:
         mode = data.get("mode", "denylist")
         if mode not in {"denylist", "allowlist"}:
             mode = "denylist"
@@ -197,7 +197,7 @@ class ObservabilityConfig:
     attribute_cardinality_limits: dict[str, int] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ObservabilityConfig":
+    def from_dict(cls, data: dict[str, Any]) -> ObservabilityConfig:
         enabled = bool(data.get("enabled", False))
         traces_enabled = bool(data.get("traces_enabled", True))
         metrics_enabled = bool(data.get("metrics_enabled", True))
@@ -294,13 +294,10 @@ class Config:
     user_dir: str = field(default_factory=_default_user_dir)
     prompt_store_path_pattern: str = ".dare/_prompts.json"
     default_prompt_id: str | None = None
-    initial_skill_path: str | None = None
-    skill_mode: str | None = None
-    skill_paths: list[str] = field(default_factory=list)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Config":
+    def from_dict(cls, data: dict[str, Any]) -> Config:
         """Create from a dictionary."""
         llm_data = data.get("llm")
         llm = LLMConfig.from_dict(llm_data) if isinstance(llm_data, dict) else LLMConfig()
@@ -328,14 +325,6 @@ class Config:
         default_prompt_id = data.get("default_prompt_id")
         if default_prompt_id is not None:
             default_prompt_id = str(default_prompt_id)
-        initial_skill_path_raw = data.get("initial_skill_path")
-        initial_skill_path = str(initial_skill_path_raw) if initial_skill_path_raw else None
-        skill_mode_raw = data.get("skill_mode")
-        skill_mode = str(skill_mode_raw) if skill_mode_raw else None
-        if skill_mode not in {None, "agent", "search_tool"}:
-            skill_mode = None
-        skill_paths_raw = data.get("skill_paths")
-        skill_paths = [str(p) for p in skill_paths_raw] if isinstance(skill_paths_raw, list) else []
         workspace_dir_raw = data.get("workspace_dir")
         if isinstance(workspace_dir_raw, str):
             workspace_dir = workspace_dir_raw
@@ -367,9 +356,6 @@ class Config:
             user_dir=user_dir,
             prompt_store_path_pattern=prompt_store_path_pattern,
             default_prompt_id=default_prompt_id,
-            initial_skill_path=initial_skill_path,
-            skill_mode=skill_mode,
-            skill_paths=skill_paths,
             observability=observability,
         )
 
@@ -418,9 +404,6 @@ class Config:
             "user_dir": self.user_dir,
             "prompt_store_path_pattern": self.prompt_store_path_pattern,
             "default_prompt_id": self.default_prompt_id,
-            "initial_skill_path": self.initial_skill_path,
-            "skill_mode": self.skill_mode,
-            "skill_paths": list(self.skill_paths),
             "observability": self.observability.to_dict(),
         }
 __all__ = [

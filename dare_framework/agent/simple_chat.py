@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from dare_framework.agent.base_agent import BaseAgent
+from dare_framework.config import Config
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.tool import IToolProvider
@@ -74,10 +75,11 @@ class SimpleChatAgent(BaseAgent):
                 long_term_memory=long_term_memory,
                 knowledge=knowledge,
                 budget=budget or Budget(),
+                config=Config(),
             )
             # Set tool provider if provided
             if tools is not None:
-                self._context._tool_provider = tools
+                self._context._tool_gateway = tools
         else:
             self._context = context
 
