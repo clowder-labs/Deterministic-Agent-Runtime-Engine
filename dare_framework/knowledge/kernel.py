@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from dare_framework.context import IRetrievalContext
+from dare_framework.context.kernel import IRetrievalContext
 
 if TYPE_CHECKING:
-    from dare_framework.context import Message
+    from dare_framework.context.types import Message
 
 
 @runtime_checkable

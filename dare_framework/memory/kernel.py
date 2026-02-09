@@ -7,16 +7,15 @@ Both inherit from IRetrievalContext (defined in context domain).
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Literal, runtime_checkable
+from typing import TYPE_CHECKING, Literal
 
-from dare_framework.context import IRetrievalContext
+from dare_framework.context.kernel import IRetrievalContext
 from dare_framework.infra.component import ComponentType, IComponent
 
 if TYPE_CHECKING:
-    from dare_framework.context import Message
+    from dare_framework.context.types import Message
 
 
-@runtime_checkable
 class IShortTermMemory(IComponent, IRetrievalContext, ABC):
     """[Component] Short-term memory interface (current session).
 
@@ -52,7 +51,6 @@ class IShortTermMemory(IComponent, IRetrievalContext, ABC):
         ...
 
 
-@runtime_checkable
 class ILongTermMemory(IComponent, IRetrievalContext, ABC):
     """[Component] Long-term memory interface (cross-session persistent).
 

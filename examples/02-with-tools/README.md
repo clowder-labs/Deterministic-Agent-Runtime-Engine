@@ -18,16 +18,13 @@ python main.py
 
 本示例使用 **ReactAgent**（`react_agent_builder`），会执行模型的 tool_call 并循环直到模型返回最终文字；若用 `simple_chat_agent_builder` 则不会执行工具。
 
-- 使用 `with_run_context_factory()` 设置 `workspace_roots`，工具只能读写该目录下的路径。
+- 使用 `with_config(Config(workspace_dir=...))` 设置工具工作区根目录。
 
 ```python
-def run_context_factory():
-    return RunContext(config={"workspace_roots": [str(workspace)]}, ...)
-
 agent = (
     BaseAgent.react_agent_builder("tool-agent")
     .with_model(model_adapter)
-    .with_run_context_factory(run_context_factory)
+    .with_config(Config(workspace_dir=str(workspace)))
     .add_tools(ReadFileTool(), WriteFileTool(), SearchCodeTool())
     .build()
 )
@@ -36,7 +33,7 @@ agent = (
 ## 进阶点
 
 - 相对 01，新增 ReAct 模式（Reason → Act → Observe），模型 tool_call 会被执行
-- `with_run_context_factory()` 限定 `workspace_roots`，工具只能读写该目录下的路径
+- `with_config(Config(workspace_dir=...))` 限定工具工作区根目录
 - 工具 `name` 为唯一 capability id，自定义工具需保证名称唯一
 
 ## Prompt 管理

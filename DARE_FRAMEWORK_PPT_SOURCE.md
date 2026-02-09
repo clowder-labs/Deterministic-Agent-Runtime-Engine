@@ -283,19 +283,19 @@ validator = FileExistsValidator(workspace=workspace, expected_files=[], verbose=
 # 5. 事件日志（用于 CLI 展示）
 event_log = StreamingEventLog(display.show_event)
 
-# 6. RunContext 工厂（传入 workspace）
-run_context_factory = lambda: RunContext(
-    metadata={"agent": "dare-coding-agent"},
-    config={"workspace_roots": [str(workspace)]},
+# 6. Config（传入 workspace）
+agent_config = Config(
+    workspace_dir=str(workspace),
+    user_dir=str(Path.home()),
 )
 
 # 7. 组装 Builder
 builder = (
     DareAgentBuilder("dare-coding-agent")
     .with_model(model)
+    .with_config(agent_config)
     .with_knowledge(knowledge)
     .add_tools(*tools)
-    .with_run_context_factory(run_context_factory)
     .with_planner(DefaultPlanner(model, verbose=False))
     .add_validators(validator)
     .with_remediator(DefaultRemediator(model, verbose=False))
@@ -711,9 +711,9 @@ invoke(capability_id, params, envelope)
 |------|------|
 | **输入** | register_tool(tool)：ITool。invoke(capability_id, params, envelope)：由 Agent _run_tool_loop 传入，envelope 含 allowed_capability_ids、done_predicate 等。 |
 | **输出** | register_tool 返回 CapabilityDescriptor；invoke 返回 ToolResult(success, output, error, evidence)。 |
-| **关键步骤** | 注册：tool.name 作为 capability_id，_descriptor_from_tool 生成 descriptor，存 _registry。Provider 注册时 _sync_provider_tools 遍历 list_tools() 逐条 _register_provider_tool。调用：envelope 权限检查 → 取 entry → context_factory() 得 RunContext → entry.tool.execute(params, context)。 |
+| **关键步骤** | 注册：tool.name 作为 capability_id，_descriptor_from_tool 生成 descriptor，存 _registry。Provider 注册时 _sync_provider_tools 遍历 list_tools() 逐条 _register_provider_tool。调用：envelope 权限检查 → 取 entry → 从 Context 组装 RunContext（含 config）→ entry.tool.execute(params, context)。 |
 | **与上下游** | 上游：Builder _register_tools_with_manager 注册显式工具 + KnowledgeGetTool/KnowledgeAddTool；load_mcp_toolkit 后 MCPToolkit 作为 provider 或工具列表合并后注册。下游：Native Tool 直接 execute；MCPTool 委托 client.call_tool。 |
-| **可扩展点** | 实现 IToolManager 或注册 IToolProvider；ITool 实现 name/input_schema/execute 等；context_factory 由 Builder with_run_context_factory 注入。 |
+| **可扩展点** | 实现 IToolManager 或注册 IToolProvider；ITool 实现 name/input_schema/execute 等；运行时上下文通过 Builder with_config(...) 注入。 |
 
 ## 7.3 MCPToolkit 工作逻辑图
 

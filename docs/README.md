@@ -26,7 +26,8 @@
    └── dare_framework/（当前实现；可能与权威设计存在差异）
 
 6. 示例实现
-   └── /examples/04-dare-coding-agent/ (五层循环示例 Agent)
+   ├── /examples/04-dare-coding-agent/ (五层循环示例 Agent)
+   └── /examples/06-dare-coding-agent-mcp/ (Config 驱动 MCP + 动态重载示例)
 
 7. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)

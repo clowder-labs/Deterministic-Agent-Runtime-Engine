@@ -8,12 +8,9 @@ Alignment notes:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Literal, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 
-from dare_framework.config.types import Config
-from dare_framework.context import Context
 from dare_framework.infra.component import ComponentType, IComponent
-from dare_framework.plan.types import Envelope
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
@@ -23,6 +20,11 @@ from dare_framework.tool.types import (
     ToolResult,
     ToolType,
 )
+
+if TYPE_CHECKING:
+    from dare_framework.config.types import Config
+    from dare_framework.context import Context
+    from dare_framework.plan.types import Envelope
 
 
 class IToolProvider(ABC):
@@ -126,7 +128,6 @@ class IToolGateway(ABC):
         """Invoke a registered tool capability."""
         ...
 
-@runtime_checkable
 class IToolManager(ABC):
     """Trusted tool registry and management interface."""
 

@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from dare_framework.config import Config
-from dare_framework.tool import IToolGateway, CapabilityDescriptor
-
 if TYPE_CHECKING:
+    from dare_framework.config.types import Config
     from dare_framework.model.types import Prompt
     from dare_framework.skill.types import Skill
+    from dare_framework.tool.kernel import IToolGateway
+    from dare_framework.tool.types import CapabilityDescriptor
 
 from dare_framework.context.kernel import IContext, IRetrievalContext, IAssembleContext
 from dare_framework.context.types import AssembledContext, Budget, Message

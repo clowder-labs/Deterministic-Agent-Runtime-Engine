@@ -1,8 +1,11 @@
 """tool domain facade."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from dare_framework.tool.interfaces import IExecutionControl
 from dare_framework.tool.kernel import ITool, IToolGateway, IToolManager, IToolProvider
-from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
@@ -48,3 +51,10 @@ __all__ = [
     # Supported defaults
     "ToolManager",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ToolManager":
+        from dare_framework.tool.tool_manager import ToolManager as _ToolManager
+        return _ToolManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
