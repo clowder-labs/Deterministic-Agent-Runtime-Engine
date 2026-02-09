@@ -10,10 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from dare_framework.tool import CapabilityDescriptor
-
 if TYPE_CHECKING:
     from dare_framework.model.types import Prompt
+    from dare_framework.tool.types import CapabilityDescriptor
 
 
 @dataclass

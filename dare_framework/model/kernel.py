@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from abc import abstractmethod, ABC
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal
 
 from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.model.types import GenerateOptions, ModelInput, ModelResponse
 
 
-@runtime_checkable
 class IModelAdapter(IComponent, ABC):
     """[Component] Model adapter contract for LLM invocation.
 

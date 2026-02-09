@@ -173,7 +173,7 @@ class ToolManager(IToolManager, IToolGateway):
         self.load_entrypoint_providers()
         for provider in self._providers:
             self._sync_provider_tools(provider, provider.list_tools())
-        return await self.list_capabilities(include_disabled=True)
+        return self.list_capabilities(include_disabled=True)
 
     def load_tools(self, *, config: Config | None = None) -> list[ITool]:
         self.load_entrypoint_providers()
@@ -252,7 +252,10 @@ class ToolManager(IToolManager, IToolGateway):
             raise KeyError(f"Unknown capability id: {capability_id}")
         tool_context = None
         if context is not None:
-            tool_context = RunContext(context)
+            tool_context = RunContext(
+                deps=context,
+                config=getattr(context, "config", None),
+            )
         return await entry.tool.execute(params, tool_context)
 
     def _sync_provider_tools(self, provider: IToolProvider, tools: list[ITool]) -> None:

@@ -19,6 +19,9 @@ def get_tool_config(context: RunContext[Any], tool_name: str) -> dict[str, Any]:
     """Return tool-specific config dict from the run context."""
     config = getattr(context, "config", None)
     if config is None:
+        deps = getattr(context, "deps", None)
+        config = getattr(deps, "config", None)
+    if config is None:
         return {}
     tools = None
     if hasattr(config, "tools"):
@@ -52,15 +55,24 @@ def coerce_list(value: Any, default: Iterable[str]) -> list[str]:
 def resolve_workspace_roots(context: RunContext[Any]) -> list[Path]:
     """Resolve workspace roots from config or default to project root."""
     config = getattr(context, "config", None)
+    if config is None:
+        deps = getattr(context, "deps", None)
+        config = getattr(deps, "config", None)
     roots: list[str] | None = None
     if config is None:
         roots = None
     elif hasattr(config, "workspace_roots"):
         roots = list(getattr(config, "workspace_roots") or [])
+    elif hasattr(config, "workspace_dir"):
+        workspace_dir = getattr(config, "workspace_dir")
+        if isinstance(workspace_dir, str) and workspace_dir.strip():
+            roots = [workspace_dir]
     elif isinstance(config, dict):
         roots_value = config.get("workspace_roots")
         if isinstance(roots_value, list):
             roots = [str(item) for item in roots_value]
+        elif isinstance(config.get("workspace_dir"), str):
+            roots = [str(config["workspace_dir"])]
     if not roots:
         roots = [str(_default_workspace_root())]
     resolved: list[Path] = []

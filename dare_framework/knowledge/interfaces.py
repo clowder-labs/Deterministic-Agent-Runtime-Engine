@@ -7,14 +7,11 @@ composed interface in `interfaces.py`.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
-
 from dare_framework.knowledge.kernel import IKnowledge
 from dare_framework.tool.kernel import ITool
 
 
-@runtime_checkable
-class IKnowledgeTool(IKnowledge, ITool, Protocol):
+class IKnowledgeTool(IKnowledge, ITool):
     """A knowledge retriever that is also exposed as a tool capability."""
 
 

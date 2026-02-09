@@ -28,6 +28,9 @@ python main.py
 - `/approve`：执行当前待审批计划
 - `/reject`：取消当前计划
 - `/status`：查看状态
+- `/mcp list`：查看当前 MCP 与本地工具列表
+- `/mcp reload [paths...]`：运行时重载 MCP（默认按最新配置文件；可临时指定扫描路径）
+- `/mcp unload`：卸载当前运行时 MCP provider
 - `/help`：帮助
 - `/quit`：退出
 

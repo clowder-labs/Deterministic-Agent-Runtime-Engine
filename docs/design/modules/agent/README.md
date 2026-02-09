@@ -32,7 +32,7 @@
 
 - 自定义编排：实现 `IAgentOrchestration`，或继承 `BaseAgent`。
 - 替换组件：通过 Builder 注入自定义 model / planner / validator / tool gateway / context。
-- 运行时上下文：通过 `with_run_context_factory(...)` 注入 Tool RunContext。
+- 运行时工具上下文：通过 `with_config(Config(...))` 注入（例如 `workspace_dir`、`tools` 配置）。
 
 ## 5. 约束与限制（共通）
 

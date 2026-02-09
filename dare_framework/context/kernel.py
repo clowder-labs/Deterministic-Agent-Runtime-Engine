@@ -8,19 +8,20 @@ This domain defines the context-centric contract used as architecture evidence:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from dare_framework.config import Config
 from dare_framework.context.types import AssembledContext, Budget, Message
-from dare_framework.model import Prompt
-from dare_framework.skill import Skill
-from dare_framework.tool import CapabilityDescriptor
+
+if TYPE_CHECKING:
+    from dare_framework.config.types import Config
+    from dare_framework.model.types import Prompt
+    from dare_framework.skill.types import Skill
+    from dare_framework.tool.types import CapabilityDescriptor
 
 
-class IRetrievalContext(ABC):
+class IRetrievalContext(Protocol):
     """Unified retrieval interface implemented by memory/knowledge."""
 
-    @abstractmethod
     def get(self, query: str = "", **kwargs: Any) -> list[Message]: ...
 
 

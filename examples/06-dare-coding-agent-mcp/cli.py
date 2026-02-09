@@ -1,14 +1,17 @@
-"""Interactive CLI for the DARE coding agent example.
+"""Interactive CLI for the DARE coding agent example with MCP support.
 
-This CLI is demo-friendly and supports both interactive and scripted runs.
+This example is based on 04-dare-coding-agent and adds:
+- config-based MCP loading (.dare/config.json -> mcp_paths)
+- runtime MCP commands (/mcp list|reload|unload)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
@@ -20,12 +23,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dare_framework.agent import DareAgentBuilder
 from dare_framework.agent.builder import load_mcp_toolkit
-from dare_framework.config import FileConfigProvider
-from dare_framework.config.types import Config
+from dare_framework.config import Config, FileConfigProvider
 from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
-from dare_framework.knowledge import create_knowledge
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
 from dare_framework.tool import ToolManager
@@ -80,7 +81,28 @@ class CLISessionState:
 class MCPRuntimeState:
     config_provider: FileConfigProvider
     config: Config
+    config_base_dir: Path
     provider: Any | None = None
+
+
+def _normalize_mcp_paths(paths: list[str], base_dir: Path) -> list[str]:
+    normalized: list[str] = []
+    for raw in paths:
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            # Keep config authoring friendly (relative paths) while runtime uses absolute paths.
+            path = (base_dir / path).resolve()
+        normalized.append(str(path))
+    return normalized
+
+
+def _resolve_config_paths(config: Config, base_dir: Path) -> Config:
+    if not config.mcp_paths:
+        return config
+    normalized_paths = _normalize_mcp_paths(list(config.mcp_paths), base_dir)
+    if normalized_paths == list(config.mcp_paths):
+        return config
+    return replace(config, mcp_paths=normalized_paths)
 
 
 def parse_command(user_input: str) -> Command | tuple[None, str]:
@@ -145,11 +167,12 @@ class CLIDisplay:
         self.info(f"mode={mode.value}")
 
     def show_tool_lists(self, agent: Any) -> None:
-        """打印 MCP 工具列表与本地工具列表。"""
+        """Print MCP tool list and local tool list."""
         gateway = getattr(getattr(agent, "context", None), "_tool_gateway", None)
         if gateway is None:
             self.info("tools: (none)")
             return
+
         try:
             list_tool_defs = getattr(gateway, "list_tool_defs", None)
             if callable(list_tool_defs):
@@ -159,6 +182,7 @@ class CLIDisplay:
         except Exception:
             self.info("tools: (unable to list)")
             return
+
         def _tool_name(tool: Any) -> str:
             if isinstance(tool, dict):
                 metadata = tool.get("metadata")
@@ -170,11 +194,11 @@ class CLIDisplay:
                 return str(tool.get("capability_id", tool))
             return getattr(tool, "name", str(tool))
 
-        mcp = [t for t in tools if ":" in _tool_name(t)]
-        local = [t for t in tools if ":" not in _tool_name(t)]
-        names = lambda lst: [_tool_name(t) for t in lst]
-        self.info(f"MCP tools ({len(mcp)}): {names(mcp) if mcp else []}")
-        self.info(f"Local tools ({len(local)}): {names(local) if local else []}")
+        mcp_tools = [item for item in tools if ":" in _tool_name(item)]
+        local_tools = [item for item in tools if ":" not in _tool_name(item)]
+        names = lambda items: [_tool_name(item) for item in items]
+        self.info(f"MCP tools ({len(mcp_tools)}): {names(mcp_tools) if mcp_tools else []}")
+        self.info(f"Local tools ({len(local_tools)}): {names(local_tools) if local_tools else []}")
 
     def show_plan(self, plan: Any) -> None:
         self.header("PLAN PREVIEW")
@@ -204,20 +228,20 @@ class CLIDisplay:
         if event_type == "tool.invoke":
             name = payload.get("capability_id") or payload.get("tool") or "?"
             attempt = payload.get("attempt")
-            self.info(f">>> selected tool: [{name}] (attempt {attempt})")
+            self.info(f"tool invoke: {name} (attempt {attempt})")
             return
         if event_type == "tool.result":
             name = payload.get("capability_id") or payload.get("tool") or "?"
             success = payload.get("success", True)
             if success:
-                self.ok(f">>> tool result [{name}]: ok")
+                self.ok(f"tool result: {name}")
             else:
-                self.warn(f">>> tool result [{name}]: failed")
+                self.warn(f"tool result failed: {name}")
             return
         if event_type == "tool.error":
             name = payload.get("capability_id") or payload.get("tool") or "?"
             err = payload.get("error")
-            self.error(f">>> tool error [{name}]: {err}")
+            self.error(f"tool error: {name} ({err})")
             return
         if event_type == "milestone.success":
             self.ok("milestone success")
@@ -257,17 +281,15 @@ def _match_filter(event: Event, filter: dict[str, Any]) -> bool:
     return True
 
 
-def _create_builder(
+async def build_agent(
     workspace: Path,
     model_name: str,
     api_key: str,
     max_tokens: int,
     timeout_seconds: float,
     display: CLIDisplay,
-    *,
-    config: Config | None = None,
-) -> DareAgentBuilder:
-    """创建 DareAgentBuilder；MCP 与 initial_skill_path 由 builder.build() 内部从 config 读取。"""
+    config: Config,
+) -> tuple[Any, Any | None]:
     model = OpenRouterModelAdapter(
         model=model_name,
         api_key=api_key,
@@ -280,31 +302,29 @@ def _create_builder(
         expected_files=[],
         verbose=False,
     )
-    event_log = StreamingEventLog(display.show_event)
-    agent_config = config or Config(
-        workspace_dir=str(workspace),
-        user_dir=str(Path.home()),
-    )
 
-    # Rawdata knowledge (in-memory): agent can call knowledge_get / knowledge_add as tools.
-    knowledge = create_knowledge({"type": "rawdata", "storage": "in_memory"})
+    event_log = StreamingEventLog(display.show_event)
 
     builder = (
-        DareAgentBuilder("dare-coding-agent")
+        DareAgentBuilder("dare-coding-agent-mcp")
         .with_model(model)
-        .with_config(agent_config)
-        .with_knowledge(knowledge)
+        .with_config(config)
         .add_tools(*tools)
         .with_planner(DefaultPlanner(model, verbose=False))
         .add_validators(validator)
         .with_remediator(DefaultRemediator(model, verbose=False))
         .with_event_log(event_log)
     )
-    return builder
+
+    agent = await builder.build()
+    return agent, getattr(builder, "_mcp_toolkit", None)
 
 
 async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: CLIDisplay) -> Any:
-    ctx = Context(id="plan-preview", config=Config())
+    ctx = Context(
+        id="plan-preview",
+        config=Config(workspace_dir=str(PROJECT_ROOT), user_dir=str(Path.home())),
+    )
     ctx.stm_add(Message(role="user", content=task_text))
     planner = DefaultPlanner(model, verbose=False)
     plan = await planner.plan(ctx)
@@ -313,7 +333,7 @@ async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: C
 
 
 def _format_result_output(output: Any) -> str | None:
-    """Extract displayable text from RunResult.output (may be dict with 'content' or raw)."""
+    """Extract displayable text from RunResult.output."""
     if output is None:
         return None
     if isinstance(output, str):
@@ -322,17 +342,40 @@ def _format_result_output(output: Any) -> str | None:
         text = output["content"]
         if text is None:
             return None
-        s = (text.strip() if isinstance(text, str) else str(text)).strip()
-        return s or None
+        normalized = text.strip() if isinstance(text, str) else str(text).strip()
+        return normalized or None
     return str(output).strip() or None
+
+
+def _network_error_hint(exc: Exception) -> str | None:
+    summary = f"{type(exc).__name__}: {exc}".lower()
+    if "apiconnectionerror" not in summary and "connecterror" not in summary and "connection error" not in summary:
+        return None
+
+    http_proxy = os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
+    https_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
+    proxy = http_proxy or https_proxy
+    if proxy and ("127.0.0.1" in proxy or "localhost" in proxy):
+        return (
+            f"detected local proxy {proxy}. if your local proxy is not running, "
+            "unset HTTP(S)_PROXY or start the proxy first."
+        )
+
+    return "model network connection failed. check API key/network and proxy settings."
 
 
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
-    result = await agent.run(Task(description=task_text))
+    try:
+        result = await agent.run(Task(description=task_text))
+    except Exception as exc:
+        display.error(f"execution error: {exc}")
+        hint = _network_error_hint(exc)
+        if hint:
+            display.warn(hint)
+        return
     if result.success:
         display.ok("task completed")
-        # Show model reply when no tool calls (e.g. 运势、问答类)
         reply = _format_result_output(result.output)
         if reply:
             print("\n--- result ---\n", flush=True)
@@ -373,8 +416,9 @@ async def _reload_mcp_provider(
         display.warn("current gateway does not support dynamic MCP registration")
         return
 
-    mcp_state.config = mcp_state.config_provider.reload()
-    effective_paths = [str(Path(p).expanduser()) for p in paths] if paths else None
+    latest_config = mcp_state.config_provider.reload()
+    mcp_state.config = _resolve_config_paths(latest_config, mcp_state.config_base_dir)
+    effective_paths = _normalize_mcp_paths(paths, mcp_state.config_base_dir) if paths else None
 
     try:
         new_provider = await load_mcp_toolkit(mcp_state.config, paths=effective_paths)
@@ -429,6 +473,67 @@ async def _unload_mcp_provider(
     display.show_tool_lists(agent)
 
 
+def _inspect_mcp_tools(
+    *,
+    agent: Any,
+    display: CLIDisplay,
+    tool_name: str | None = None,
+) -> None:
+    gateway = _resolve_tool_manager(agent)
+    if gateway is None:
+        display.warn("current gateway does not support dynamic MCP registration")
+        return
+
+    try:
+        tool_defs = gateway.list_tool_defs()
+    except Exception as exc:
+        display.error(f"failed to inspect tools: {exc}")
+        return
+
+    mcp_tool_defs: list[dict[str, Any]] = []
+    for tool_def in tool_defs:
+        function = tool_def.get("function")
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        if not isinstance(name, str) or ":" not in name:
+            continue
+        mcp_tool_defs.append(tool_def)
+
+    if tool_name:
+        mcp_tool_defs = [
+            tool_def
+            for tool_def in mcp_tool_defs
+            if isinstance(tool_def.get("function"), dict)
+            and tool_def["function"].get("name") == tool_name
+        ]
+
+    if not mcp_tool_defs:
+        if tool_name:
+            display.warn(f"no MCP tool matched: {tool_name}")
+        else:
+            display.warn("no MCP tools loaded")
+        return
+
+    display.header("MCP TOOL SCHEMAS")
+    for tool_def in mcp_tool_defs:
+        function = tool_def.get("function", {})
+        name = function.get("name", "?")
+        description = function.get("description", "")
+        parameters = function.get("parameters", {})
+
+        print(f"tool: {name}", flush=True)
+        if description:
+            print(f"description: {description}", flush=True)
+        print("parameters:", flush=True)
+        print(json.dumps(parameters, ensure_ascii=False, indent=2), flush=True)
+        output_schema = tool_def.get("output_schema")
+        if isinstance(output_schema, dict) and output_schema:
+            print("output_schema:", flush=True)
+            print(json.dumps(output_schema, ensure_ascii=False, indent=2), flush=True)
+        print("", flush=True)
+
+
 async def _handle_mcp_command(
     args: list[str],
     *,
@@ -440,15 +545,18 @@ async def _handle_mcp_command(
         display.warn("mcp runtime controls unavailable")
         return
     if not args:
-        display.info("/mcp [list|reload|unload]")
+        display.info("/mcp [list|inspect [tool_name]|reload|unload]")
         return
 
     subcommand = args[0].lower()
     if subcommand == "list":
         display.show_tool_lists(agent)
         return
+    if subcommand == "inspect":
+        target_tool = args[1] if len(args) > 1 else None
+        _inspect_mcp_tools(agent=agent, display=display, tool_name=target_tool)
+        return
     if subcommand == "reload":
-        # Optional paths override config.mcp_paths for this reload.
         await _reload_mcp_provider(
             agent=agent,
             display=display,
@@ -461,7 +569,7 @@ async def _handle_mcp_command(
         return
 
     display.warn(f"unknown mcp command: {subcommand}")
-    display.info("/mcp [list|reload|unload]")
+    display.info("/mcp [list|inspect [tool_name]|reload|unload]")
 
 
 async def run_cli_loop(
@@ -490,7 +598,7 @@ async def run_cli_loop(
             if cmd.type == CommandType.HELP:
                 display.info(
                     "/mode [plan|execute], /approve, /reject, /status, "
-                    "/mcp [list|reload|unload], /quit"
+                    "/mcp [list|inspect [tool_name]|reload|unload], /quit"
                 )
                 continue
             if cmd.type == CommandType.STATUS:
@@ -550,7 +658,7 @@ async def run_cli_loop(
 
 
 async def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="DARE coding agent CLI")
+    parser = argparse.ArgumentParser(description="DARE coding agent CLI (MCP)")
     parser.add_argument("--mode", choices=["plan", "execute"], default="execute")
     parser.add_argument("--script", type=str, default=None, help="run scripted CLI session")
     parser.add_argument("--demo", type=str, default=None, help="run demo script")
@@ -576,36 +684,38 @@ async def main(argv: list[str] | None = None) -> None:
     workspace.mkdir(exist_ok=True)
 
     display = CLIDisplay()
-    display.header("DARE CODING AGENT")
+    display.header("DARE CODING AGENT + MCP")
     display.info(f"model={model_name}")
     display.info(f"workspace={workspace}")
     display.info(f"max_tokens={max_tokens}")
     display.info(f"timeout={timeout_seconds}s")
 
     example_dir = Path(__file__).parent
-    # 统一从 .dare/config.json 读取配置（含 mcp_paths、initial_skill_path 等）
     config_provider = FileConfigProvider(
         workspace_dir=example_dir,
         user_dir=Path.home(),
     )
-    config = config_provider.current()
+    config = _resolve_config_paths(config_provider.current(), example_dir)
     if config.mcp_paths:
+        display.info(f"mcp_paths={config.mcp_paths}")
         display.info("MCP config found. Start local_mcp_server.py in another terminal if using local_math.")
+    else:
+        display.warn("No mcp_paths configured. MCP tools will not be loaded by default.")
 
-    builder = _create_builder(
+    agent, initial_provider = await build_agent(
         workspace,
         model_name,
         api_key,
         max_tokens,
         timeout_seconds,
         display,
-        config=config,
+        config,
     )
-    agent = await builder.build()
     mcp_state = MCPRuntimeState(
         config_provider=config_provider,
         config=config,
-        provider=getattr(builder, "_mcp_toolkit", None),
+        config_base_dir=example_dir,
+        provider=initial_provider,
     )
     display.show_tool_lists(agent)
 
@@ -662,10 +772,4 @@ async def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nInterrupted. Exiting.")
-    except asyncio.CancelledError:
-        # Cancellation can bubble up during shutdown (e.g. Ctrl+C mid-request).
-        print("\nCancelled. Exiting.")
+    asyncio.run(main())

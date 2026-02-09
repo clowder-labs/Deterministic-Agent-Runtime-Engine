@@ -17,9 +17,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import BaseAgent
+from dare_framework.config import Config
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
-from dare_framework.tool.types import RunContext
 from dare_framework.transport import AgentChannel, StdioClientChannel, TransportEnvelope
 
 
@@ -49,15 +49,10 @@ async def main() -> None:
     write_tool = WriteFileTool()
     search_tool = SearchCodeTool()
 
-    # Run context for tools: 可执行空间 = 本示例 workspace + D:\Agent\tests
-    def run_context_factory():
-        return RunContext(
-            config={
-                "workspace_roots": [str(workspace)],
-            },
-            deps=None,
-            metadata={"agent": "tool-agent"},
-        )
+    agent_config = Config(
+        workspace_dir=str(workspace),
+        user_dir=str(Path.home()),
+    )
 
     client_channel = StdioClientChannel()
 
@@ -79,7 +74,7 @@ async def main() -> None:
     agent = (
         BaseAgent.react_agent_builder("tool-agent")
         .with_model(model_adapter)
-        .with_run_context_factory(run_context_factory)
+        .with_config(agent_config)
         .add_tools(read_tool, write_tool, search_tool)
         .with_agent_channel(channel)
         .build()

@@ -79,12 +79,13 @@ class MCPTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        value = _tool_field(self._tool_def, "input_schema", {})
+        # MCP servers commonly return camelCase `inputSchema`; keep snake_case for compatibility.
+        value = _tool_field(self._tool_def, "input_schema", {}, aliases=("inputSchema",))
         return dict(value) if isinstance(value, dict) else {}
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        value = _tool_field(self._tool_def, "output_schema", {})
+        value = _tool_field(self._tool_def, "output_schema", {}, aliases=("outputSchema",))
         return dict(value) if isinstance(value, dict) else {}
 
     @property
@@ -118,10 +119,26 @@ class MCPTool(ITool):
         return await self._client.call_tool(self._tool_name, input, context=context)
 
 
-def _tool_field(tool_def: Any, field: str, default: Any) -> Any:
+def _tool_field(
+    tool_def: Any,
+    field: str,
+    default: Any,
+    *,
+    aliases: tuple[str, ...] = (),
+) -> Any:
     if isinstance(tool_def, dict):
-        return tool_def.get(field, default)
-    return getattr(tool_def, field, default)
+        if field in tool_def:
+            return tool_def[field]
+        for alias in aliases:
+            if alias in tool_def:
+                return tool_def[alias]
+        return default
+    if hasattr(tool_def, field):
+        return getattr(tool_def, field)
+    for alias in aliases:
+        if hasattr(tool_def, alias):
+            return getattr(tool_def, alias)
+    return default
 
 
 def _normalize_risk_level(value: Any) -> RiskLevelName:

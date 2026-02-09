@@ -12,11 +12,31 @@ This replaces the older HTTP+SSE transport (deprecated in 2024-11-05 spec).
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 from typing import Any, AsyncIterator
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+def _is_loopback_host(hostname: str | None) -> bool:
+    if not hostname:
+        return False
+    normalized = hostname.strip().lower().strip("[]")
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _should_trust_env(url: str) -> bool:
+    """Return False for loopback endpoints so local MCP traffic bypasses proxies."""
+    parsed = urlparse(url)
+    return not _is_loopback_host(parsed.hostname)
 
 
 class HTTPTransport:
@@ -59,6 +79,8 @@ class HTTPTransport:
         self._headers = dict(headers) if headers else {}
         self._timeout = timeout_seconds
         self._enable_notifications = enable_notifications
+        # Local MCP services should not be routed through system HTTP proxies.
+        self._trust_env = _should_trust_env(url)
 
         self._connected = False
         self._session_id: str | None = None
@@ -98,6 +120,7 @@ class HTTPTransport:
         try:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self._timeout, connect=10.0),
+                trust_env=self._trust_env,
                 headers={
                     **self._headers,
                     "Content-Type": "application/json",

@@ -28,7 +28,6 @@ from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
-from dare_framework.tool.types import RunContext
 
 from validators.file_validator import FileExistsValidator
 
@@ -234,17 +233,16 @@ async def build_agent(
     )
 
     event_log = StreamingEventLog(display.show_event)
+    agent_config = Config(
+        workspace_dir=str(workspace),
+        user_dir=str(Path.home()),
+    )
 
     agent = await (
         DareAgentBuilder("dare-coding-agent")
         .with_model(model)
+        .with_config(agent_config)
         .add_tools(*tools)
-        .with_run_context_factory(
-            lambda: RunContext(
-                metadata={"agent": "dare-coding-agent"},
-                config={"workspace_roots": [str(workspace)]},
-            )
-        )
         .with_planner(DefaultPlanner(model, verbose=False))
         .add_validators(validator)
         .with_remediator(DefaultRemediator(model, verbose=False))

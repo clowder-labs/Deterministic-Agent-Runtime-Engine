@@ -1,0 +1,6 @@
+# Demo flow: MCP list -> call MCP tool -> reload MCP -> call again
+/mcp list
+用 local_math:add 工具计算 17 + 25，只返回数字
+/mcp reload
+用 local_math:multiply 工具计算 6 * 7，只返回数字
+/quit
