@@ -159,7 +159,16 @@ class Context(IContext):
     def list_tools(self) -> list[CapabilityDescriptor]:
         """Get tool list from a ToolManager or provider."""
         if self._tool_gateway is not None:
-            return self._tool_gateway.list_capabilities()
+            list_capabilities_sync = getattr(self._tool_gateway, "list_capabilities_sync", None)
+            if callable(list_capabilities_sync):
+                return list_capabilities_sync()
+
+            # Backward compatibility for legacy sync gateways.
+            list_capabilities = getattr(self._tool_gateway, "list_capabilities", None)
+            if callable(list_capabilities):
+                capabilities = list_capabilities()
+                if not hasattr(capabilities, "__await__"):
+                    return capabilities
         return []
 
     # ========== Assembly Methods (Core) ==========

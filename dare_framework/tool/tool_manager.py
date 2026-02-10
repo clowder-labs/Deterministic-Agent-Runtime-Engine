@@ -173,7 +173,7 @@ class ToolManager(IToolManager, IToolGateway):
         self.load_entrypoint_providers()
         for provider in self._providers:
             self._sync_provider_tools(provider, provider.list_tools())
-        return self.list_capabilities(include_disabled=True)
+        return await self.list_capabilities(include_disabled=True)
 
     def load_tools(self, *, config: Config | None = None) -> list[ITool]:
         self.load_entrypoint_providers()
@@ -184,13 +184,16 @@ class ToolManager(IToolManager, IToolGateway):
             tools.append(entry.tool)
         return tools
 
-    def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
+    def list_capabilities_sync(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
         descriptors: list[CapabilityDescriptor] = []
         for entry in self._registry.values():
             if not include_disabled and not entry.enabled:
                 continue
             descriptors.append(entry.descriptor)
         return descriptors
+
+    async def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
+        return self.list_capabilities_sync(include_disabled=include_disabled)
 
     def list_tool_defs(self) -> list[ToolDefinition]:
         tool_defs: list[ToolDefinition] = []
