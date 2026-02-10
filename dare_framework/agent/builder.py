@@ -364,10 +364,45 @@ class _BaseAgentBuilder(Generic[TAgent]):
         )
         return SearchSkillTool(self._resolve_skill_store(config))
 
+    def _default_workspace_tools(self, config: Config) -> list[ITool]:
+        # Only auto-inject defaults when builder owns gateway creation.
+        if self._tool_gateway is not None:
+            return []
+        from dare_framework.tool._internal.tools import (
+            EditLineTool,
+            ReadCodeTool,
+            ReadFileTool,
+            RunCmdTool,
+            RunCommandTool,
+            SearchCodeTool,
+            SearchFileTool,
+            WriteCodeTool,
+            WriteFileTool,
+        )
+
+        defaults: list[ITool] = [
+            ReadFileTool(),
+            WriteFileTool(),
+            SearchCodeTool(),
+            SearchFileTool(),
+            ReadCodeTool(),
+            WriteCodeTool(),
+            EditLineTool(),
+            RunCommandTool(),
+            RunCmdTool(),
+        ]
+        return config.filter_enabled(defaults)
+
     def _resolve_tools(self, config: Config, knowledge: IKnowledge | None) -> list[ITool]:
         """Resolve explicit tools (local + skill + knowledge) for registration."""
         explicit = list(self._tools)
         explicit_names = {tool.name for tool in explicit}
+
+        for default_tool in self._default_workspace_tools(config):
+            if default_tool.name not in explicit_names:
+                explicit.append(default_tool)
+                explicit_names.add(default_tool.name)
+
         skill_tool = self._resolved_skill_search_tool(config)
 
         if skill_tool is not None and skill_tool.name not in explicit_names:
