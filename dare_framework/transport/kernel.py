@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from dare_framework.transport.types import (
-    EnvelopeDecoder,
-    EnvelopeEncoder,
     Receiver,
     Sender,
     TransportEnvelope,
 )
+
+if TYPE_CHECKING:
+    from dare_framework.transport.interaction.control_handler import AgentControlHandler
+    from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
 
 
 class ClientChannel(Protocol):
@@ -38,11 +40,17 @@ class AgentChannel(Protocol):
     async def send(self, msg: TransportEnvelope) -> None:
         """Send an outgoing envelope to the client (may apply backpressure)."""
 
-    async def run_interruptible(self, coro: Awaitable[Any]) -> Any:
-        """Run a coroutine that can be interrupted via interrupt()."""
+    def add_action_handler_dispatcher(self, dispatcher: ActionHandlerDispatcher) -> None:
+        """Attach action dispatcher configured by agent builder/runtime."""
 
-    def interrupt(self) -> None:
-        """Interrupt the current run_interruptible task if active."""
+    def add_agent_control_handler(self, handler: AgentControlHandler) -> None:
+        """Attach control handler configured by agent builder/runtime."""
+
+    def get_action_handler_dispatcher(self) -> ActionHandlerDispatcher | None:
+        """Return attached action dispatcher if configured."""
+
+    def get_agent_control_handler(self) -> AgentControlHandler | None:
+        """Return attached control handler if configured."""
 
     @staticmethod
     def build(
@@ -50,12 +58,11 @@ class AgentChannel(Protocol):
         *,
         max_inbox: int = 100,
         max_outbox: int = 100,
-        encoder: EnvelopeEncoder | None = None,
-        decoder: EnvelopeDecoder | None = None,
+        action_timeout_seconds: float = 30.0,
     ) -> AgentChannel:
         """Create the default AgentChannel implementation.
 
-        Optional encoder/decoder allow envelope transforms at the agent boundary.
+        `action_timeout_seconds` controls the timeout guard for ACTION dispatches.
         """
 
         from dare_framework.transport._internal.default_channel import DefaultAgentChannel
@@ -64,8 +71,7 @@ class AgentChannel(Protocol):
             client_channel,
             max_inbox=max_inbox,
             max_outbox=max_outbox,
-            encoder=encoder,
-            decoder=decoder,
+            action_timeout_seconds=action_timeout_seconds,
         )
 
 

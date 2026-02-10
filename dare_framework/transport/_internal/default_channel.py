@@ -4,17 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
-from typing import Any, Awaitable
+from typing import TYPE_CHECKING
 
+from dare_framework.transport.interaction.controls import AgentControl
+from dare_framework.transport.interaction.payloads import build_error_payload, build_success_payload
 from dare_framework.transport.kernel import AgentChannel, ClientChannel
 from dare_framework.transport.types import (
-    EnvelopeDecoder,
-    EnvelopeEncoder,
+    EnvelopeKind,
     Receiver,
     Sender,
     TransportEnvelope,
+    new_envelope_id,
 )
+
+if TYPE_CHECKING:
+    from dare_framework.transport.interaction.control_handler import AgentControlHandler
+    from dare_framework.transport.interaction.dispatcher import ActionDispatchResult, ActionHandlerDispatcher
 
 _logger = logging.getLogger("dare.transport")
 
@@ -28,20 +35,19 @@ class DefaultAgentChannel(AgentChannel):
         *,
         max_inbox: int,
         max_outbox: int,
-        encoder: EnvelopeEncoder | None = None,
-        decoder: EnvelopeDecoder | None = None,
+        action_timeout_seconds: float = 30.0,
     ) -> None:
         self._client = client_channel
         self._receiver: Receiver = client_channel.agent_envelope_receiver()
-        self._encoder = encoder or _identity_envelope
-        self._decoder = decoder or _identity_envelope
 
         self._inbox: asyncio.Queue[TransportEnvelope] = asyncio.Queue(maxsize=max_inbox)
         self._outbox: asyncio.Queue[TransportEnvelope] = asyncio.Queue(maxsize=max_outbox)
+        self._action_timeout_seconds = action_timeout_seconds if action_timeout_seconds > 0 else 30.0
 
-        self._current_task: asyncio.Task[Any] | None = None
         self._started = False
         self._out_pump_task: asyncio.Task[None] | None = None
+        self._action_dispatcher: ActionHandlerDispatcher | None = None
+        self._control_handler: AgentControlHandler | None = None
 
         async def sender(msg: TransportEnvelope) -> None:
             try:
@@ -70,23 +76,19 @@ class DefaultAgentChannel(AgentChannel):
         return await self._inbox.get()
 
     async def send(self, msg: TransportEnvelope) -> None:
-        try:
-            encoded = self._encoder(msg)
-        except Exception:
-            _logger.exception("agent channel encoder failed")
-            return
-        await self._outbox.put(encoded)
+        await self._outbox.put(msg)
 
-    async def run_interruptible(self, coro: Awaitable[Any]) -> Any:
-        self._current_task = asyncio.create_task(coro)
-        try:
-            return await self._current_task
-        finally:
-            self._current_task = None
+    def add_action_handler_dispatcher(self, dispatcher: ActionHandlerDispatcher) -> None:
+        self._action_dispatcher = dispatcher
 
-    def interrupt(self) -> None:
-        if self._current_task and not self._current_task.done():
-            self._current_task.cancel()
+    def add_agent_control_handler(self, handler: AgentControlHandler) -> None:
+        self._control_handler = handler
+
+    def get_action_handler_dispatcher(self) -> ActionHandlerDispatcher | None:
+        return self._action_dispatcher
+
+    def get_agent_control_handler(self) -> AgentControlHandler | None:
+        return self._control_handler
 
     async def _pump_outbox_to_receiver(self) -> None:
         while True:
@@ -97,18 +99,179 @@ class DefaultAgentChannel(AgentChannel):
                 _logger.exception("agent channel receiver failed")
 
     async def _enqueue_inbox(self, msg: TransportEnvelope) -> None:
-        try:
-            decoded = self._decoder(msg)
-        except Exception:
-            _logger.exception("agent channel decoder failed")
+        if msg.kind == EnvelopeKind.MESSAGE:
+            await self._inbox.put(msg)
             return
-        await self._inbox.put(decoded)
+
+        if msg.kind == EnvelopeKind.ACTION:
+            if self._action_dispatcher is None:
+                await self._send_error(
+                    reply_to=msg.id,
+                    kind="action",
+                    target=_action_target(msg.payload),
+                    code="DISPATCHER_NOT_CONFIGURED",
+                    reason="action dispatcher not configured",
+                )
+                return
+            try:
+                result = await asyncio.wait_for(
+                    self._action_dispatcher.handle_action(msg),
+                    timeout=self._action_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                await self._send_error(
+                    reply_to=msg.id,
+                    kind="action",
+                    target=_action_target(msg.payload),
+                    code="ACTION_TIMEOUT",
+                    reason=f"action exceeded timeout ({self._action_timeout_seconds:.2f}s)",
+                )
+            except Exception as exc:
+                await self._send_error(
+                    reply_to=msg.id,
+                    kind="action",
+                    target=_action_target(msg.payload),
+                    code="ACTION_DISPATCH_FAILED",
+                    reason=f"action dispatch failed: {exc}",
+                )
+            else:
+                await self._write_action_result(reply_to=msg.id, result=result)
+            return
+
+        if msg.kind == EnvelopeKind.CONTROL:
+            await self._handle_control(msg)
+            return
+
+        await self._send_error(
+            reply_to=msg.id,
+            kind="message",
+            target="envelope",
+            code="UNSUPPORTED_ENVELOPE_KIND",
+            reason=f"unsupported envelope kind: {msg.kind!r}",
+        )
 
     def _drain_outbox(self) -> None:
         while not self._outbox.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
                 self._outbox.get_nowait()
 
+    async def _handle_control(self, msg: TransportEnvelope) -> None:
+        if self._control_handler is None:
+            await self._send_error(
+                reply_to=msg.id,
+                kind="control",
+                target="control",
+                code="CONTROL_HANDLER_NOT_CONFIGURED",
+                reason="control handler not configured",
+            )
+            return
 
-def _identity_envelope(envelope: TransportEnvelope) -> TransportEnvelope:
-    return envelope
+        payload = msg.payload
+        if not isinstance(payload, str):
+            await self._send_error(
+                reply_to=msg.id,
+                kind="control",
+                target="control",
+                code="INVALID_CONTROL_PAYLOAD",
+                reason="invalid control payload (expected string)",
+            )
+            return
+
+        control = AgentControl.value_of(payload)
+        if control is None:
+            await self._send_error(
+                reply_to=msg.id,
+                kind="control",
+                target=payload,
+                code="UNSUPPORTED_OPERATION",
+                reason=f"unknown control: {payload!r}",
+            )
+            return
+
+        try:
+            result = self._control_handler.invoke(control, dict(msg.meta))
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as exc:
+            await self._send_error(
+                reply_to=msg.id,
+                kind="control",
+                target=control.value,
+                code="CONTROL_HANDLER_FAILED",
+                reason=f"control handler failed: {exc}",
+            )
+            return
+
+        if result is not None:
+            await self._send_result(
+                reply_to=msg.id,
+                kind="control",
+                target=control.value,
+                resp={"result": result},
+            )
+
+    async def _write_action_result(self, *, reply_to: str | None, result: ActionDispatchResult) -> None:
+        if result.ok:
+            await self._send_result(
+                reply_to=reply_to,
+                kind="action",
+                target=result.target,
+                resp=result.resp,
+            )
+            return
+        await self._send_error(
+            reply_to=reply_to,
+            kind="action",
+            target=result.target,
+            code=result.code or "ACTION_DISPATCH_FAILED",
+            reason=result.reason or "action dispatch failed",
+        )
+
+    async def _send_result(
+        self,
+        *,
+        reply_to: str | None,
+        kind: str,
+        target: str,
+        resp: object,
+    ) -> None:
+        await self.send(
+            TransportEnvelope(
+                id=new_envelope_id(),
+                reply_to=reply_to,
+                kind=EnvelopeKind.MESSAGE,
+                payload=build_success_payload(
+                    kind=kind,
+                    target=target,
+                    resp=resp,
+                ),
+            )
+        )
+
+    async def _send_error(
+        self,
+        *,
+        reply_to: str | None,
+        kind: str,
+        target: str,
+        code: str,
+        reason: str,
+    ) -> None:
+        await self.send(
+            TransportEnvelope(
+                id=new_envelope_id(),
+                reply_to=reply_to,
+                kind=EnvelopeKind.MESSAGE,
+                payload=build_error_payload(
+                    kind=kind,
+                    target=target,
+                    code=code,
+                    reason=reason,
+                ),
+            )
+        )
+
+def _action_target(payload: object) -> str:
+    if isinstance(payload, str) and payload.strip():
+        return payload.strip()
+    return "action"

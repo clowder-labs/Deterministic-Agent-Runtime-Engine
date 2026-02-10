@@ -10,6 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal, Sequence
 
+from dare_framework.config.types import Config
 from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.tool.types import (
     CapabilityDescriptor,
@@ -22,9 +23,8 @@ from dare_framework.tool.types import (
 )
 
 if TYPE_CHECKING:
-    from dare_framework.config.types import Config
-    from dare_framework.context import Context
     from dare_framework.plan.types import Envelope
+    from dare_framework.context import Context
 
 
 class IToolProvider(ABC):
@@ -114,7 +114,7 @@ class IToolGateway(ABC):
     """System-call boundary and trusted capability registry facade."""
 
     @abstractmethod
-    async def list_capabilities(self) -> list[CapabilityDescriptor]: ...
+    def list_capabilities(self) -> list[CapabilityDescriptor]: ...
 
     @abstractmethod
     async def invoke(
@@ -127,6 +127,7 @@ class IToolGateway(ABC):
     ) -> ToolResult:
         """Invoke a registered tool capability."""
         ...
+
 
 class IToolManager(ABC):
     """Trusted tool registry and management interface."""
@@ -145,6 +146,10 @@ class IToolManager(ABC):
             version: str | None = None,
     ) -> CapabilityDescriptor:
         """Register a tool and return its capability descriptor."""
+        ...
+
+    @abstractmethod
+    def get_tool(self, capability_id: str) -> ITool:
         ...
 
     @abstractmethod
@@ -173,17 +178,12 @@ class IToolManager(ABC):
         ...
 
     @abstractmethod
-    async def list_capabilities(
+    def list_capabilities(
             self,
             *,
             include_disabled: bool = False,
     ) -> list[CapabilityDescriptor]:
         """List registered capabilities."""
-        ...
-
-    @abstractmethod
-    def list_tool_defs(self) -> list[ToolDefinition]:
-        """List tool definitions derived from the registry."""
         ...
 
     @abstractmethod

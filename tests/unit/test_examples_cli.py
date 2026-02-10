@@ -3,7 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-EXAMPLE_DIR = Path(__file__).resolve().parents[2] / "examples" / "03-dare-coding-agent"
+
+def _resolve_example_dir() -> Path:
+    root = Path(__file__).resolve().parents[2]
+    candidates = (
+        "05-dare-coding-agent-enhanced",
+        "04-dare-coding-agent",
+        "03-dare-coding-agent",
+    )
+    for candidate in candidates:
+        path = root / "examples" / candidate
+        if (path / "cli.py").exists():
+            return path
+    raise FileNotFoundError("Unable to locate examples/*/cli.py for coding-agent example tests.")
+
+
+EXAMPLE_DIR = _resolve_example_dir()
 sys.path.insert(0, str(EXAMPLE_DIR))
 
 import cli  # type: ignore  # noqa: E402

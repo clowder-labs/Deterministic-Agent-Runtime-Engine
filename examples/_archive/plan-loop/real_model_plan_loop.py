@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dare_framework.tool import CapabilityDescriptor
+
 # Add project root to path for local development
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -51,24 +53,15 @@ def _latest_user_message(messages: list[Message]) -> str:
     return ""
 
 
-def _tool_catalog(tool_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _tool_catalog(tool_defs: list[CapabilityDescriptor]) -> list[dict[str, Any]]:
     catalog: list[dict[str, Any]] = []
     for tool in tool_defs:
-        function = tool.get("function") if isinstance(tool, dict) else None
-        if not isinstance(function, dict):
-            continue
-        capability_id = function.get("name")
-        if not isinstance(capability_id, str) or not capability_id:
-            continue
-        display_name = tool.get("metadata", {}).get("display_name")
-        if not isinstance(display_name, str) or not display_name:
-            display_name = capability_id
         catalog.append(
             {
-                "capability_id": capability_id,
-                "name": display_name,
-                "description": function.get("description", ""),
-                "parameters": function.get("parameters", {}),
+                "capability_id": tool.id,
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
             }
         )
     return catalog
@@ -117,7 +110,7 @@ class JsonPlanPlanner:
     def __init__(
         self,
         model: OpenAIModelAdapter,
-        tool_defs: list[dict[str, Any]],
+        tool_defs: list[CapabilityDescriptor],
         *,
         default_read_path: str,
         max_steps: int,
@@ -303,7 +296,7 @@ async def main() -> None:
 
     planner = JsonPlanPlanner(
         model,
-        tool_manager.list_tool_defs(),
+        tool_manager.list_capabilities(),
         default_read_path=DEFAULT_READ_PATH,
         max_steps=MAX_STEPS,
     )

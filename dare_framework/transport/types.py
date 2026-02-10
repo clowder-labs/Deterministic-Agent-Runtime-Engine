@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Literal
+from enum import StrEnum
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-EnvelopeKind = Literal["data", "control"]
+
+class EnvelopeKind(StrEnum):
+    """Strong envelope categories for transport dispatch."""
+
+    MESSAGE = "message"
+    ACTION = "action"
+    CONTROL = "control"
 
 
 @dataclass(frozen=True)
@@ -15,12 +22,22 @@ class TransportEnvelope:
 
     id: str
     reply_to: str | None = None
-    kind: EnvelopeKind = "data"
-    type: str = "message"
+    kind: EnvelopeKind = EnvelopeKind.MESSAGE
     payload: Any = None
     meta: dict[str, Any] = field(default_factory=dict)
     stream_id: str | None = None
     seq: int | None = None
+
+    def __post_init__(self) -> None:
+        kind = self.kind
+        if isinstance(kind, str):
+            try:
+                object.__setattr__(self, "kind", EnvelopeKind(kind))
+            except ValueError as exc:
+                raise ValueError(f"invalid envelope kind: {kind!r}") from exc
+            return
+        if not isinstance(kind, EnvelopeKind):
+            raise TypeError(f"invalid envelope kind type: {type(kind).__name__}")
 
 
 def new_envelope_id() -> str:
@@ -31,8 +48,6 @@ def new_envelope_id() -> str:
 
 Sender = Callable[[TransportEnvelope], Awaitable[None]]
 Receiver = Callable[[TransportEnvelope], Awaitable[None]]
-EnvelopeEncoder = Callable[[TransportEnvelope], TransportEnvelope]
-EnvelopeDecoder = Callable[[TransportEnvelope], TransportEnvelope]
 
 __all__ = [
     "EnvelopeKind",
@@ -40,6 +55,4 @@ __all__ = [
     "new_envelope_id",
     "Sender",
     "Receiver",
-    "EnvelopeEncoder",
-    "EnvelopeDecoder",
 ]

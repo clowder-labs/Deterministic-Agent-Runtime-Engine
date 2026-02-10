@@ -2,6 +2,7 @@
 
 from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.agent.kernel import IAgent
+from dare_framework.agent.status import AgentStatus
 from dare_framework.agent.types import AgentDeps, ISessionSummaryStore
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent.dare_agent import DareAgent
@@ -17,6 +18,7 @@ __all__ = [
     "AgentDeps",
     "ISessionSummaryStore",
     "IAgent",
+    "AgentStatus",
     "IAgentOrchestration",
     "BaseAgent",
     "DareAgent",

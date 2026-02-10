@@ -79,9 +79,8 @@ async def test_tool_manager_register_update_unregister() -> None:
     assert descriptor.id == "echo"
 
     manager.change_capability_status(descriptor.id, False)
-    assert manager.list_tool_defs() == []
-    assert await manager.list_capabilities() == []
-    assert await manager.list_capabilities(include_disabled=True)
+    assert manager.list_capabilities() == []
+    assert manager.list_capabilities(include_disabled=True)
 
     updated = DummyTool("echo", "Echo input payload")
     updated_descriptor = manager.update_tool(
@@ -103,36 +102,11 @@ async def test_tool_manager_provider_registration() -> None:
     manager.register_provider(provider)
     await manager.refresh()
 
-    capabilities = await manager.list_capabilities()
+    capabilities = manager.list_capabilities()
     assert len(capabilities) == 2
 
     assert manager.unregister_provider(provider) is True
-    assert await manager.list_capabilities() == []
-
-
-@pytest.mark.asyncio
-async def test_tool_manager_tool_defs_include_metadata() -> None:
-    manager = ToolManager()
-    tool = DummyTool("echo", "Echo input text")
-
-    manager.register_tool(tool)
-
-    tool_defs = manager.list_tool_defs()
-    assert tool_defs
-
-    tool_def = tool_defs[0]
-    assert tool_def["type"] == "function"
-    assert tool_def["function"]["name"] == tool_def["capability_id"]
-    assert tool_def["function"]["name"] == "echo"
-    assert tool_def["function"]["parameters"] == tool.input_schema
-    assert tool_def["capability_id"] in {cap.id for cap in await manager.list_capabilities()}
-
-    metadata = tool_def.get("metadata", {})
-    assert metadata.get("risk_level") == "non_idempotent_effect"
-    assert metadata.get("requires_approval") is True
-    assert metadata.get("timeout_seconds") == 12
-    assert metadata.get("is_work_unit") is False
-    assert metadata.get("display_name") == "echo"
+    assert manager.list_capabilities() == []
 
 
 def test_tool_manager_rejects_duplicate_tool_name() -> None:

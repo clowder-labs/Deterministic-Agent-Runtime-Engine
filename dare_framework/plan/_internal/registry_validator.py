@@ -95,9 +95,9 @@ class RegistryPlanValidator(IValidator):
     ) -> tuple[dict[str, CapabilityDescriptor], dict[str, list[CapabilityDescriptor]]]:
         capabilities: list[CapabilityDescriptor] = []
         if self._tool_gateway is not None:
-            capabilities = list(await self._tool_gateway.list_capabilities())
+            capabilities = list(self._tool_gateway.list_capabilities())
         elif self._tool_manager is not None:
-            capabilities = list(await self._tool_manager.list_capabilities())
+            capabilities = list(self._tool_manager.list_capabilities())
 
         by_id: dict[str, CapabilityDescriptor] = {}
         by_alias: dict[str, list[CapabilityDescriptor]] = {}
