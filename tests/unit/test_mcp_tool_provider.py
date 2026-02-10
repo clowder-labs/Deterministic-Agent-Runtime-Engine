@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import inf
 from typing import Any
 
 import pytest
@@ -122,6 +123,32 @@ async def test_mcp_tool_invalid_timeout_falls_back_and_registers() -> None:
                 "name": "divide",
                 "description": "Divide two numbers.",
                 "timeout_seconds": "invalid-timeout",
+            }
+        ],
+    )
+    provider = MCPToolProvider([client])
+    await provider.initialize()
+    tool = provider.list_tools()[0]
+
+    assert tool.timeout_seconds == 30
+
+    manager = ToolManager(load_entrypoints=False)
+    manager.register_provider(provider)
+    caps = await manager.list_capabilities()
+    assert caps
+    metadata = caps[0].metadata or {}
+    assert metadata.get("timeout_seconds") == 30
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_infinite_timeout_falls_back_and_registers() -> None:
+    client = _FakeMCPClient(
+        "local_math",
+        [
+            {
+                "name": "divide",
+                "description": "Divide two numbers.",
+                "timeout_seconds": inf,
             }
         ],
     )

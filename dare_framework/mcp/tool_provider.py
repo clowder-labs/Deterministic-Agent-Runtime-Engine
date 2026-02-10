@@ -108,7 +108,7 @@ class MCPTool(ITool):
             return 30
         try:
             parsed = int(value)
-        except (TypeError, ValueError):
+        except (OverflowError, TypeError, ValueError):
             return 30
         return parsed if parsed > 0 else 30
 

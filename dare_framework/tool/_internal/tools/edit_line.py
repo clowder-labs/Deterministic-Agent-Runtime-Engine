@@ -104,8 +104,11 @@ def _execute_edit(input: dict[str, Any], context: RunContext[Any]) -> ToolResult
     if mode not in {"insert", "delete"}:
         raise ToolError(code="INVALID_MODE", message="mode must be insert or delete", retryable=False)
 
-    line_number_raw = input.get("line_number")
-    line_number = 1 if line_number_raw is None else _parse_line_number(line_number_raw)
+    # Missing line_number should use schema default (1), but explicit null remains invalid.
+    if "line_number" in input:
+        line_number = _parse_line_number(input.get("line_number"))
+    else:
+        line_number = 1
     text = input.get("text", "")
     strict_match = bool(input.get("strict_match", True))
 
