@@ -1,0 +1,164 @@
+name: main-guard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Keep every main push incident run for audit trail; do not cancel in progress.
+  group: main-guard-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  enforce-main-pr-only:
+    name: enforce-main-pr-only
+    runs-on: ubuntu-latest
+    env:
+      MAIN_GUARD_MODE: ${{ vars.MAIN_GUARD_MODE }}
+      MAIN_GUARD_ALLOW_ACTORS: ${{ vars.MAIN_GUARD_ALLOW_ACTORS }}
+      MAIN_GUARD_ALLOW_MARKER: ${{ vars.MAIN_GUARD_ALLOW_MARKER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Classify main push
+        id: classify
+        run: |
+          python scripts/ci/main_guard.py \
+            --event "$GITHUB_EVENT_PATH" \
+            --repository "$GITHUB_REPOSITORY" \
+            --token "${{ secrets.GITHUB_TOKEN }}" \
+            --allow-actors "${MAIN_GUARD_ALLOW_ACTORS:-}" \
+            --allow-marker "${MAIN_GUARD_ALLOW_MARKER:-[main-guard:allow-direct-push]}"
+
+      - name: Write run summary
+        run: |
+          {
+            echo "## Main Guard Result"
+            echo "- Direct push incident: \`${{ steps.classify.outputs.is_direct_push }}\`"
+            echo "- Decision reason: \`${{ steps.classify.outputs.reason }}\`"
+            echo "- Pushed commits: \`${{ steps.classify.outputs.commit_shas }}\`"
+            echo "- Unlinked commits: \`${{ steps.classify.outputs.unlinked_commits }}\`"
+            echo "- Associated PR numbers: \`${{ steps.classify.outputs.associated_pr_numbers }}\`"
+            echo "- Mode: \`${MAIN_GUARD_MODE:-revert-pr}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create incident issue
+        id: incident
+        if: steps.classify.outputs.is_direct_push == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mode="${MAIN_GUARD_MODE:-revert-pr}"
+          title="Main guard incident: direct push on main (${GITHUB_SHA:0:7})"
+          body=$(cat <<EOF
+          ## Main Guard Incident
+
+          Direct push to \`main\` was detected by \`main-guard\`.
+
+          - Repo: \`${GITHUB_REPOSITORY}\`
+          - Actor: \`${GITHUB_ACTOR}\`
+          - Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Decision: \`${{ steps.classify.outputs.reason }}\`
+          - Mode: \`${mode}\`
+          - Commit SHA: \`${GITHUB_SHA}\`
+          - Unlinked commits: \`${{ steps.classify.outputs.unlinked_commits }}\`
+          - Associated PR numbers: \`${{ steps.classify.outputs.associated_pr_numbers }}\`
+
+          If this was intentional emergency maintenance, include marker \`[main-guard:allow-direct-push]\` in commit message and add a postmortem note.
+          EOF
+          )
+          issue_url=$(gh issue create --title "$title" --body "$body")
+          echo "issue_url=$issue_url" >> "$GITHUB_OUTPUT"
+
+      - name: Create rollback branch and PR
+        id: rollback
+        if: steps.classify.outputs.is_direct_push == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UNLINKED_COMMITS: ${{ steps.classify.outputs.unlinked_commits }}
+        run: |
+          mode="${MAIN_GUARD_MODE:-revert-pr}"
+          if [ "$mode" != "revert-pr" ]; then
+            echo "rollback_pr_url=" >> "$GITHUB_OUTPUT"
+            echo "Skipping rollback PR because MAIN_GUARD_MODE=${mode}."
+            exit 0
+          fi
+
+          if [ -z "$UNLINKED_COMMITS" ]; then
+            echo "rollback_pr_url=" >> "$GITHUB_OUTPUT"
+            echo "No unlinked commits found; skipping rollback PR."
+            exit 0
+          fi
+
+          git config user.name "main-guard[bot]"
+          git config user.email "main-guard[bot]@users.noreply.github.com"
+
+          rollback_branch="auto/main-guard-revert-${GITHUB_RUN_ID}"
+          git switch --create "$rollback_branch"
+
+          reverted_count=0
+          IFS=',' read -r -a commits <<< "$UNLINKED_COMMITS"
+          for sha in "${commits[@]}"; do
+            if [ -z "$sha" ]; then
+              continue
+            fi
+
+            if git revert --no-edit "$sha"; then
+              reverted_count=$((reverted_count + 1))
+            else
+              git revert --abort || true
+              echo "rollback_pr_url=" >> "$GITHUB_OUTPUT"
+              echo "Failed to revert $sha automatically; manual rollback is required."
+              exit 0
+            fi
+          done
+
+          if [ "$reverted_count" -eq 0 ]; then
+            echo "rollback_pr_url=" >> "$GITHUB_OUTPUT"
+            echo "No commits reverted; skipping rollback PR."
+            exit 0
+          fi
+
+          git push origin "$rollback_branch"
+          rollback_pr_url=$(gh pr create \
+            --base main \
+            --head "$rollback_branch" \
+            --title "chore(main-guard): rollback direct push ${GITHUB_SHA:0:7}" \
+            --body "Auto-generated rollback PR for a direct push incident detected by \`main-guard\`.
+
+          - Incident run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Unlinked commits reverted: \`${UNLINKED_COMMITS}\`
+          - Detection reason: \`${{ steps.classify.outputs.reason }}\`")
+          echo "rollback_pr_url=$rollback_pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Add remediation links to summary
+        if: steps.classify.outputs.is_direct_push == 'true'
+        run: |
+          {
+            echo ""
+            echo "## Main Guard Remediation"
+            echo "- Incident issue: \`${{ steps.incident.outputs.issue_url }}\`"
+            echo "- Rollback PR: \`${{ steps.rollback.outputs.rollback_pr_url }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark incident as failed gate
+        if: steps.classify.outputs.is_direct_push == 'true'
+        run: |
+          echo "Direct push incident detected and remediation workflow executed."
+          exit 1

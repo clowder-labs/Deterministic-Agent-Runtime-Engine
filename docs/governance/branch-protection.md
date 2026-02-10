@@ -38,6 +38,25 @@ Use pre-merge combined checks:
 2. Keep PR checks running on GitHub's synthetic merge commit (default `pull_request` behavior).
 3. Require a fresh green run after rebasing/cherry-picking onto latest `main`.
 
+## Free-Tier Fallback if Branch Protection Is Unavailable
+Use `.github/workflows/main-guard.yml` as an automated guard rail:
+
+1. Detect pushes to `main` where commits have no associated PR metadata.
+2. Open an incident issue automatically with run link and commit context.
+3. In `MAIN_GUARD_MODE=revert-pr`, auto-create a rollback PR that reverts unlinked commits.
+4. Fail the `main-guard` run intentionally so incidents are visible in Actions history.
+
+### Variables (Repository -> Settings -> Secrets and variables -> Actions -> Variables)
+- `MAIN_GUARD_MODE`
+  - `revert-pr`: detect + issue + rollback PR (recommended default)
+  - `alert-only`: detect + issue only
+- `MAIN_GUARD_ALLOW_ACTORS`
+  - Comma-separated pusher names allowed to bypass detection (emergency admins/bots)
+- `MAIN_GUARD_ALLOW_MARKER`
+  - Commit message override marker (default `[main-guard:allow-direct-push]`)
+
+This fallback does not replace native branch protection, but it gives enforceable detection and remediation when plan limits block branch rules.
+
 ## Verification Steps
 1. Open a small PR.
 2. Confirm `lint` and `build` run automatically.

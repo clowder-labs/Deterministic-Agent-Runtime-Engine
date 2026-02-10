@@ -51,3 +51,19 @@ Read and follow `docs/agent_rules.md` before opening a PR.
 
 ## Governance Setup
 For GitHub branch protection and merge queue settings, follow `docs/governance/branch-protection.md`.
+
+## Free-Tier Main Guard (Direct Push Fallback)
+- Workflow: `.github/workflows/main-guard.yml`
+- Trigger: every `push` to `main`
+- Behavior:
+  - Detect commits on `main` without PR association metadata
+  - Open an incident issue automatically
+  - In `revert-pr` mode, open an automatic rollback PR for unlinked commits
+  - Mark the run as failed for clear red-signal audit trail
+
+### Repository Variables
+- `MAIN_GUARD_MODE`: `revert-pr` (default) or `alert-only`
+- `MAIN_GUARD_ALLOW_ACTORS`: comma-separated actor allowlist for emergency/bot bypass
+- `MAIN_GUARD_ALLOW_MARKER`: commit marker to bypass incident (default `[main-guard:allow-direct-push]`)
+
+Use bypass only for emergency hotfixes and always attach a postmortem note in follow-up PR/issue.
