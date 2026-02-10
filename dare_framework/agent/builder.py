@@ -63,7 +63,8 @@ from dare_framework.skill import Skill, ISkillLoader, ISkillStore, SkillStoreBui
 from dare_framework.skill._internal.action_handler import SkillsActionHandler
 from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
 from dare_framework.tool import ToolResult, CapabilityDescriptor
-from dare_framework.tool.action_handler import ToolsActionHandler
+from dare_framework.tool.action_handler import ApprovalsActionHandler, ToolsActionHandler
+from dare_framework.tool._internal.control.approval_manager import ToolApprovalManager
 from dare_framework.tool.interfaces import IExecutionControl
 from dare_framework.tool.kernel import ITool, IToolGateway, IToolManager, IToolProvider
 from dare_framework.tool.tool_gateway import ToolGateway
@@ -109,6 +110,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
         self._tools: list[ITool] = []
         self._tool_providers: list[IToolProvider] = []
         self._tool_manager: IToolManager | None = None
+        self._approval_manager: ToolApprovalManager | None = None
 
         # MCP tool provider (optional, provides MCP-backed tools).
         self._mcp_toolkit: IToolProvider | None = None
@@ -217,6 +219,11 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
     def with_tool_gateway(self: TBuilder, gateway: IToolManager) -> TBuilder:
         self._tool_manager = gateway
+        return self
+
+    def with_approval_manager(self: TBuilder, approval_manager: ToolApprovalManager) -> TBuilder:
+        """Inject tool approval manager used for approval-required invocations."""
+        self._approval_manager = approval_manager
         return self
 
     def add_tool_provider(self: TBuilder, provider: IToolProvider) -> TBuilder:
@@ -375,6 +382,16 @@ class _BaseAgentBuilder(Generic[TAgent]):
             return tool_manager, tool_manager
         return ToolGateway(tool_manager), tool_manager
 
+    def _resolve_approval_manager(self, config: Config) -> ToolApprovalManager:
+        if self._approval_manager is not None:
+            return self._approval_manager
+        manager = ToolApprovalManager.from_paths(
+            workspace_dir=config.workspace_dir,
+            user_dir=config.user_dir,
+        )
+        self._approval_manager = manager
+        return manager
+
     class _DelegateToolGateway(IToolGateway):
         def __init__(self, tool_manager: IToolManager):
             self._tool_manager = tool_manager
@@ -444,6 +461,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
             tool_manager: IToolManager | None,
             skill_store: ISkillStore | None,
             config_provider: IConfigProvider | None,
+            approval_manager: ToolApprovalManager | None,
             channel: AgentChannel | None,
     ) -> None:
         """Configure transport interaction handlers on the bound AgentChannel.
@@ -466,6 +484,8 @@ class _BaseAgentBuilder(Generic[TAgent]):
         )
         if tool_manager is not None:
             action_dispatcher.register_action_handler(ToolsActionHandler(tool_manager))
+        if approval_manager is not None:
+            action_dispatcher.register_action_handler(ApprovalsActionHandler(approval_manager))
 
         if skill_store is not None:
             action_dispatcher.register_action_handler(SkillsActionHandler(skill_store))
@@ -484,6 +504,7 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
         config_provider = self._config_provider
         agent_channel = self._agent_channel
         model, model_manager = self._resolve_model_and_model_manager(config)
+        approval_manager = self._resolve_approval_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
         knowledge = self._resolved_knowledge()
         skill_store = None
@@ -507,6 +528,7 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
             tool_manager=tool_manager,
             skill_store=skill_store,
             config_provider=config_provider,
+            approval_manager=approval_manager,
             channel=agent_channel,
         )
         return agent
@@ -520,6 +542,7 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
         config_provider = self._config_provider
         agent_channel = self._agent_channel
         model, model_manager = self._resolve_model_and_model_manager(config)
+        approval_manager = self._resolve_approval_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
         knowledge = self._resolved_knowledge()
         skill_store = None
@@ -544,6 +567,7 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
             tool_manager=tool_manager,
             skill_store=skill_store,
             config_provider=config_provider,
+            approval_manager=approval_manager,
             channel=agent_channel,
         )
         return agent
@@ -602,6 +626,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         config_provider = self._config_provider
         agent_channel = self._agent_channel
         model, model_manager = self._resolve_model_and_model_manager(config)
+        approval_manager = self._resolve_approval_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
         knowledge = self._resolved_knowledge()
         skill_store = None
@@ -668,6 +693,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             telemetry=telemetry,
             agent_channel=agent_channel,
             verbose=self._verbose,
+            approval_manager=approval_manager,
         )
         self._configure_channel_interaction(
             agent=agent,
@@ -676,6 +702,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             tool_manager=tool_manager,
             skill_store=skill_store,
             config_provider=config_provider,
+            approval_manager=approval_manager,
             channel=agent_channel,
         )
         return agent

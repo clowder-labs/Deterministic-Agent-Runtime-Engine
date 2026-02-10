@@ -1,5 +1,9 @@
-# Demo flow: preview plan then execute
+# Demo flow: preview plan -> execute -> inspect approval memory
+/status
+/approvals list
 /mode plan
 Create snake_game.py in Python that prints a startup message.
 /approve
+/status
+/approvals list
 /quit

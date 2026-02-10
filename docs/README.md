@@ -27,7 +27,8 @@
 
 6. 示例实现
    ├── /examples/04-dare-coding-agent/ (五层循环示例 Agent)
-   └── /examples/06-dare-coding-agent-mcp/ (Config 驱动 MCP + 动态重载示例)
+   ├── /examples/06-dare-coding-agent-mcp/ (Config 驱动 MCP + 动态重载示例)
+   └── /examples/07-tool-approval-memory/ (工具审批记忆与自动放行示例)
 
 7. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
@@ -73,6 +74,7 @@
 | `appendix/Appendix_Industrial_Security_and_Auditing.md` | 工业级安全与审计附录：WORM、Merkle 批次密封、审计复验 |
 | `guides/Engineering_Practice_Guide_Sandbox_and_WORM.md` | 工程实践指南：沙箱执行隔离（seccomp/网络/镜像）、WORM 落地与核查 |
 | `guides/Development_Constraints.md` | 开发约束：架构不破坏、测试必备、日志/命名/复用/信任边界等硬性要求 |
+| `guides/Tool_Approval_Memory.md` | 工具审批记忆使用指南：pending/grant/deny/revoke、scope/matcher、持久化与接线方式 |
 
 ---
 
@@ -167,9 +169,11 @@
 ### Agent 开发者（使用框架）
 
 ```text
-1. /examples/coding-agent/README.md
-2. design/Architecture.md（理解框架目标形态与边界）
-3. dare_framework/builder.py（组装 API）
+1. /examples/04-dare-coding-agent/README.md
+2. /examples/07-tool-approval-memory/README.md
+3. guides/Tool_Approval_Memory.md
+4. design/Architecture.md（理解框架目标形态与边界）
+5. dare_framework/builder.py（组装 API）
 ```
 
 ---

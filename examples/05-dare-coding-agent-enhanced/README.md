@@ -28,11 +28,29 @@ python main.py
 - `/approve`：执行当前待审批计划
 - `/reject`：取消当前计划
 - `/status`：查看状态
+- `/approvals list`：查看待审批请求与当前审批规则
+- `/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]`：批准请求并可写入规则
+- `/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]`：拒绝请求并可写入规则
+- `/approvals revoke <rule_id>`：撤销审批规则
 - `/mcp list`：查看当前 MCP 与本地工具列表
 - `/mcp reload [paths...]`：运行时重载 MCP（默认按最新配置文件；可临时指定扫描路径）
 - `/mcp unload`：卸载当前运行时 MCP provider
 - `/help`：帮助
 - `/quit`：退出
+
+说明：交互模式下（`dare>` 手输命令）执行任务会后台运行，可在运行过程中继续输入 `/status` 与 `/approvals ...` 进行审批与观察。
+
+### 审批操作建议流程（交互模式）
+
+1. 先执行一个可能触发高风险工具的任务（如会调用 `run_command`）。
+2. 用 `/approvals list` 查看 `pending` 里的 `request_id`。
+3. 按需执行：
+   - `/approvals grant <request_id> scope=workspace matcher=exact_params`
+   - `/approvals deny <request_id> scope=once matcher=exact_params`
+4. 用 `/status` 观察任务继续执行，再次 `/approvals list` 确认 pending 是否清空。
+5. 若需要取消自动放行规则，执行 `/approvals revoke <rule_id>`。
+
+提示：`--demo/--script` 模式主要用于固定脚本演示；如果要“任务执行中实时审批”，推荐直接使用交互模式（`dare>`）。
 
 ### 演示脚本
 

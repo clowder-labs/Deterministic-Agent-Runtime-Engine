@@ -1,6 +1,9 @@
-# Demo flow: MCP list -> call MCP tool -> reload MCP -> call again
+# Demo flow: inspect tools/MCP -> run task -> inspect approvals
 /mcp list
+/approvals list
 用 local_math:add 工具计算 17 + 25，只返回数字
 /mcp reload
+/approvals list
 用 local_math:multiply 工具计算 6 * 7，只返回数字
+/status
 /quit
