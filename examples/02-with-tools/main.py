@@ -61,7 +61,6 @@ async def main() -> None:
             id=envelope.id,
             reply_to=envelope.reply_to,
             kind=envelope.kind,
-            type=envelope.type,
             payload=f"Workspace: {workspace}\n\n{envelope.payload}",
             meta=envelope.meta,
             stream_id=envelope.stream_id,

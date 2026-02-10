@@ -1,5 +1,5 @@
 ## 1. Interface and Model Updates
-- [x] 1.1 Define the Config model with llm/mcp/tools/allowtools/allowmcps fields and doc comments
+- [x] 1.1 Define the Config model with llm/mcp/tools/allow_tools/allow_mcps fields and doc comments
 - [x] 1.2 Update SessionContext to carry the effective Config
 - [x] 1.3 Extend IConfigProvider with reload() -> Config semantics and doc comments
 

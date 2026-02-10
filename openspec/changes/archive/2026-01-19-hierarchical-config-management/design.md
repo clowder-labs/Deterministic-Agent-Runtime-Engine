@@ -3,7 +3,7 @@ The framework currently exposes a flat configuration dictionary via StaticConfig
 
 ## Goals / Non-Goals
 - Goals:
-  - Define a typed Config model that captures llm, mcp, tools, allowtools, allowmcps, and component enablement.
+  - Define a typed Config model that captures llm, mcp, tools, allow_tools, allow_mcps, and component enablement.
   - Specify deterministic layer resolution with system < user < project override order.
   - Provide a reload operation that returns a new effective Config without implicit live mutation.
   - Ensure runtime components rely on a single effective Config object.
@@ -15,8 +15,8 @@ The framework currently exposes a flat configuration dictionary via StaticConfig
 ## Decisions
 - Decision: Use JSON files as the sole configuration source for system/user/project layers.
   - Rationale: Keep parsing deterministic and aligned with the request; avoid early expansion to env/CLI sources.
-- Decision: Treat allowtools and allowmcps as normal keys with layer override semantics (no merges).
-  - Rationale: User requirement specifies that allowtools/allowmcps follow the same override order as other keys.
+- Decision: Treat allow_tools and allow_mcps as normal keys with layer override semantics (no merges).
+  - Rationale: User requirement specifies that allow_tools/allow_mcps follow the same override order as other keys.
 - Decision: Provide a reload method that returns a new effective Config but does not mutate existing sessions implicitly.
   - Rationale: Supports future integration while preserving deterministic session behavior.
 - Decision: Represent component-specific configuration under mcp/tools as component-scoped objects keyed by component name.

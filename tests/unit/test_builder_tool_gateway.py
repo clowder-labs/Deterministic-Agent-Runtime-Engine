@@ -56,7 +56,7 @@ class ListProvider:
 
 @pytest.mark.asyncio
 async def test_agent_builder_minimal_build() -> None:
-    agent = BaseAgent.simple_chat_agent_builder("test-agent").with_model(DummyModelAdapter()).build()
+    agent = await BaseAgent.simple_chat_agent_builder("test-agent").with_model(DummyModelAdapter()).build()
 
     result = await agent.run("hello")
 
@@ -64,8 +64,9 @@ async def test_agent_builder_minimal_build() -> None:
     assert result.output == "ok"
 
 
-def test_agent_builder_derives_tool_defs_from_gateway() -> None:
-    agent = (
+@pytest.mark.asyncio
+async def test_agent_builder_derives_tool_defs_from_gateway() -> None:
+    agent = await (
         BaseAgent.simple_chat_agent_builder("tool-agent")
         .with_model(DummyModelAdapter())
         .add_tools(EchoTool())
@@ -75,12 +76,13 @@ def test_agent_builder_derives_tool_defs_from_gateway() -> None:
     tools = agent.context.list_tools()
 
     assert tools
-    tool_def = tools[0]
-    assert tool_def["type"] == "function"
-    assert tool_def["function"]["name"] == tool_def["capability_id"]
-    assert tool_def["function"]["name"] == "echo"
-    assert tool_def["function"]["parameters"] == EchoTool.input_schema
-    assert tool_def.get("metadata", {}).get("display_name") == "echo"
+    descriptor = tools[0]
+    assert descriptor.id == "echo"
+    assert descriptor.name == "echo"
+    assert descriptor.description == EchoTool.description
+    assert descriptor.input_schema == EchoTool.input_schema
+    assert descriptor.metadata is not None
+    assert descriptor.metadata.get("display_name") == "echo"
 
 
 @pytest.mark.asyncio
@@ -92,7 +94,7 @@ async def test_tool_manager_aggregates_and_enforces_allowlist() -> None:
     gateway.register_provider(ListProvider([tool_a]))
     gateway.register_provider(ListProvider([tool_b]))
 
-    capabilities = await gateway.list_capabilities()
+    capabilities = gateway.list_capabilities()
     assert len(capabilities) == 2
     cap_ids = [cap.id for cap in capabilities]
 

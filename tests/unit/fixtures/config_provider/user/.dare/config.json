@@ -2,10 +2,10 @@
   "llm": {
     "model": "user-fixture-model"
   },
-  "allowtools": [
+  "allow_tools": [
     "fixture_tool"
   ],
-  "allowmcps": [
+  "allow_mcps": [
     "fixture_mcp_user"
   ],
   "mcp": {

@@ -132,10 +132,9 @@ async def main():
 
     # 8. Get LLM-compatible tool definitions
     print("\n[8] Getting LLM-compatible tool definitions...")
-    tool_defs = gateway.list_tool_defs()
+    tool_defs = gateway.list_capabilities()
     for tool_def in tool_defs:
-        func = tool_def["function"]
-        print(f"    - {func['name']}: {func['description'][:50]}...")
+        print(f"    - {tool_def.name}: {tool_def.description[:50]}...")
 
     # 9. Dynamic tool management
     print("\n[9] Demonstrating dynamic tool management...")

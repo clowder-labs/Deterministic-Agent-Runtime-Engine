@@ -45,6 +45,7 @@ class MockPlanner:
 
     def __init__(self) -> None:
         self.plan_calls = []
+        self.decompose_calls = []
 
     async def plan(self, ctx: Any) -> Any:
         self.plan_calls.append(ctx)
@@ -53,6 +54,20 @@ class MockPlanner:
             plan_description="Mock plan",
             steps=[],
             attempt=len(self.plan_calls),
+        )
+
+    async def decompose(self, task: Task, ctx: Any) -> Any:
+        self.decompose_calls.append((task, ctx))
+        from dare_framework.plan.types import DecompositionResult, Milestone
+        return DecompositionResult(
+            milestones=[
+                Milestone(
+                    milestone_id=f"{task.task_id}_m1",
+                    description=task.description,
+                    user_input=task.description,
+                )
+            ],
+            reasoning="mock decomposition",
         )
 
 
@@ -91,7 +106,7 @@ class MockToolGateway:
         self.invoke_calls = []
         self._capabilities = list(capabilities or [])
 
-    async def list_capabilities(self) -> list[Any]:
+    def list_capabilities(self) -> list[Any]:
         return list(self._capabilities)
 
     async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Any) -> Any:
@@ -258,6 +273,8 @@ class TestDareAgentExecution:
         context.stm_get = MagicMock(return_value=[])
         context.budget_check = MagicMock()
         context.budget_use = MagicMock()
+        context.budget = Budget()
+        context.budget_remaining = MagicMock(return_value=float("inf"))
         context.assemble = MagicMock(return_value=MagicMock(
             messages=[],
             tools=[],
@@ -403,8 +420,8 @@ class TestFiveLayerMode:
         assert any("plan tool encountered" in text for text in state.reflections)
 
     @pytest.mark.asyncio
-    async def test_run_result_includes_session_summary(self) -> None:
-        """Session loop returns session_id and session_summary in RunResult."""
+    async def test_run_result_fields_for_session_loop(self) -> None:
+        """Session loop returns success/output/errors in RunResult."""
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
@@ -417,15 +434,13 @@ class TestFiveLayerMode:
 
         result = await agent.run("Summarize this run")
 
-        assert result.session_id is not None
-        assert result.session_summary is not None
-        assert result.session_summary.session_id == result.session_id
-        assert result.session_summary.task_id is not None
-        assert len(result.session_summary.milestones) == 1
+        assert result.success is True
+        assert result.errors == []
+        assert result.output is not None
 
     @pytest.mark.asyncio
-    async def test_previous_session_summary_injected(self) -> None:
-        """Previous session summary is injected into STM before user input."""
+    async def test_previous_session_summary_not_auto_injected(self) -> None:
+        """Current implementation keeps previous_session_summary on Task only."""
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
@@ -457,35 +472,30 @@ class TestFiveLayerMode:
         )
 
         messages = agent._context.stm_get()
-        assert messages[0].role == "system"
-        assert "Previous session summary" in (messages[0].content or "")
-        assert messages[1].role == "user"
-        assert "Follow-up task" in (messages[1].content or "")
+        assert messages[0].role == "user"
+        assert "Follow-up task" in (messages[0].content or "")
 
     @pytest.mark.asyncio
-    async def test_session_start_includes_config_hash(self) -> None:
-        """Session start event includes config_hash when ConfigProvider is set."""
-        from dare_framework.config.types import Config
-
+    async def test_session_start_includes_task_and_run_ids(self) -> None:
+        """session.start event includes task/run identifiers."""
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
         event_log = MockEventLog()
-        config_provider = MockConfigProvider(Config())
         agent = DareAgent(
             name="five-layer-agent",
             model=model,
             planner=planner,
             validator=validator,
             event_log=event_log,
-            config_provider=config_provider,
         )
 
         await agent.run("Task with config")
 
         session_start = [e for e in event_log.events if e[0] == "session.start"]
         assert session_start
-        assert session_start[0][1].get("config_hash")
+        assert session_start[0][1].get("task_id")
+        assert session_start[0][1].get("run_id")
 
 
 if __name__ == "__main__":

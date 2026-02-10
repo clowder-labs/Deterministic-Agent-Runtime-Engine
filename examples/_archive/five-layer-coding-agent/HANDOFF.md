@@ -264,7 +264,7 @@ PYTHONPATH=../.. python interactive_cli.py --openrouter
    ```python
    async def _run_tool_loop(self, request):
        ...
-       result = await self._tool_gateway.invoke(...)
+       result = await self._tool_manager.invoke(...)
 
        # DEBUG: 显示实际创建的文件路径
        if hasattr(result, 'output') and 'path' in result.output:

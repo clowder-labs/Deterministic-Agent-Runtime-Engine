@@ -1,1 +1,0 @@
-"""Memory domain shared types."""

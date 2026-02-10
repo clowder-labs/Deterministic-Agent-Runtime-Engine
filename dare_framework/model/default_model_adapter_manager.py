@@ -32,6 +32,7 @@ class DefaultModelAdapterManager(IModelAdapterManager):
         )
 
 
+
 def _normalize_adapter_name(name: str | None) -> str:
     if not name:
         return "openai"

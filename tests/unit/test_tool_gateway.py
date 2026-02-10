@@ -24,7 +24,7 @@ class TestToolManagerGateway:
     @pytest.mark.asyncio
     async def test_register_provider(self, gateway, provider_with_tools):
         gateway.register_provider(provider_with_tools)
-        capabilities = await gateway.list_capabilities()
+        capabilities = gateway.list_capabilities()
         assert len(capabilities) == 2
         names = {c.name for c in capabilities}
         assert "noop" in names
@@ -33,11 +33,11 @@ class TestToolManagerGateway:
     @pytest.mark.asyncio
     async def test_unregister_provider(self, gateway, provider_with_tools):
         gateway.register_provider(provider_with_tools)
-        assert len(await gateway.list_capabilities()) == 2
+        assert len(gateway.list_capabilities()) == 2
 
         result = gateway.unregister_provider(provider_with_tools)
         assert result is True
-        assert len(await gateway.list_capabilities()) == 0
+        assert len(gateway.list_capabilities()) == 0
 
     @pytest.mark.asyncio
     async def test_unregister_unknown_provider(self, gateway, provider_with_tools):
@@ -47,7 +47,7 @@ class TestToolManagerGateway:
     @pytest.mark.asyncio
     async def test_invoke_noop(self, gateway, provider_with_tools):
         gateway.register_provider(provider_with_tools)
-        caps = await gateway.list_capabilities()
+        caps = gateway.list_capabilities()
         cap_ids = {cap.name: cap.id for cap in caps}
 
         envelope = Envelope(allowed_capability_ids=[cap_ids["noop"], cap_ids["echo"]])
@@ -59,7 +59,7 @@ class TestToolManagerGateway:
     @pytest.mark.asyncio
     async def test_invoke_echo(self, gateway, provider_with_tools):
         gateway.register_provider(provider_with_tools)
-        caps = await gateway.list_capabilities()
+        caps = gateway.list_capabilities()
         cap_ids = {cap.name: cap.id for cap in caps}
 
         envelope = Envelope(allowed_capability_ids=[cap_ids["noop"], cap_ids["echo"]])
@@ -71,7 +71,7 @@ class TestToolManagerGateway:
     @pytest.mark.asyncio
     async def test_invoke_not_allowed_by_envelope(self, gateway, provider_with_tools):
         gateway.register_provider(provider_with_tools)
-        caps = await gateway.list_capabilities()
+        caps = gateway.list_capabilities()
         cap_ids = {cap.name: cap.id for cap in caps}
 
         envelope = Envelope(allowed_capability_ids=[cap_ids["noop"]])
@@ -93,7 +93,7 @@ class TestToolManagerGateway:
     @pytest.mark.asyncio
     async def test_empty_envelope_allows_all(self, gateway, provider_with_tools):
         gateway.register_provider(provider_with_tools)
-        caps = await gateway.list_capabilities()
+        caps = gateway.list_capabilities()
         cap_ids = {cap.name: cap.id for cap in caps}
 
         envelope = Envelope()

@@ -86,7 +86,7 @@ def test_config_to_dict_round_trip() -> None:
     config = Config.from_dict(
         {
             "llm": {"adapter": "openai", "model": "gpt-4o", "extra_field": 1},
-            "allowtools": ["tool_a"],
+            "allow_tools": ["tool_a"],
             "components": {"hook": {"stdout": {"level": "info"}}},
         }
     )
@@ -96,7 +96,7 @@ def test_config_to_dict_round_trip() -> None:
     assert payload["llm"]["adapter"] == "openai"
     assert payload["llm"]["model"] == "gpt-4o"
     assert payload["llm"]["extra_field"] == 1
-    assert payload["allowtools"] == ["tool_a"]
+    assert payload["allow_tools"] == ["tool_a"]
     assert payload["components"]["hook"]["stdout"] == {"level": "info"}
 
 

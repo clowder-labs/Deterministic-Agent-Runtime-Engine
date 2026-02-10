@@ -18,13 +18,16 @@ MCP Integration:
 from __future__ import annotations
 
 import logging
+from abc import ABC
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, TypeGuard
 
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent.dare_agent import DareAgent
 from dare_framework.agent.react_agent import ReactAgent
 from dare_framework.agent.simple_chat import SimpleChatAgent
+from dare_framework.config._internal.action_handler import ConfigActionHandler
+from dare_framework.config.kernel import IConfigProvider
 from dare_framework.config.types import Config
 from dare_framework.context import Budget, Context, IAssembleContext
 from dare_framework.event.kernel import IEventLog
@@ -35,15 +38,18 @@ from dare_framework.knowledge._internal.knowledge_tools import (
     KnowledgeAddTool,
     KnowledgeGetTool,
 )
+from dare_framework.mcp._internal.action_handler import McpActionHandler
 from dare_framework.memory import ILongTermMemory, IShortTermMemory, create_long_term_memory
+from dare_framework.model.action_handler import ModelActionHandler
+from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
 from dare_framework.model.factories import (
-    create_default_model_adapter_manager,
     create_default_prompt_store,
 )
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import Prompt
 from dare_framework.observability.kernel import ITelemetryProvider
+from dare_framework.plan import Envelope
 from dare_framework.plan._internal.composite_validator import CompositeValidator
 from dare_framework.plan.interfaces import (
     IPlanner,
@@ -54,11 +60,17 @@ from dare_framework.plan.interfaces import (
     IValidatorManager,
 )
 from dare_framework.skill import Skill, ISkillLoader, ISkillStore, SkillStoreBuilder
+from dare_framework.skill._internal.action_handler import SkillsActionHandler
 from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
+from dare_framework.tool import ToolResult, CapabilityDescriptor
+from dare_framework.tool.action_handler import ToolsActionHandler
 from dare_framework.tool.interfaces import IExecutionControl
 from dare_framework.tool.kernel import ITool, IToolGateway, IToolManager, IToolProvider
+from dare_framework.tool.tool_gateway import ToolGateway
 from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.types import RunContext
+from dare_framework.transport.interaction.control_handler import AgentControlHandler
+from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
 from dare_framework.transport.kernel import AgentChannel
 
 logger = logging.getLogger(__name__)
@@ -75,6 +87,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
         # Shared configuration surface (used by all builder variants).
         self._config: Config | None = None
+        self._config_provider: IConfigProvider | None = None
         self._model_adapter_manager: IModelAdapterManager | None = None
         self._planner_manager: IPlannerManager | None = None
         self._validator_manager: IValidatorManager | None = None
@@ -95,7 +108,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
         # Tool wiring (shared across variants).
         self._tools: list[ITool] = []
         self._tool_providers: list[IToolProvider] = []
-        self._tool_gateway: IToolGateway | None = None
+        self._tool_manager: IToolManager | None = None
 
         # MCP tool provider (optional, provides MCP-backed tools).
         self._mcp_toolkit: IToolProvider | None = None
@@ -120,6 +133,11 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
     def with_config(self: TBuilder, config: Config) -> TBuilder:
         self._config = config
+        return self
+
+    def with_config_provider(self: TBuilder, provider: IConfigProvider) -> TBuilder:
+        """Inject config provider used when explicit config is not provided."""
+        self._config_provider = provider
         return self
 
     def with_managers(
@@ -197,8 +215,8 @@ class _BaseAgentBuilder(Generic[TAgent]):
         self._tools.extend(tools)
         return self
 
-    def with_tool_gateway(self: TBuilder, gateway: IToolGateway) -> TBuilder:
-        self._tool_gateway = gateway
+    def with_tool_gateway(self: TBuilder, gateway: IToolManager) -> TBuilder:
+        self._tool_manager = gateway
         return self
 
     def add_tool_provider(self: TBuilder, provider: IToolProvider) -> TBuilder:
@@ -258,7 +276,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
         """LTM from explicit with_long_term_memory() or from config.long_term_memory + embedding_adapter."""
         if self._long_term_memory is not None:
             return self._long_term_memory
-        config = self._effective_config()
+        config = self._resolve_config()
         if not config.long_term_memory:
             return None
         return create_long_term_memory(config.long_term_memory, self._embedding_adapter)
@@ -267,7 +285,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
         """Knowledge from explicit with_knowledge() or from config.knowledge + embedding_adapter."""
         if self._knowledge is not None:
             return self._knowledge
-        config = self._effective_config()
+        config = self._resolve_config()
         if not config.knowledge:
             return None
         return create_knowledge(config.knowledge, self._embedding_adapter)
@@ -287,16 +305,21 @@ class _BaseAgentBuilder(Generic[TAgent]):
             builder.disable_skill(skill_id)
         return builder.build()
 
-    def _effective_config(self) -> Config:
-        if self._config is None:
-            # Ensure all components built in this pass share the same Config instance.
-            self._config = Config()
+    def _resolve_config(self) -> Config:
+        if self._config is not None:
+            return self._config
+        if self._config_provider is not None:
+            # Freeze one snapshot so all components in this build share a single config view.
+            self._config = self._config_provider.current()
+            return self._config
+        # Ensure all components built in this pass share the same Config instance.
+        self._config = Config()
         return self._config
 
     def _resolve_prompt_store(self) -> IPromptStore:
         if self._prompt_store is not None:
             return self._prompt_store
-        return create_default_prompt_store(self._effective_config())
+        return create_default_prompt_store(self._resolve_config())
 
     def _resolve_sys_prompt(self, model: IModelAdapter) -> Prompt | None:
         prompt = None
@@ -307,7 +330,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
         if prompt is not None:
             return prompt
         if prompt_id is None:
-            prompt_id = self._effective_config().default_prompt_id
+            prompt_id = self._resolve_config().default_prompt_id
         if prompt_id is None:
             prompt_id = "base.system"
 
@@ -320,56 +343,67 @@ class _BaseAgentBuilder(Generic[TAgent]):
         except KeyError as exc:
             raise ValueError(f"Prompt not found: {prompt_id}") from exc
 
-    def _ensure_tool_gateway(
+    def _resolve_tool_gateway_and_tool_manager(
             self,
             config: Config,
             tools: list[ITool],
             tool_providers: list[IToolProvider],
-    ) -> IToolGateway | None:
+    ) -> tuple[IToolGateway, IToolManager]:
         """Return a ToolGateway if tool wiring requires one."""
-        if self._tool_gateway is not None:
-            gateway = self._tool_gateway
+        if self._tool_manager is not None:
+            tool_manager = self._tool_manager
         else:
-            gateway = ToolManager(config=config)
-            self._tool_gateway = gateway
-        if not isinstance(gateway, IToolManager):
-            return gateway
+            tool_manager = ToolManager(config=config)
+            self._tool_manager = tool_manager
+
+        # 蠢蠢的python不支持直接isinstance&isinstance的形式只能这么写
+        class ToolGatewayAndToolManager(IToolGateway, IToolManager, ABC):
+            ...
+
+        def is_tool_gateway_and_tool_manager(x: object) -> TypeGuard[ToolGatewayAndToolManager]:
+            return isinstance(x, IToolGateway) and isinstance(x, IToolManager)
 
         providers = list(tool_providers)
         if self._mcp_toolkit is not None and self._mcp_toolkit not in providers:
             providers.append(self._mcp_toolkit)
+
         for provider in providers:
-            gateway.register_provider(provider)
+            tool_manager.register_provider(provider)
         for tool in tools:
-            gateway.register_tool(tool)
-        return gateway
+            tool_manager.register_tool(tool)
+        if is_tool_gateway_and_tool_manager(tool_manager):
+            return tool_manager, tool_manager
+        return ToolGateway(tool_manager), tool_manager
 
-    def _resolve_model(self, config: Config) -> IModelAdapter:
+    class _DelegateToolGateway(IToolGateway):
+        def __init__(self, tool_manager: IToolManager):
+            self._tool_manager = tool_manager
+
+        def list_capabilities(self) -> list[CapabilityDescriptor]:
+            return self._tool_manager.list_capabilities()
+
+        async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope,
+                         context: Context | None = None) -> ToolResult:
+            pass
+
+    def _resolve_model_and_model_manager(self, config: Config) -> tuple[IModelAdapter, IModelAdapterManager]:
+        manager = self._model_adapter_manager or DefaultModelAdapterManager(config=config)
         if self._model is not None:
-            return self._model
-        manager = self._model_adapter_manager or create_default_model_adapter_manager(config)
-        if manager is None:
-            raise ValueError("Builder requires a model adapter (explicit or manager-resolved)")
-
-        candidate = manager.load_model_adapter(config=config)
-        if candidate is None:
+            return self._model, manager
+        model = manager.load_model_adapter(config=config)
+        if model is None:
             raise ValueError("Model adapter manager did not return an IModelAdapter")
-        return candidate
+        return model, manager
 
-    def _resolved_skill_search_tool(self, config: Config) -> ITool | None:
-        if not self._enable_skill_tool:
-            return None
-        from dare_framework.skill.defaults import (
-            SearchSkillTool,
-        )
-        return SearchSkillTool(self._resolve_skill_store(config))
-
-    def _resolve_tools(self, config: Config, knowledge: IKnowledge | None) -> list[ITool]:
+    def _resolve_tools(self, knowledge: IKnowledge | None, skill_store: ISkillStore | None) -> list[
+        ITool]:
         """Resolve explicit tools (local + skill + knowledge) for registration."""
         explicit = list(self._tools)
         explicit_names = {tool.name for tool in explicit}
-        skill_tool = self._resolved_skill_search_tool(config)
-
+        skill_tool = None
+        if skill_store is not None:
+            from dare_framework.skill.defaults import SearchSkillTool
+            skill_tool = SearchSkillTool(skill_store)
         if skill_tool is not None and skill_tool.name not in explicit_names:
             explicit.append(skill_tool)
             explicit_names.add(skill_tool.name)
@@ -401,48 +435,118 @@ class _BaseAgentBuilder(Generic[TAgent]):
             assemble_context=self._assemble_context,
         )
 
+    def _configure_channel_interaction(
+            self,
+            *,
+            agent: BaseAgent,
+            config: Config,
+            model_manager: IModelAdapterManager,
+            tool_manager: IToolManager | None,
+            skill_store: ISkillStore | None,
+            config_provider: IConfigProvider | None,
+            channel: AgentChannel | None,
+    ) -> None:
+        """Configure transport interaction handlers on the bound AgentChannel.
+
+        The channel stores both the action dispatcher and control handler so runtime startup
+        can reuse pre-built registrations without re-parsing agent internals.
+        """
+        if channel is None:
+            return
+
+        control_handler = AgentControlHandler(agent)
+        action_dispatcher = ActionHandlerDispatcher(
+            logger=logger,
+        )
+        action_dispatcher.register_action_handler(
+            ConfigActionHandler(config=config, manager=config_provider)
+        )
+        action_dispatcher.register_action_handler(
+            McpActionHandler(config=config, manager=config_provider)
+        )
+        if tool_manager is not None:
+            action_dispatcher.register_action_handler(ToolsActionHandler(tool_manager))
+
+        if skill_store is not None:
+            action_dispatcher.register_action_handler(SkillsActionHandler(skill_store))
+
+        action_dispatcher.register_action_handler(ModelActionHandler(agent, config, model_manager))
+
+        channel.add_action_handler_dispatcher(action_dispatcher)
+        channel.add_agent_control_handler(control_handler)
+
 
 class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
     """Builder for SimpleChatAgent."""
 
     def _build_impl(self) -> SimpleChatAgent:
-        config = self._effective_config()
-        model = self._resolve_model(config)
+        config = self._resolve_config()
+        config_provider = self._config_provider
+        agent_channel = self._agent_channel
+        model, model_manager = self._resolve_model_and_model_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
         knowledge = self._resolved_knowledge()
-        tools = self._resolve_tools(config, knowledge)
-        tool_gateway = self._ensure_tool_gateway(config, tools, self._tool_providers)
+        skill_store = None
+        if self._enable_skill_tool:
+            skill_store = self._resolve_skill_store(config)
+        tools = self._resolve_tools(knowledge, skill_store)
+        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(config, tools, self._tool_providers)
         context = self._build_context(config=config, knowledge=knowledge, sys_prompt=sys_prompt,
                                       tool_gateway=tool_gateway)
         self._context = context
-        return SimpleChatAgent(
+        agent = SimpleChatAgent(
             name=self._name,
             model=model,
-            context=self._context,
-            agent_channel=self._agent_channel,
+            context=context,
+            agent_channel=agent_channel,
         )
+        self._configure_channel_interaction(
+            agent=agent,
+            config=config,
+            model_manager=model_manager,
+            tool_manager=tool_manager,
+            skill_store=skill_store,
+            config_provider=config_provider,
+            channel=agent_channel,
+        )
+        return agent
 
 
 class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
     """Builder for ReactAgent (ReAct tool loop)."""
 
     def _build_impl(self) -> ReactAgent:
-        config = self._effective_config()
-        model = self._resolve_model(config)
+        config = self._resolve_config()
+        config_provider = self._config_provider
+        agent_channel = self._agent_channel
+        model, model_manager = self._resolve_model_and_model_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
         knowledge = self._resolved_knowledge()
-        tools = self._resolve_tools(config, knowledge)
-        tool_gateway = self._ensure_tool_gateway(config, tools, self._tool_providers)
+        skill_store = None
+        if self._enable_skill_tool:
+            skill_store = self._resolve_skill_store(config)
+        tools = self._resolve_tools(knowledge, skill_store)
+        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(config, tools, self._tool_providers)
         context = self._build_context(config=config, knowledge=knowledge, sys_prompt=sys_prompt,
                                       tool_gateway=tool_gateway)
         self._context = context
 
-        return ReactAgent(
+        agent = ReactAgent(
             name=self._name,
             model=model,
-            context=self._context,
-            agent_channel=self._agent_channel,
+            context=context,
+            agent_channel=agent_channel,
         )
+        self._configure_channel_interaction(
+            agent=agent,
+            config=config,
+            model_manager=model_manager,
+            tool_manager=tool_manager,
+            skill_store=skill_store,
+            config_provider=config_provider,
+            channel=agent_channel,
+        )
+        return agent
 
 
 class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
@@ -494,12 +598,17 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         return self
 
     def _build_impl(self) -> DareAgent:
-        config = self._effective_config()
-        model = self._resolve_model(config)
+        config = self._resolve_config()
+        config_provider = self._config_provider
+        agent_channel = self._agent_channel
+        model, model_manager = self._resolve_model_and_model_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
         knowledge = self._resolved_knowledge()
-        tools = self._resolve_tools(config, knowledge)
-        tool_gateway = self._ensure_tool_gateway(config, tools, self._tool_providers)
+        skill_store = None
+        if self._enable_skill_tool:
+            skill_store = self._resolve_skill_store(config)
+        tools = self._resolve_tools(knowledge, skill_store)
+        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(config, tools, self._tool_providers)
         context = self._build_context(config=config, knowledge=knowledge, sys_prompt=sys_prompt,
                                       tool_gateway=tool_gateway)
         planner = self._planner
@@ -545,7 +654,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
 
         self._context = context
 
-        return DareAgent(
+        agent = DareAgent(
             name=self._name,
             model=model,
             context=context,
@@ -557,9 +666,19 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             event_log=self._event_log,
             hooks=hooks,
             telemetry=telemetry,
-            agent_channel=self._agent_channel,
+            agent_channel=agent_channel,
             verbose=self._verbose,
         )
+        self._configure_channel_interaction(
+            agent=agent,
+            config=config,
+            model_manager=model_manager,
+            tool_manager=tool_manager,
+            skill_store=skill_store,
+            config_provider=config_provider,
+            channel=agent_channel,
+        )
+        return agent
 
 
 __all__ = ["DareAgentBuilder", "ReactAgentBuilder", "SimpleChatAgentBuilder"]
@@ -576,7 +695,7 @@ async def load_mcp_toolkit(
     connects to servers, and returns an initialized MCPToolProvider.
 
     Args:
-        config: Configuration with mcp_paths and allowmcps settings.
+        config: Configuration with mcp_paths and allow_mcps settings.
                 Must be non-null.
         paths: Explicit list of paths to scan. Overrides config.mcp_paths.
 
@@ -612,13 +731,13 @@ async def load_mcp_toolkit(
         logger.debug("No MCP configurations found")
         return MCPToolProvider([])
 
-    # Filter by allowmcps if specified
-    if config.allowmcps:
-        allowed = set(config.allowmcps)
+    # Filter by allow_mcps if specified
+    if config.allow_mcps:
+        allowed = set(config.allow_mcps)
         mcp_configs = [c for c in mcp_configs if c.name in allowed]
 
     if not mcp_configs:
-        logger.debug("No MCP configurations matched allowmcps filter")
+        logger.debug("No MCP configurations matched allow_mcps filter")
         return MCPToolProvider([])
 
     # Create and connect clients

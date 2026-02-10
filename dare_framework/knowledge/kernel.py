@@ -6,7 +6,8 @@ IKnowledge inherits from IRetrievalContext (defined in context domain).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
 from dare_framework.context.kernel import IRetrievalContext
 
@@ -14,8 +15,7 @@ if TYPE_CHECKING:
     from dare_framework.context.types import Message
 
 
-@runtime_checkable
-class IKnowledge(IRetrievalContext, Protocol):
+class IKnowledge(IRetrievalContext, ABC):
     """[Component] Knowledge retrieval interface (RAG/GraphRAG etc).
 
     Usage: Injected into Context.knowledge.
@@ -29,6 +29,7 @@ class IKnowledge(IRetrievalContext, Protocol):
     Inherits IRetrievalContext.get(); adds add() for ingesting content.
     """
 
+    @abstractmethod
     def get(self, query: str, **kwargs: Any) -> list[Message]:
         """Retrieve relevant knowledge based on query.
 
@@ -41,6 +42,7 @@ class IKnowledge(IRetrievalContext, Protocol):
         """
         ...
 
+    @abstractmethod
     def add(self, content: str, **kwargs: Any) -> None:
         """Add content to the knowledge base.
 
