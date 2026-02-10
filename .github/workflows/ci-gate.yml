@@ -1,0 +1,48 @@
+name: ci-gate
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  # Keep one active run per ref/workflow so fast follow-up pushes cancel stale checks.
+  group: ci-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tooling
+        run: python -m pip install --upgrade pip ruff
+
+      - name: Run lint gate (phase-1 syntax/parser safety)
+        run: ruff check dare_framework tests --select E9,F63,F7
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build gate (phase-1 compile check)
+        run: python -m compileall -q dare_framework tests

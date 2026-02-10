@@ -1,0 +1,10 @@
+# Default owner
+* @zts212653
+
+# Governance and merge gates
+/.github/workflows/* @zts212653
+/.github/pull_request_template.md @zts212653
+/CONTRIBUTING.md @zts212653
+/CONTRIBUTING_AI.md @zts212653
+/docs/agent_rules.md @zts212653
+/docs/governance/* @zts212653
