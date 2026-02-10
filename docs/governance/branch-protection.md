@@ -26,6 +26,11 @@ If your GitHub plan supports merge queue:
 3. Start with a conservative queue strategy (small batches, low parallelism).
 4. Add `merge_group` workflow trigger support (already included in `.github/workflows/ci-gate.yml`).
 
+## Phase Rollout for Required Checks
+- Phase 1 (now, required): `lint`, `build`
+- Phase 2 (observe first, then required): `smoke-tests`
+- Phase 3 (after 1-2 stable weeks, then required): `risk-matrix`, `test-skip-guard`, `lockfile-policy`
+
 ## Fallback if Merge Queue Is Unavailable
 Use pre-merge combined checks:
 
