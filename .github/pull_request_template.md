@@ -28,10 +28,16 @@ If this PR is a large diff (>300 changed lines), explain why split PRs are not p
 - Evidence/output summary:
   - `...`
 
+If this PR changes high-risk runtime paths (auth/concurrency/execution control), include `risk-matrix` evidence.
+
 ## Risk and Rollback
 - Risk level: Low / Medium / High
 - Main risk points:
 - Rollback plan:
+
+## Dependency and Lockfile Changes
+- Lockfile changed in this PR: [ ] Yes [ ] No
+- If yes, manifest updated in same PR (`requirements.txt`/`pyproject.toml`/`package.json`): [ ] Yes [ ] No [ ] N/A
 
 ## Agent Rules Checklist (required)
 Reference: `docs/agent_rules.md`
