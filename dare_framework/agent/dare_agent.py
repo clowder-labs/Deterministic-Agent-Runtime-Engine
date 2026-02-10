@@ -1146,8 +1146,8 @@ class DareAgent(BaseAgent):
             try:
                 result = await self._tool_gateway.invoke(
                     request.capability_id,
-                    request.params,
                     envelope=request.envelope,
+                    **request.params,
                 )
 
                 await self._log_event("tool.result", {

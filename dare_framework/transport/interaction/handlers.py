@@ -16,7 +16,7 @@ class IActionHandler(Protocol):
     async def invoke(
         self,
         action: ResourceAction,
-        params: dict[str, Any],
+        **params: Any,
     ) -> Any:
         """Handle the action and return a JSON-serializable result."""
 

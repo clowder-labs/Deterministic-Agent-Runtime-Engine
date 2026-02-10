@@ -101,8 +101,8 @@ class DefaultStepExecutor:
             # Invoke tool via gateway
             result = await self._gateway.invoke(
                 step.capability_id,
-                {**step.params, **step_context},
                 envelope=step.envelope or Envelope(),
+                **{**step.params, **step_context},
             )
 
             # Collect evidence from result

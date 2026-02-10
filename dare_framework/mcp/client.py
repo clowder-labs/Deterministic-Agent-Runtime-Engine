@@ -11,7 +11,14 @@ from typing import Any
 
 from dare_framework.mcp.kernel import IMCPClient
 from dare_framework.mcp.transports.base import ITransport
-from dare_framework.tool.types import RunContext, ToolResult
+from dare_framework.tool.kernel import ITool
+from dare_framework.tool.types import (
+    CapabilityKind,
+    RiskLevelName,
+    RunContext,
+    ToolResult,
+    ToolType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,11 +148,11 @@ class MCPClient(IMCPClient):
         await self._transport.close()
         logger.info(f"MCP client '{self._name}' disconnected")
 
-    async def list_tools(self) -> list[dict[str, Any]]:
+    async def list_tools(self) -> list[ITool]:
         """List available tools from the MCP server.
 
         Returns:
-            List of tool definitions with name, description, inputSchema.
+            List of framework-native tool adapters.
 
         Raises:
             MCPError: If the server returns an error.
@@ -154,7 +161,22 @@ class MCPClient(IMCPClient):
         self._ensure_initialized()
 
         response = await self._request("tools/list", {})
-        tools = response.get("tools", [])
+        tool_defs = response.get("tools", [])
+        tools: list[ITool] = []
+
+        for tool_def in tool_defs:
+            tool_name = _tool_field(tool_def, "name", "")
+            if not tool_name:
+                continue
+            full_name = f"{self._name}:{tool_name}"
+            tools.append(
+                _MCPRemoteTool(
+                    client=self,
+                    tool_def=tool_def,
+                    tool_name=str(tool_name),
+                    full_name=full_name,
+                )
+            )
 
         logger.debug(f"MCP server '{self._name}' has {len(tools)} tools")
         return tools
@@ -352,6 +374,123 @@ class MCPClient(IMCPClient):
             "params": params,
         }
         await self._transport.send(message)
+
+
+class _MCPRemoteTool(ITool):
+    """Adapter that turns MCP tool definitions into ITool implementations."""
+
+    def __init__(
+        self,
+        *,
+        client: MCPClient,
+        tool_def: Any,
+        tool_name: str,
+        full_name: str,
+    ) -> None:
+        self._client = client
+        self._tool_def = tool_def
+        self._tool_name = tool_name
+        self._full_name = full_name
+
+    @property
+    def name(self) -> str:
+        return self._full_name
+
+    @property
+    def description(self) -> str:
+        return str(_tool_field(self._tool_def, "description", ""))
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        value = _tool_field(self._tool_def, "input_schema", {}, aliases=("inputSchema",))
+        return dict(value) if isinstance(value, dict) else {}
+
+    @property
+    def output_schema(self) -> dict[str, Any]:
+        value = _tool_field(self._tool_def, "output_schema", {}, aliases=("outputSchema",))
+        return dict(value) if isinstance(value, dict) else {}
+
+    @property
+    def tool_type(self) -> ToolType:
+        return ToolType.WORK_UNIT if self.is_work_unit else ToolType.ATOMIC
+
+    @property
+    def risk_level(self) -> RiskLevelName:
+        value = _tool_field(self._tool_def, "risk_level", "read_only")
+        return _normalize_risk_level(value)
+
+    @property
+    def requires_approval(self) -> bool:
+        return bool(_tool_field(self._tool_def, "requires_approval", False))
+
+    @property
+    def timeout_seconds(self) -> int:
+        value = _tool_field(self._tool_def, "timeout_seconds", 30)
+        if isinstance(value, bool):
+            return 30
+        try:
+            parsed = int(value)
+        except (OverflowError, TypeError, ValueError):
+            return 30
+        return parsed if parsed > 0 else 30
+
+    @property
+    def is_work_unit(self) -> bool:
+        return bool(_tool_field(self._tool_def, "is_work_unit", False))
+
+    @property
+    def capability_kind(self) -> CapabilityKind:
+        value = _tool_field(self._tool_def, "capability_kind", CapabilityKind.TOOL)
+        return _normalize_capability_kind(value)
+
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        **params: Any,
+    ) -> ToolResult:
+        """Forward keyword parameters to remote MCP tool invocation."""
+        return await self._client.call_tool(self._tool_name, params, context=run_context)
+
+
+def _tool_field(
+    tool_def: Any,
+    field: str,
+    default: Any,
+    *,
+    aliases: tuple[str, ...] = (),
+) -> Any:
+    if isinstance(tool_def, dict):
+        if field in tool_def:
+            return tool_def[field]
+        for alias in aliases:
+            if alias in tool_def:
+                return tool_def[alias]
+        return default
+    if hasattr(tool_def, field):
+        return getattr(tool_def, field)
+    for alias in aliases:
+        if hasattr(tool_def, alias):
+            return getattr(tool_def, alias)
+    return default
+
+
+def _normalize_risk_level(value: Any) -> RiskLevelName:
+    if hasattr(value, "value"):
+        value = value.value
+    return str(value)
+
+
+def _normalize_capability_kind(value: Any) -> CapabilityKind:
+    if isinstance(value, CapabilityKind):
+        return value
+    if hasattr(value, "value"):
+        value = value.value
+    try:
+        return CapabilityKind(str(value))
+    except ValueError:
+        return CapabilityKind.TOOL
 
 
 __all__ = ["MCPClient", "MCPError"]

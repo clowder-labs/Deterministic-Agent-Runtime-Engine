@@ -90,12 +90,15 @@ class Evidence:
     created_at: float = field(default_factory=time.time)
 
 
+OutputT = TypeVar("OutputT")
+
+
 @dataclass(frozen=True)
-class ToolResult:
+class ToolResult(Generic[OutputT]):
     """Canonical tool invocation result, including evidence."""
 
     success: bool
-    output: dict[str, Any] = field(default_factory=dict)
+    output: OutputT | dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     evidence: list[Evidence] = field(default_factory=list)
 

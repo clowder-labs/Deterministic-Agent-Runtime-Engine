@@ -10,6 +10,7 @@ from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.infra.component import ComponentType
 from dare_framework.plan.types import Envelope
 from dare_framework.tool.tool_manager import ToolManager
+from dare_framework.tool.tool_gateway import ToolGateway
 from dare_framework.tool.types import ToolResult
 
 
@@ -42,8 +43,9 @@ class EchoTool:
     def name(self) -> str:
         return self._name
 
-    async def execute(self, input: dict[str, Any], context: Any) -> ToolResult:
-        return ToolResult(success=True, output=input)
+    async def execute(self, *, run_context: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = run_context
+        return ToolResult(success=True, output=params)
 
 
 class ListProvider:
@@ -87,21 +89,22 @@ async def test_agent_builder_derives_tool_defs_from_gateway() -> None:
 
 @pytest.mark.asyncio
 async def test_tool_manager_aggregates_and_enforces_allowlist() -> None:
-    gateway = ToolManager()
+    manager = ToolManager()
+    gateway = ToolGateway(manager)
 
     tool_a = EchoTool("echo_a")
     tool_b = EchoTool("echo_b")
-    gateway.register_provider(ListProvider([tool_a]))
-    gateway.register_provider(ListProvider([tool_b]))
+    manager.register_provider(ListProvider([tool_a]))
+    manager.register_provider(ListProvider([tool_b]))
 
-    capabilities = gateway.list_capabilities()
+    capabilities = manager.list_capabilities()
     assert len(capabilities) == 2
     cap_ids = [cap.id for cap in capabilities]
 
     allowed = Envelope(allowed_capability_ids=[cap_ids[0]])
-    result = await gateway.invoke(cap_ids[0], {"value": 1}, envelope=allowed)
+    result = await gateway.invoke(cap_ids[0], envelope=allowed, value=1)
     assert isinstance(result, ToolResult)
     assert result.success is True
 
     with pytest.raises(PermissionError):
-        await gateway.invoke(cap_ids[1], {}, envelope=allowed)
+        await gateway.invoke(cap_ids[1], envelope=allowed)

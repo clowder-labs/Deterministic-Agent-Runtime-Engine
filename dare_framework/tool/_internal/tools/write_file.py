@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.errors import ToolError
 from dare_framework.tool._internal.file_utils import (
     DEFAULT_MAX_BYTES,
@@ -38,26 +42,11 @@ class WriteFileTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path relative to workspace root"},
-                "content": {"type": "string", "description": "Text content to write"},
-                "create_dirs": {"type": "boolean", "default": True},
-            },
-            "required": ["path", "content"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "bytes_written": {"type": "integer"},
-                "created": {"type": "boolean"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def risk_level(self) -> str:
@@ -87,9 +76,31 @@ class WriteFileTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        path: str,
+        content: str,
+        create_dirs: bool = True,
+    ) -> ToolResult[WriteFileOutput]:
+        """Write text content into a workspace file.
+
+        Args:
+            run_context: Runtime invocation context.
+            path: File path relative to workspace root.
+            content: UTF-8 text content to write.
+            create_dirs: Whether to create missing parent directories.
+
+        Returns:
+            Write result metadata including bytes written and creation state.
+        """
         try:
-            return _execute_write(input, context)
+            return _execute_write(
+                {"path": path, "content": content, "create_dirs": create_dirs},
+                run_context,
+            )
         except ToolError as exc:
             return _error_result(exc)
 
@@ -152,3 +163,9 @@ def _error_result(error: ToolError) -> ToolResult:
         error=error.message,
         evidence=[],
     )
+
+
+class WriteFileOutput(TypedDict):
+    path: str
+    bytes_written: int
+    created: bool

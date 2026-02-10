@@ -99,8 +99,9 @@ class DummyTool(ITool):
 
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: Any) -> ToolResult:
-        return ToolResult(success=True, output=input)
+    async def execute(self, *, run_context: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = run_context
+        return ToolResult(success=True, output=params)
 
 
 class RecordingValidator:

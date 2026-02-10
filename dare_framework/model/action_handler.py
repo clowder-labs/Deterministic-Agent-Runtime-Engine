@@ -29,14 +29,26 @@ class ModelActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {ResourceAction.MODEL_GET}
 
+    # noinspection PyMethodOverriding
     async def invoke(
             self,
             action: ResourceAction,
-            _params: dict[str, Any],
+            **_params: Any,
     ) -> Any:
-        if action != ResourceAction.MODEL_GET:
-            raise ValueError(f"unsupported model action: {action.value}")
-        return dict(self._manager.current())
+        if action == ResourceAction.MODEL_GET:
+            return self._model_get()
+        raise ValueError(f"unsupported model action: {action.value}")
+
+    def _model_get(self) -> dict[str, Any]:
+        model = getattr(self._agent, "_model", None)
+        if model is None:
+            model = self._model_manager.load_model_adapter(config=self._config)
+        if model is None:
+            return {"name": None, "model": None}
+        return {
+            "name": getattr(model, "name", None),
+            "model": getattr(model, "model", None),
+        }
 
 
 __all__ = ["IModelInfoManager", "ModelActionHandler"]

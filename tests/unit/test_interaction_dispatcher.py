@@ -18,7 +18,7 @@ class RecordActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {self._action_id}
 
-    async def invoke(self, action: ResourceAction, _params: dict[str, object]):
+    async def invoke(self, action: ResourceAction, **_params: object):
         self._calls.append(action.value)
         return {"ok": True}
 

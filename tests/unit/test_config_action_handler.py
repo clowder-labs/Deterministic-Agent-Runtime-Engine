@@ -10,7 +10,7 @@ if sys.version_info >= (3, 14):
         allow_module_level=True,
     )
 
-from dare_framework.config._internal.action_handler import ConfigActionHandler
+from dare_framework.config.action_handler import ConfigActionHandler
 from dare_framework.config.types import Config
 from dare_framework.transport.interaction.resource_action import ResourceAction
 
@@ -32,7 +32,7 @@ async def test_config_action_handler_prefers_explicit_config() -> None:
     provider = _DummyConfigProvider(Config(workspace_dir="/provider/workspace"))
     handler = ConfigActionHandler(config=explicit, manager=provider)
 
-    result = await handler.invoke(ResourceAction.CONFIG_GET, {})
+    result = await handler.invoke(ResourceAction.CONFIG_GET)
 
     assert result["workspace_dir"] == "/explicit/workspace"
 
@@ -42,6 +42,6 @@ async def test_config_action_handler_uses_provider_when_config_missing() -> None
     provider = _DummyConfigProvider(Config(workspace_dir="/provider/workspace"))
     handler = ConfigActionHandler(config=None, manager=provider)
 
-    result = await handler.invoke(ResourceAction.CONFIG_GET, {})
+    result = await handler.invoke(ResourceAction.CONFIG_GET)
 
     assert result["workspace_dir"] == "/provider/workspace"

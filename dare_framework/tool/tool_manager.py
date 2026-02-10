@@ -6,24 +6,18 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from importlib import metadata as importlib_metadata
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from dare_framework.config.types import Config
-from dare_framework.tool.kernel import ITool, IToolGateway, IToolManager, IToolProvider
+from dare_framework.tool.kernel import ITool, IToolManager, IToolProvider
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
     CapabilityMetadata,
     CapabilityType,
     ProviderStatus,
-    RunContext,
     ToolDefinition,
-    ToolResult,
 )
-
-if TYPE_CHECKING:
-    from dare_framework.context import Context
-    from dare_framework.plan.types import Envelope
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +34,8 @@ class _registry_entry:
     tool: ITool | None = None
 
 
-class ToolManager(IToolManager, IToolGateway):
-    """Owns the trusted capability registry and the tool invocation boundary."""
+class ToolManager(IToolManager):
+    """Owns the trusted capability registry and tool/provider lifecycle."""
 
     def __init__(
             self,
@@ -173,7 +167,7 @@ class ToolManager(IToolManager, IToolGateway):
         self.load_entrypoint_providers()
         for provider in self._providers:
             self._sync_provider_tools(provider, provider.list_tools())
-        return list(self.list_capabilities(include_disabled=True))
+        return self.list_capabilities(include_disabled=True)
 
     def load_tools(self, *, config: Config | None = None) -> list[ITool]:
         self.load_entrypoint_providers()
@@ -197,20 +191,6 @@ class ToolManager(IToolManager, IToolGateway):
                 continue
             descriptors.append(entry.descriptor)
         return descriptors
-
-    async def invoke(
-            self,
-            capability_id: str,
-            params: dict[str, Any],
-            *,
-            envelope: Envelope,
-            context: Context | None = None,
-    ) -> ToolResult:
-        if envelope.allowed_capability_ids and capability_id not in envelope.allowed_capability_ids:
-            raise PermissionError(f"Capability '{capability_id}' not allowed by envelope")
-        tool = self.get_tool(capability_id)
-        tool_context = RunContext(context)
-        return await tool.execute(params, tool_context)
 
     def list_tools(self) -> list[ITool]:
         """Return active tools for inspection or provider-style access."""

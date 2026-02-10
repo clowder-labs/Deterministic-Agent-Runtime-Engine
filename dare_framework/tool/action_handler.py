@@ -32,13 +32,17 @@ class ToolsActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {ResourceAction.TOOLS_LIST}
 
+    # noinspection PyMethodOverriding
     async def invoke(
         self,
         action: ResourceAction,
-        _params: dict[str, Any],
+        **_params: Any,
     ) -> Any:
-        if action != ResourceAction.TOOLS_LIST:
-            raise ValueError(f"unsupported tools action: {action.value}")
+        if action == ResourceAction.TOOLS_LIST:
+            return self._tools_list()
+        raise ValueError(f"unsupported tools action: {action.value}")
+
+    def _tools_list(self) -> dict[str, Any]:
         tools = []
         for cap in self._tool_manager.list_capabilities():
             tools.append(_capability_to_dict(cap))
@@ -59,10 +63,11 @@ class ApprovalsActionHandler(IActionHandler):
             ResourceAction.APPROVALS_REVOKE,
         }
 
+    # noinspection PyMethodOverriding
     async def invoke(
         self,
         action: ResourceAction,
-        params: dict[str, Any],
+        **params: Any,
     ) -> Any:
         if action == ResourceAction.APPROVALS_LIST:
             pending = [_pending_to_dict(item) for item in self._approval_manager.list_pending()]

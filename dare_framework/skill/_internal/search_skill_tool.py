@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,
@@ -108,39 +112,13 @@ class SearchSkillTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object",
-            "properties": {
-                "skill": {
-                    "type": "string",
-                    "description": "The skill name. E.g., 'commit', 'review-pr', or 'pdf'.",
-                },
-                "args": {
-                    "type": "string",
-                    "description": "Optional arguments for the skill.",
-                },
-            },
-            "required": ["skill"],
-            "additionalProperties": False,
-        }
+        schema = infer_input_schema_from_execute(type(self).execute)
+        schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+        return schema
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "skill_id": {"type": "string"},
-                "name": {"type": "string"},
-                "description": {"type": "string"},
-                "content": {"type": "string"},
-                "skill_path": {"type": "string"},
-                "scripts": {"type": "object", "additionalProperties": {"type": "string"}},
-                "prompt": {"type": "string"},
-                "message": {"type": "string"},
-                "args": {"type": "string"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def tool_type(self) -> ToolType:
@@ -166,47 +144,65 @@ class SearchSkillTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.SKILL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
-        skill_name = input.get("skill")
-        # Backward compatibility with older callers before schema unification.
-        if not isinstance(skill_name, str) or not skill_name.strip():
-            legacy_id = input.get("skill_id")
-            if isinstance(legacy_id, str) and legacy_id.strip():
-                skill_name = legacy_id
-            else:
-                legacy_query = input.get("query")
-                if isinstance(legacy_query, str) and legacy_query.strip():
-                    skill_name = legacy_query
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        skill: str,
+        args: str = "",
+    ) -> ToolResult[SearchSkillOutput]:
+        """Resolve a skill and return prompt payload.
 
-        if not isinstance(skill_name, str) or not skill_name.strip():
+        Args:
+            run_context: Runtime invocation context.
+            skill: Skill id or name to resolve.
+            args: Optional skill arguments.
+
+        Returns:
+            Resolved skill metadata and prompt payload.
+        """
+        _ = run_context
+        if not isinstance(skill, str) or not skill.strip():
             return _error_result("skill is required")
 
-        skill = _resolve_skill(self._skill_store, skill_name)
-        if skill is None:
+        resolved = _resolve_skill(self._skill_store, skill)
+        if resolved is None:
             available = [f"{s.id} ({s.name})" for s in self._skill_store.list_skills()]
             hint = f" Available: {', '.join(available)}" if available else ""
-            return _error_result(f"skill not found: {_normalize_skill_name(skill_name)}.{hint}")
+            return _error_result(f"skill not found: {_normalize_skill_name(skill)}.{hint}")
 
-        scripts = {name: str(path) for name, path in skill.scripts.items()}
-        args = input.get("args")
+        scripts = {name: str(path) for name, path in resolved.scripts.items()}
         normalized_args = args.strip() if isinstance(args, str) else ""
         return ToolResult(
             success=True,
             output={
-                "skill_id": skill.id,
-                "name": skill.name,
-                "description": skill.description,
-                "content": skill.content,
-                "skill_path": str(skill.skill_dir) if skill.skill_dir else "",
+                "skill_id": resolved.id,
+                "name": resolved.name,
+                "description": resolved.description,
+                "content": resolved.content,
+                "skill_path": str(resolved.skill_dir) if resolved.skill_dir else "",
                 "scripts": scripts,
-                "prompt": skill.to_context_section(),
+                "prompt": resolved.to_context_section(),
                 "message": (
-                    f"Skill '{skill.name}' loaded. Its full instructions will be in context for "
+                    f"Skill '{resolved.name}' loaded. Its full instructions will be in context for "
                     "the next LLM call."
                 ),
                 "args": normalized_args,
             },
         )
+
+
+class SearchSkillOutput(TypedDict):
+    skill_id: str
+    name: str
+    description: str
+    content: str
+    skill_path: str
+    scripts: dict[str, str]
+    prompt: str
+    message: str
+    args: str
 
 
 __all__ = ["SearchSkillTool"]

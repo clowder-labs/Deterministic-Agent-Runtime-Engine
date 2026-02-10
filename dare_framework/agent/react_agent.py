@@ -137,7 +137,7 @@ class ReactAgent(BaseAgent):
                 params = args if isinstance(args, dict) else {}
 
                 try:
-                    result = await gateway.invoke(name, params, envelope=envelope)
+                    result = await gateway.invoke(name, envelope=envelope, **params)
                 except Exception as exc:
                     result = type("R", (), {"success": False, "output": {}, "error": str(exc)})()
 

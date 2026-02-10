@@ -18,15 +18,14 @@ MCP Integration:
 from __future__ import annotations
 
 import logging
-from abc import ABC
 from pathlib import Path
-from typing import Any, Generic, TypeVar, TypeGuard
+from typing import Any, Generic, TypeVar
 
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent.dare_agent import DareAgent
 from dare_framework.agent.react_agent import ReactAgent
 from dare_framework.agent.simple_chat import SimpleChatAgent
-from dare_framework.config._internal.action_handler import ConfigActionHandler
+from dare_framework.config.action_handler import ConfigActionHandler
 from dare_framework.config.kernel import IConfigProvider
 from dare_framework.config.types import Config
 from dare_framework.context import Budget, Context, IAssembleContext
@@ -38,7 +37,7 @@ from dare_framework.knowledge._internal.knowledge_tools import (
     KnowledgeAddTool,
     KnowledgeGetTool,
 )
-from dare_framework.mcp._internal.action_handler import McpActionHandler
+from dare_framework.mcp.action_handler import McpActionHandler
 from dare_framework.memory import ILongTermMemory, IShortTermMemory, create_long_term_memory
 from dare_framework.model.action_handler import ModelActionHandler
 from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
@@ -270,12 +269,66 @@ class _BaseAgentBuilder(Generic[TAgent]):
         return self
 
     async def build(self) -> TAgent:
-        """Build the agent. When with_config() was used and config.mcp_paths is set, loads MCP inside build()."""
+        """Build agent with shared dependency resolution and optional MCP preload."""
         if self._config is not None and getattr(self._config, "mcp_paths", None):
             self._mcp_toolkit = await load_mcp_toolkit(self._config)
-        return self._build_impl()
+        config = self._resolve_config()
+        model, model_manager = self._resolve_model_and_model_manager(config)
+        approval_manager = self._resolve_approval_manager(config)
+        sys_prompt = self._resolve_sys_prompt(model)
+        knowledge = self._resolved_knowledge()
+        skill_store = self._resolve_skill_store(config) if self._enable_skill_tool else None
+        tools = self._resolve_tools(knowledge, skill_store)
+        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(
+            config,
+            tools,
+            self._tool_providers,
+        )
+        context = self._build_context(
+            config=config,
+            knowledge=knowledge,
+            sys_prompt=sys_prompt,
+            tool_gateway=tool_gateway,
+        )
+        self._context = context
+        agent = self._build_impl(
+            config=config,
+            model=model,
+            context=context,
+            tool_gateway=tool_gateway,
+            approval_manager=approval_manager,
+            agent_channel=self._agent_channel,
+        )
+        if self._agent_channel is not None:
+            control_handler = AgentControlHandler(agent)
+            action_dispatcher = ActionHandlerDispatcher(logger=logger)
+            action_dispatcher.register_action_handler(
+                ConfigActionHandler(config=config, manager=self._config_provider)
+            )
+            action_dispatcher.register_action_handler(
+                McpActionHandler(config=config, manager=self._config_provider)
+            )
+            action_dispatcher.register_action_handler(ToolsActionHandler(tool_manager))
+            action_dispatcher.register_action_handler(ApprovalsActionHandler(approval_manager))
+            if skill_store is not None:
+                action_dispatcher.register_action_handler(SkillsActionHandler(skill_store))
+            action_dispatcher.register_action_handler(
+                ModelActionHandler(agent, config, model_manager)
+            )
+            self._agent_channel.add_action_handler_dispatcher(action_dispatcher)
+            self._agent_channel.add_agent_control_handler(control_handler)
+        return agent
 
-    def _build_impl(self) -> TAgent:
+    def _build_impl(
+            self,
+            *,
+            config: Config,
+            model: IModelAdapter,
+            context: Context,
+            tool_gateway: IToolGateway,
+            approval_manager: ToolApprovalManager,
+            agent_channel: AgentChannel | None,
+    ) -> TAgent:
         """Override in subclasses to perform the actual build. Called by build() after MCP load."""
         raise NotImplementedError
 
@@ -356,19 +409,12 @@ class _BaseAgentBuilder(Generic[TAgent]):
             tools: list[ITool],
             tool_providers: list[IToolProvider],
     ) -> tuple[IToolGateway, IToolManager]:
-        """Return a ToolGateway if tool wiring requires one."""
+        """Resolve tool manager and always wrap invocation behind ToolGateway."""
         if self._tool_manager is not None:
             tool_manager = self._tool_manager
         else:
             tool_manager = ToolManager(config=config)
             self._tool_manager = tool_manager
-
-        # 蠢蠢的python不支持直接isinstance&isinstance的形式只能这么写
-        class ToolGatewayAndToolManager(IToolGateway, IToolManager, ABC):
-            ...
-
-        def is_tool_gateway_and_tool_manager(x: object) -> TypeGuard[ToolGatewayAndToolManager]:
-            return isinstance(x, IToolGateway) and isinstance(x, IToolManager)
 
         providers = list(tool_providers)
         if self._mcp_toolkit is not None and self._mcp_toolkit not in providers:
@@ -378,8 +424,6 @@ class _BaseAgentBuilder(Generic[TAgent]):
             tool_manager.register_provider(provider)
         for tool in tools:
             tool_manager.register_tool(tool)
-        if is_tool_gateway_and_tool_manager(tool_manager):
-            return tool_manager, tool_manager
         return ToolGateway(tool_manager), tool_manager
 
     def _resolve_approval_manager(self, config: Config) -> ToolApprovalManager:
@@ -391,17 +435,6 @@ class _BaseAgentBuilder(Generic[TAgent]):
         )
         self._approval_manager = manager
         return manager
-
-    class _DelegateToolGateway(IToolGateway):
-        def __init__(self, tool_manager: IToolManager):
-            self._tool_manager = tool_manager
-
-        def list_capabilities(self) -> list[CapabilityDescriptor]:
-            return self._tool_manager.list_capabilities()
-
-        async def invoke(self, capability_id: str, params: dict[str, Any], *, envelope: Envelope,
-                         context: Context | None = None) -> ToolResult:
-            pass
 
     def _resolve_model_and_model_manager(self, config: Config) -> tuple[IModelAdapter, IModelAdapterManager]:
         manager = self._model_adapter_manager or DefaultModelAdapterManager(config=config)
@@ -452,125 +485,48 @@ class _BaseAgentBuilder(Generic[TAgent]):
             assemble_context=self._assemble_context,
         )
 
-    def _configure_channel_interaction(
-            self,
-            *,
-            agent: BaseAgent,
-            config: Config,
-            model_manager: IModelAdapterManager,
-            tool_manager: IToolManager | None,
-            skill_store: ISkillStore | None,
-            config_provider: IConfigProvider | None,
-            approval_manager: ToolApprovalManager | None,
-            channel: AgentChannel | None,
-    ) -> None:
-        """Configure transport interaction handlers on the bound AgentChannel.
-
-        The channel stores both the action dispatcher and control handler so runtime startup
-        can reuse pre-built registrations without re-parsing agent internals.
-        """
-        if channel is None:
-            return
-
-        control_handler = AgentControlHandler(agent)
-        action_dispatcher = ActionHandlerDispatcher(
-            logger=logger,
-        )
-        action_dispatcher.register_action_handler(
-            ConfigActionHandler(config=config, manager=config_provider)
-        )
-        action_dispatcher.register_action_handler(
-            McpActionHandler(config=config, manager=config_provider)
-        )
-        if tool_manager is not None:
-            action_dispatcher.register_action_handler(ToolsActionHandler(tool_manager))
-        if approval_manager is not None:
-            action_dispatcher.register_action_handler(ApprovalsActionHandler(approval_manager))
-
-        if skill_store is not None:
-            action_dispatcher.register_action_handler(SkillsActionHandler(skill_store))
-
-        action_dispatcher.register_action_handler(ModelActionHandler(agent, config, model_manager))
-
-        channel.add_action_handler_dispatcher(action_dispatcher)
-        channel.add_agent_control_handler(control_handler)
-
-
 class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
     """Builder for SimpleChatAgent."""
 
-    def _build_impl(self) -> SimpleChatAgent:
-        config = self._resolve_config()
-        config_provider = self._config_provider
-        agent_channel = self._agent_channel
-        model, model_manager = self._resolve_model_and_model_manager(config)
-        approval_manager = self._resolve_approval_manager(config)
-        sys_prompt = self._resolve_sys_prompt(model)
-        knowledge = self._resolved_knowledge()
-        skill_store = None
-        if self._enable_skill_tool:
-            skill_store = self._resolve_skill_store(config)
-        tools = self._resolve_tools(knowledge, skill_store)
-        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(config, tools, self._tool_providers)
-        context = self._build_context(config=config, knowledge=knowledge, sys_prompt=sys_prompt,
-                                      tool_gateway=tool_gateway)
-        self._context = context
-        agent = SimpleChatAgent(
+    def _build_impl(
+            self,
+            *,
+            config: Config,
+            model: IModelAdapter,
+            context: Context,
+            tool_gateway: IToolGateway,
+            approval_manager: ToolApprovalManager,
+            agent_channel: AgentChannel | None,
+    ) -> SimpleChatAgent:
+        _ = (config, tool_gateway, approval_manager)
+        return SimpleChatAgent(
             name=self._name,
             model=model,
             context=context,
             agent_channel=agent_channel,
         )
-        self._configure_channel_interaction(
-            agent=agent,
-            config=config,
-            model_manager=model_manager,
-            tool_manager=tool_manager,
-            skill_store=skill_store,
-            config_provider=config_provider,
-            approval_manager=approval_manager,
-            channel=agent_channel,
-        )
-        return agent
 
 
 class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
     """Builder for ReactAgent (ReAct tool loop)."""
 
-    def _build_impl(self) -> ReactAgent:
-        config = self._resolve_config()
-        config_provider = self._config_provider
-        agent_channel = self._agent_channel
-        model, model_manager = self._resolve_model_and_model_manager(config)
-        approval_manager = self._resolve_approval_manager(config)
-        sys_prompt = self._resolve_sys_prompt(model)
-        knowledge = self._resolved_knowledge()
-        skill_store = None
-        if self._enable_skill_tool:
-            skill_store = self._resolve_skill_store(config)
-        tools = self._resolve_tools(knowledge, skill_store)
-        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(config, tools, self._tool_providers)
-        context = self._build_context(config=config, knowledge=knowledge, sys_prompt=sys_prompt,
-                                      tool_gateway=tool_gateway)
-        self._context = context
-
-        agent = ReactAgent(
+    def _build_impl(
+            self,
+            *,
+            config: Config,
+            model: IModelAdapter,
+            context: Context,
+            tool_gateway: IToolGateway,
+            approval_manager: ToolApprovalManager,
+            agent_channel: AgentChannel | None,
+    ) -> ReactAgent:
+        _ = (config, tool_gateway, approval_manager)
+        return ReactAgent(
             name=self._name,
             model=model,
             context=context,
             agent_channel=agent_channel,
         )
-        self._configure_channel_interaction(
-            agent=agent,
-            config=config,
-            model_manager=model_manager,
-            tool_manager=tool_manager,
-            skill_store=skill_store,
-            config_provider=config_provider,
-            approval_manager=approval_manager,
-            channel=agent_channel,
-        )
-        return agent
 
 
 class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
@@ -621,21 +577,16 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         self._verbose = verbose
         return self
 
-    def _build_impl(self) -> DareAgent:
-        config = self._resolve_config()
-        config_provider = self._config_provider
-        agent_channel = self._agent_channel
-        model, model_manager = self._resolve_model_and_model_manager(config)
-        approval_manager = self._resolve_approval_manager(config)
-        sys_prompt = self._resolve_sys_prompt(model)
-        knowledge = self._resolved_knowledge()
-        skill_store = None
-        if self._enable_skill_tool:
-            skill_store = self._resolve_skill_store(config)
-        tools = self._resolve_tools(knowledge, skill_store)
-        tool_gateway, tool_manager = self._resolve_tool_gateway_and_tool_manager(config, tools, self._tool_providers)
-        context = self._build_context(config=config, knowledge=knowledge, sys_prompt=sys_prompt,
-                                      tool_gateway=tool_gateway)
+    def _build_impl(
+            self,
+            *,
+            config: Config,
+            model: IModelAdapter,
+            context: Context,
+            tool_gateway: IToolGateway,
+            approval_manager: ToolApprovalManager,
+            agent_channel: AgentChannel | None,
+    ) -> DareAgent:
         planner = self._planner
         if planner is None:
             manager = self._planner_manager
@@ -676,10 +627,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         hooks = resolved_hooks or None
 
         telemetry = self._telemetry
-
-        self._context = context
-
-        agent = DareAgent(
+        return DareAgent(
             name=self._name,
             model=model,
             context=context,
@@ -695,17 +643,6 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             verbose=self._verbose,
             approval_manager=approval_manager,
         )
-        self._configure_channel_interaction(
-            agent=agent,
-            config=config,
-            model_manager=model_manager,
-            tool_manager=tool_manager,
-            skill_store=skill_store,
-            config_provider=config_provider,
-            approval_manager=approval_manager,
-            channel=agent_channel,
-        )
-        return agent
 
 
 __all__ = ["DareAgentBuilder", "ReactAgentBuilder", "SimpleChatAgentBuilder"]

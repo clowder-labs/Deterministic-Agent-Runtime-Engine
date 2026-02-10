@@ -92,7 +92,11 @@ def test_search_skill_tool_description_caps_list_to_50_skills() -> None:
 async def test_search_skill_tool_resolves_by_skill_name() -> None:
     tool = SearchSkillTool(StaticSkillStore(_skills()))
 
-    result = await tool.execute({"skill": "/commit", "args": "-m 'fix bug'"}, RunContext())
+    result = await tool.execute(
+        run_context=RunContext(),
+        skill="/commit",
+        args="-m 'fix bug'",
+    )
 
     assert result.success is True
     assert result.output["skill_id"] == "commit"

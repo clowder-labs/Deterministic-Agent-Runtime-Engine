@@ -26,14 +26,17 @@ class ConfigActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {ResourceAction.CONFIG_GET}
 
+    # noinspection PyMethodOverriding
     async def invoke(
         self,
         action: ResourceAction,
-        _params: dict[str, Any],
+        **_params: Any,
     ) -> Any:
-        if action != ResourceAction.CONFIG_GET:
-            raise ValueError(f"unsupported config action: {action.value}")
+        if action == ResourceAction.CONFIG_GET:
+            return self._config_get()
+        raise ValueError(f"unsupported config action: {action.value}")
 
+    def _config_get(self) -> dict[str, Any]:
         cfg = self._resolve_config()
         if dataclasses.is_dataclass(cfg):
             data = dataclasses.asdict(cfg)

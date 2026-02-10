@@ -19,7 +19,7 @@ async def test_read_file_rejects_paths_outside_workspace(tmp_path):
     ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
 
     tool = ReadFileTool()
-    result = await tool.execute({"path": "../outside.txt"}, ctx)
+    result = await tool.execute(run_context=ctx, path="../outside.txt")
 
     assert result.success is False
     assert result.output.get("code") == "PATH_NOT_ALLOWED"
@@ -42,7 +42,7 @@ async def test_read_file_enforces_max_bytes(tmp_path):
     )
 
     tool = ReadFileTool()
-    result = await tool.execute({"path": "sample.txt"}, ctx)
+    result = await tool.execute(run_context=ctx, path="sample.txt")
 
     assert result.success is False
     assert result.output.get("code") == "FILE_TOO_LARGE"
@@ -63,7 +63,7 @@ async def test_write_file_enforces_max_bytes(tmp_path):
     )
 
     tool = WriteFileTool()
-    result = await tool.execute({"path": "out.txt", "content": "abcd"}, ctx)
+    result = await tool.execute(run_context=ctx, path="out.txt", content="abcd")
 
     assert result.success is False
     assert result.output.get("code") == "CONTENT_TOO_LARGE"
@@ -79,7 +79,7 @@ async def test_search_code_orders_results_deterministically(tmp_path):
     ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
 
     tool = SearchCodeTool()
-    result = await tool.execute({"pattern": "match"}, ctx)
+    result = await tool.execute(run_context=ctx, pattern="match")
 
     matches = result.output["matches"]
     assert [(m["file"], m["line"]) for m in matches] == [
@@ -100,8 +100,11 @@ async def test_edit_line_strict_match_mismatch(tmp_path):
 
     tool = EditLineTool()
     result = await tool.execute(
-        {"path": "sample.txt", "mode": "delete", "line_number": 2, "text": "nope"},
-        ctx,
+        run_context=ctx,
+        path="sample.txt",
+        mode="delete",
+        line_number=2,
+        text="nope",
     )
 
     assert result.success is False
@@ -119,8 +122,10 @@ async def test_edit_line_insert_defaults_line_number_to_first_line(tmp_path):
 
     tool = EditLineTool()
     result = await tool.execute(
-        {"path": "sample.txt", "mode": "insert", "text": "zero"},
-        ctx,
+        run_context=ctx,
+        path="sample.txt",
+        mode="insert",
+        text="zero",
     )
 
     assert result.success is True
@@ -139,8 +144,10 @@ async def test_edit_line_rejects_explicit_null_line_number(tmp_path):
 
     tool = EditLineTool()
     result = await tool.execute(
-        {"path": "sample.txt", "mode": "delete", "line_number": None},
-        ctx,
+        run_context=ctx,
+        path="sample.txt",
+        mode="delete",
+        line_number=None,
     )
 
     assert result.success is False
@@ -158,7 +165,7 @@ async def test_read_file_line_range_truncates(tmp_path):
     ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
 
     tool = ReadFileTool()
-    result = await tool.execute({"path": "sample.txt", "start_line": 2, "end_line": 2}, ctx)
+    result = await tool.execute(run_context=ctx, path="sample.txt", start_line=2, end_line=2)
 
     assert result.success is True
     assert result.output["content"] == "two\n"
@@ -182,7 +189,7 @@ async def test_search_code_respects_max_results(tmp_path):
     )
 
     tool = SearchCodeTool()
-    result = await tool.execute({"pattern": "match"}, ctx)
+    result = await tool.execute(run_context=ctx, pattern="match")
 
     assert result.success is True
     assert result.output["total_matches"] == 2

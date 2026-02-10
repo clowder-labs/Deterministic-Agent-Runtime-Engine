@@ -1,22 +1,74 @@
-"""Unit tests for MCP tool provider schema mapping."""
+"""Unit tests for MCP tool provider integration."""
 
 from __future__ import annotations
 
-from math import inf
 from typing import Any
 
 import pytest
 
 from dare_framework.mcp.tool_provider import MCPToolProvider
+from dare_framework.tool.kernel import ITool
 from dare_framework.tool.tool_manager import ToolManager
-from dare_framework.tool.types import ToolResult
+from dare_framework.tool.types import CapabilityKind, RunContext, ToolResult, ToolType
+
+
+class _FakeTool(ITool):
+    def __init__(self, name: str, *, timeout_seconds: int = 30) -> None:
+        self._name = name
+        self._timeout_seconds = timeout_seconds
+        self.calls: list[dict[str, Any]] = []
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def description(self) -> str:
+        return f"tool:{self._name}"
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {"a": {"type": "number"}, "b": {"type": "number"}}}
+
+    @property
+    def output_schema(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+    @property
+    def tool_type(self) -> ToolType:
+        return ToolType.ATOMIC
+
+    @property
+    def risk_level(self) -> str:
+        return "read_only"
+
+    @property
+    def requires_approval(self) -> bool:
+        return False
+
+    @property
+    def timeout_seconds(self) -> int:
+        return self._timeout_seconds
+
+    @property
+    def is_work_unit(self) -> bool:
+        return False
+
+    @property
+    def capability_kind(self) -> CapabilityKind:
+        return CapabilityKind.TOOL
+
+    async def execute(self, *, run_context: RunContext[Any], **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = run_context
+        self.calls.append(dict(params))
+        return ToolResult(success=True, output={"ok": True})
 
 
 class _FakeMCPClient:
-    def __init__(self, name: str, tools: list[dict[str, Any]]) -> None:
+    def __init__(self, name: str, tools: list[ITool]) -> None:
         self._name = name
-        self._tools = tools
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self._tools = list(tools)
+        self.connected = False
 
     @property
     def name(self) -> str:
@@ -27,140 +79,57 @@ class _FakeMCPClient:
         return "http"
 
     async def connect(self) -> None:
-        return None
+        self.connected = True
 
     async def disconnect(self) -> None:
-        return None
+        self.connected = False
 
-    async def list_tools(self) -> list[dict[str, Any]]:
+    async def list_tools(self) -> list[ITool]:
         return list(self._tools)
 
-    async def call_tool(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        context: Any,
-    ) -> ToolResult:
-        self.calls.append((tool_name, dict(arguments)))
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any], context: Any) -> ToolResult:
+        _ = tool_name, arguments, context
         return ToolResult(success=True, output={"ok": True}, error=None, evidence=[])
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_provider_reads_camel_case_schema_fields() -> None:
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "number"},
-            "b": {"type": "number"},
-        },
-        "required": ["a", "b"],
-    }
-    output_schema = {
-        "type": "object",
-        "properties": {
-            "result": {"type": "number"},
-        },
-        "required": ["result"],
-    }
-    client = _FakeMCPClient(
-        "local_math",
-        [
-            {
-                "name": "add",
-                "description": "Add two numbers.",
-                "inputSchema": input_schema,
-                "outputSchema": output_schema,
-            }
-        ],
-    )
+async def test_mcp_tool_provider_lists_and_gets_tools() -> None:
+    tool = _FakeTool("local_math:add")
+    client = _FakeMCPClient("local_math", [tool])
     provider = MCPToolProvider([client])
 
     await provider.initialize()
     tools = provider.list_tools()
 
     assert len(tools) == 1
-    tool = tools[0]
-    assert tool.name == "local_math:add"
-    assert tool.input_schema == input_schema
-    assert tool.output_schema == output_schema
+    assert tools[0].name == "local_math:add"
+    assert provider.get_tool("local_math", "add") is tool
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_execute_forwards_arguments() -> None:
-    client = _FakeMCPClient(
-        "local_math",
-        [
-            {
-                "name": "multiply",
-                "description": "Multiply two numbers.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "a": {"type": "number"},
-                        "b": {"type": "number"},
-                    },
-                    "required": ["a", "b"],
-                },
-            }
-        ],
-    )
+async def test_mcp_tool_execute_forwards_keyword_arguments() -> None:
+    tool = _FakeTool("local_math:multiply")
+    client = _FakeMCPClient("local_math", [tool])
     provider = MCPToolProvider([client])
     await provider.initialize()
-    tool = provider.list_tools()[0]
+    listed = provider.list_tools()
 
-    result = await tool.execute({"a": 6, "b": 7}, context=None)
+    result = await listed[0].execute(run_context=RunContext(None), a=6, b=7)
 
     assert result.success is True
-    assert client.calls == [("multiply", {"a": 6, "b": 7})]
+    assert tool.calls == [{"a": 6, "b": 7}]
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_invalid_timeout_falls_back_and_registers() -> None:
-    client = _FakeMCPClient(
-        "local_math",
-        [
-            {
-                "name": "divide",
-                "description": "Divide two numbers.",
-                "timeout_seconds": "invalid-timeout",
-            }
-        ],
-    )
+async def test_mcp_tool_registers_timeout_metadata_via_tool_manager() -> None:
+    tool = _FakeTool("local_math:divide", timeout_seconds=42)
+    client = _FakeMCPClient("local_math", [tool])
     provider = MCPToolProvider([client])
     await provider.initialize()
-    tool = provider.list_tools()[0]
-
-    assert tool.timeout_seconds == 30
 
     manager = ToolManager(load_entrypoints=False)
     manager.register_provider(provider)
-    caps = await manager.list_capabilities()
+    caps = manager.list_capabilities()
     assert caps
     metadata = caps[0].metadata or {}
-    assert metadata.get("timeout_seconds") == 30
-
-
-@pytest.mark.asyncio
-async def test_mcp_tool_infinite_timeout_falls_back_and_registers() -> None:
-    client = _FakeMCPClient(
-        "local_math",
-        [
-            {
-                "name": "divide",
-                "description": "Divide two numbers.",
-                "timeout_seconds": inf,
-            }
-        ],
-    )
-    provider = MCPToolProvider([client])
-    await provider.initialize()
-    tool = provider.list_tools()[0]
-
-    assert tool.timeout_seconds == 30
-
-    manager = ToolManager(load_entrypoints=False)
-    manager.register_provider(provider)
-    caps = await manager.list_capabilities()
-    assert caps
-    metadata = caps[0].metadata or {}
-    assert metadata.get("timeout_seconds") == 30
+    assert metadata.get("timeout_seconds") == 42

@@ -12,6 +12,7 @@ from dare_framework.model.types import ModelInput, ModelResponse, Prompt
 from dare_framework.skill._internal.action_handler import SkillsActionHandler
 from dare_framework.skill.interfaces import ISkillStore
 from dare_framework.skill.types import Skill
+from dare_framework.tool.tool_gateway import ToolGateway
 from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.transport import AgentChannel, ResourceAction, TransportEnvelope
 
@@ -154,8 +155,10 @@ async def test_builder_reuses_resolved_skill_store_for_tool_and_action_handler()
     )
 
     gateway = getattr(agent.context, "_tool_gateway", None)
-    assert isinstance(gateway, ToolManager)
-    skill_tools = [tool for tool in gateway.list_tools() if tool.name == "skill"]
+    assert isinstance(gateway, ToolGateway)
+    manager = getattr(gateway, "_tool_manager", None)
+    assert isinstance(manager, ToolManager)
+    skill_tools = [tool for tool in manager.list_tools() if tool.name == "skill"]
     assert len(skill_tools) == 1
     assert getattr(skill_tools[0], "_skill_store") is store
 

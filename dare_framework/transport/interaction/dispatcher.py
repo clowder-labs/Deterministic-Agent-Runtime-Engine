@@ -90,7 +90,7 @@ class ActionHandlerDispatcher:
                 reason=f"no handler registered for action {action.value!r}",
             )
         try:
-            result = await handler.invoke(action, params)
+            result = await handler.invoke(action, **params)
         except Exception as exc:
             if self._logger is not None:
                 self._logger.exception("action handler invocation failed")

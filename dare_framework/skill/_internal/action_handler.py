@@ -18,10 +18,11 @@ class SkillsActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {ResourceAction.SKILLS_LIST}
 
+    # noinspection PyMethodOverriding
     async def invoke(
         self,
         action: ResourceAction,
-        _params: dict[str, Any],
+        **_params: Any,
     ) -> Any:
         if action != ResourceAction.SKILLS_LIST:
             raise ValueError(f"unsupported skills action: {action.value}")
@@ -29,9 +30,9 @@ class SkillsActionHandler(IActionHandler):
         for skill in self._store.list_skills():
             skills.append(
                 {
-                    "id": getattr(skill, "id", None),
-                    "name": getattr(skill, "name", None),
-                    "description": getattr(skill, "description", None),
+                    "id": skill.id,
+                    "name": skill.name,
+                    "description": skill.description,
                 }
             )
         return {"skills": skills}

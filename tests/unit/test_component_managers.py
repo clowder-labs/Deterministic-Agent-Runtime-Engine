@@ -1,4 +1,5 @@
 import pytest
+from typing import Any
 
 pytest.skip(
     "Legacy component manager tests rely on archived plugin system; "
@@ -109,7 +110,8 @@ class DummyTool(ConfigurableComponent, ITool):
     def is_work_unit(self) -> bool:
         return False
 
-    async def execute(self, input: dict, context: RunContext):
+    async def execute(self, *, run_context: RunContext[Any], **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = run_context, params
         return ToolResult(success=True, output={"ok": True}, error=None, evidence=[])
 
 

@@ -34,7 +34,7 @@ async def test_approvals_action_handler_list_and_grant(manager) -> None:
     )
     assert first.request is not None
 
-    listed = await handler.invoke(ResourceAction.APPROVALS_LIST, {})
+    listed = await handler.invoke(ResourceAction.APPROVALS_LIST)
     pending = listed["pending"]
     assert len(pending) == 1
     assert pending[0]["request_id"] == first.request.request_id
@@ -42,11 +42,9 @@ async def test_approvals_action_handler_list_and_grant(manager) -> None:
     wait_task = asyncio.create_task(manager.wait_for_resolution(first.request.request_id))
     granted = await handler.invoke(
         ResourceAction.APPROVALS_GRANT,
-        {
-            "request_id": first.request.request_id,
-            "scope": ApprovalScope.WORKSPACE.value,
-            "matcher": ApprovalMatcherKind.EXACT_PARAMS.value,
-        },
+        request_id=first.request.request_id,
+        scope=ApprovalScope.WORKSPACE.value,
+        matcher=ApprovalMatcherKind.EXACT_PARAMS.value,
     )
     assert granted["request_id"] == first.request.request_id
     assert granted["rule"] is not None
@@ -69,14 +67,12 @@ async def test_approvals_action_handler_revoke_rule(manager) -> None:
     wait_task = asyncio.create_task(manager.wait_for_resolution(first.request.request_id))
     granted = await handler.invoke(
         ResourceAction.APPROVALS_GRANT,
-        {
-            "request_id": first.request.request_id,
-            "scope": ApprovalScope.WORKSPACE.value,
-            "matcher": ApprovalMatcherKind.EXACT_PARAMS.value,
-        },
+        request_id=first.request.request_id,
+        scope=ApprovalScope.WORKSPACE.value,
+        matcher=ApprovalMatcherKind.EXACT_PARAMS.value,
     )
     assert await wait_task == ApprovalDecision.ALLOW
 
     rule = granted["rule"]
-    revoked = await handler.invoke(ResourceAction.APPROVALS_REVOKE, {"rule_id": rule["rule_id"]})
+    revoked = await handler.invoke(ResourceAction.APPROVALS_REVOKE, rule_id=rule["rule_id"])
     assert revoked["removed"] is True

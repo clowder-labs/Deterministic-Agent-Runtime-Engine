@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from dare_framework.tool.tool_manager import ToolManager
-from dare_framework.tool.types import CapabilityKind, ToolType
+from dare_framework.tool.types import CapabilityKind, ToolResult, ToolType
 from dare_framework.infra.component import ComponentType
 
 
@@ -58,8 +58,9 @@ class DummyTool:
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: Any) -> Any:
-        return {"ok": True, "text": input.get("text")}
+    async def execute(self, *, run_context: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = run_context
+        return ToolResult(success=True, output={"ok": True, "text": params.get("text")})
 
 
 class ListProvider:

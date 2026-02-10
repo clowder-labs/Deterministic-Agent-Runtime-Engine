@@ -12,6 +12,10 @@ from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 from dare_framework.config.types import Config
 from dare_framework.infra.component import ComponentType, IComponent
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
@@ -57,16 +61,14 @@ class ITool(IComponent, ABC):
         ...
 
     @property
-    @abstractmethod
     def input_schema(self) -> dict[str, Any]:
-        """JSON schema for input validation."""
-        ...
+        """JSON schema inferred from execute signature and parameter docs."""
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
-    @abstractmethod
-    def output_schema(self) -> dict[str, Any]:
-        """JSON schema for output validation."""
-        ...
+    def output_schema(self) -> dict[str, Any] | None:
+        """JSON schema inferred from execute return annotation and docs."""
+        return infer_output_schema_from_execute(type(self).execute)
 
     @property
     @abstractmethod
@@ -105,7 +107,7 @@ class ITool(IComponent, ABC):
         ...
 
     @abstractmethod
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    async def execute(self, *, run_context: RunContext[Any], **params: Any) -> ToolResult[Any]:
         """Execute the tool and return a ToolResult."""
         ...
 
@@ -120,10 +122,10 @@ class IToolGateway(ABC):
     async def invoke(
             self,
             capability_id: str,
-            params: dict[str, Any],
             *,
             envelope: Envelope,
             context: Context | None = None,
+            **params: Any,
     ) -> ToolResult:
         """Invoke a registered tool capability."""
         ...

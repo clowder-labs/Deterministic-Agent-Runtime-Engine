@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool._internal.file_utils import resolve_workspace_roots
 from dare_framework.infra.ids import generate_id
 from dare_framework.tool.types import (
@@ -34,32 +38,11 @@ class RunCommandTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Full shell command to run (e.g. 'git status', 'npm install'). Not for skill scripts—use run_skill_script for those.",
-                },
-                "cwd": {
-                    "type": "string",
-                    "description": "Working directory; must be inside workspace root.",
-                },
-                "timeout_seconds": {"type": "integer", "minimum": 1},
-            },
-            "required": ["command"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "stdout": {"type": "string"},
-                "stderr": {"type": "string"},
-                "exit_code": {"type": "integer"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def risk_level(self) -> str:
@@ -89,23 +72,41 @@ class RunCommandTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
-        command = input.get("command")
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        command: str,
+        cwd: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> ToolResult[RunCommandOutput]:
+        """Run a shell command inside workspace roots.
+
+        Args:
+            run_context: Runtime invocation context.
+            command: Full shell command to run.
+            cwd: Optional working directory; must remain under workspace roots.
+            timeout_seconds: Optional command timeout override in seconds.
+
+        Returns:
+            Command execution output including stdout, stderr, and exit code.
+        """
         if not isinstance(command, str) or not command.strip():
             return _error_result("command is required")
 
-        roots = resolve_workspace_roots(context)
-        cwd = _resolve_cwd(input.get("cwd"), roots)
-        if cwd is None or not _is_allowed_path(cwd, roots):
+        roots = resolve_workspace_roots(run_context)
+        resolved_cwd = _resolve_cwd(cwd, roots)
+        if resolved_cwd is None or not _is_allowed_path(resolved_cwd, roots):
             return _error_result("working directory is not within workspace roots")
 
-        timeout = _parse_timeout(input.get("timeout_seconds"), self.timeout_seconds)
+        timeout = _parse_timeout(timeout_seconds, self.timeout_seconds)
 
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
-                cwd=str(cwd),
+                cwd=str(resolved_cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -130,7 +131,7 @@ class RunCommandTool(ITool):
                 Evidence(
                     evidence_id=generate_id("evidence"),
                     kind="command",
-                    payload={"cwd": str(cwd)},
+                    payload={"cwd": str(resolved_cwd)},
                 )
             ],
         )
@@ -166,3 +167,9 @@ def _parse_timeout(value: Any, fallback: int) -> int:
 
 def _error_result(message: str) -> ToolResult:
     return ToolResult(success=False, output={}, error=message, evidence=[])
+
+
+class RunCommandOutput(TypedDict):
+    stdout: str
+    stderr: str
+    exit_code: int
