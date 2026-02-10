@@ -114,7 +114,7 @@ class IToolGateway(ABC):
     """System-call boundary and trusted capability registry facade."""
 
     @abstractmethod
-    def list_capabilities(self) -> list[CapabilityDescriptor]: ...
+    async def list_capabilities(self) -> list[CapabilityDescriptor]: ...
 
     @abstractmethod
     async def invoke(

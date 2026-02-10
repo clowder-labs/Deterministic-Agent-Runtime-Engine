@@ -4,6 +4,8 @@ from dare_framework.config import Config
 from dare_framework.context.context import Context
 from dare_framework.context.types import Message, Budget
 from dare_framework.model import Prompt
+from dare_framework.tool._internal.tools.noop_tool import NoopTool
+from dare_framework.tool.tool_manager import ToolManager
 
 def test_context_initialization():
     config = Config()
@@ -62,3 +64,15 @@ def test_context_assemble():
 def test_context_requires_non_null_config():
     with pytest.raises(ValueError, match="non-null Config"):
         Context(id="missing-config", config=None)  # type: ignore[arg-type]
+
+
+def test_context_list_tools_returns_capability_descriptors_from_tool_manager():
+    manager = ToolManager(load_entrypoints=False)
+    manager.register_tool(NoopTool())
+    ctx = Context(config=Config(), tool_gateway=manager)
+
+    tools = ctx.list_tools()
+
+    assert len(tools) == 1
+    assert tools[0].id == "noop"
+    assert tools[0].name == "noop"
