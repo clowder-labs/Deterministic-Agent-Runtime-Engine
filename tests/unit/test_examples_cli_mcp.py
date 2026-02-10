@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
+import importlib.util
 from pathlib import Path
 import sys
 
@@ -15,65 +15,30 @@ from dare_framework.tool._internal.control.approval_manager import (
 )
 
 
-def _resolve_example_dir() -> Path:
+def _load_cli_module(module_name: str, relative_cli_path: str):
     root = Path(__file__).resolve().parents[2]
-    candidates = (
-        "05-dare-coding-agent-enhanced",
-        "04-dare-coding-agent",
-        "03-dare-coding-agent",
+    cli_path = root / relative_cli_path
+    example_dir = cli_path.parent
+    if str(example_dir) not in sys.path:
+        sys.path.insert(0, str(example_dir))
+    spec = importlib.util.spec_from_file_location(module_name, cli_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load module from {cli_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_parse_command_approvals_mcp_cli() -> None:
+    cli_mcp = _load_cli_module(
+        "examples_06_cli",
+        "examples/06-dare-coding-agent-mcp/cli.py",
     )
-    for candidate in candidates:
-        path = root / "examples" / candidate
-        if (path / "cli.py").exists():
-            return path
-    raise FileNotFoundError("Unable to locate examples/*/cli.py for coding-agent example tests.")
-
-
-EXAMPLE_DIR = _resolve_example_dir()
-sys.path.insert(0, str(EXAMPLE_DIR))
-
-import cli  # type: ignore  # noqa: E402
-
-
-def test_parse_command_mode_plan() -> None:
-    command = cli.parse_command("/mode plan")
-    assert isinstance(command, cli.Command)
-    assert command.type == cli.CommandType.MODE
-    assert command.args == ["plan"]
-
-
-def test_parse_command_quit() -> None:
-    command = cli.parse_command("/quit")
-    assert isinstance(command, cli.Command)
-    assert command.type == cli.CommandType.QUIT
-
-
-def test_parse_command_task_text() -> None:
-    command = cli.parse_command("build a demo")
-    assert isinstance(command, tuple)
-    assert command[0] is None
-    assert command[1] == "build a demo"
-
-
-def test_parse_command_approvals() -> None:
-    command = cli.parse_command("/approvals list")
-    assert isinstance(command, cli.Command)
-    assert command.type == cli.CommandType.APPROVALS
+    command = cli_mcp.parse_command("/approvals list")
+    assert isinstance(command, cli_mcp.Command)
+    assert command.type == cli_mcp.CommandType.APPROVALS
     assert command.args == ["list"]
-
-
-def test_load_script_lines(tmp_path: Path) -> None:
-    script = tmp_path / "demo.txt"
-    script.write_text("""
-# comment
-/mode plan
-
-Create a file
-/approve
-""", encoding="utf-8")
-
-    lines = cli.load_script_lines(script)
-    assert lines == ["/mode plan", "Create a file", "/approve"]
 
 
 class _CaptureDisplay:
@@ -100,7 +65,11 @@ class _CaptureDisplay:
 
 
 @pytest.mark.asyncio
-async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
+async def test_handle_approvals_command_list_and_grant_mcp_cli(tmp_path: Path) -> None:
+    cli_mcp = _load_cli_module(
+        "examples_06_cli_handle",
+        "examples/06-dare-coding-agent-mcp/cli.py",
+    )
     manager = ToolApprovalManager(
         workspace_store=JsonApprovalRuleStore(tmp_path / "workspace" / "approvals.json"),
         user_store=JsonApprovalRuleStore(tmp_path / "user" / "approvals.json"),
@@ -119,8 +88,7 @@ async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
         _approval_manager = manager
 
     display = _CaptureDisplay()
-
-    await cli._handle_approvals_command(  # type: ignore[attr-defined]
+    await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
         ["list"],
         agent=_FakeAgent(),
         display=display,
@@ -128,7 +96,7 @@ async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
     assert any("pending" in msg for level, msg in display.messages if level == "info")
 
     wait_task = asyncio.create_task(manager.wait_for_resolution(request_id))
-    await cli._handle_approvals_command(  # type: ignore[attr-defined]
+    await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
         ["grant", request_id, "scope=workspace", "matcher=exact_params"],
         agent=_FakeAgent(),
         display=display,
@@ -137,7 +105,11 @@ async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_cli_loop_background_execute_allows_followup_commands(monkeypatch) -> None:
+async def test_run_cli_loop_background_execute_allows_followup_commands_mcp_cli(monkeypatch) -> None:
+    cli_mcp = _load_cli_module(
+        "examples_06_cli_background",
+        "examples/06-dare-coding-agent-mcp/cli.py",
+    )
     started = asyncio.Event()
     finished = asyncio.Event()
 
@@ -145,15 +117,15 @@ async def test_run_cli_loop_background_execute_allows_followup_commands(monkeypa
         started.set()
         await finished.wait()
 
-    monkeypatch.setattr(cli, "run_task", _fake_run_task)
+    monkeypatch.setattr(cli_mcp, "run_task", _fake_run_task)
 
     class _FakeAgent:
         _approval_manager = None
 
-    state = cli.CLISessionState(mode=cli.ExecutionMode.EXECUTE)
+    state = cli_mcp.CLISessionState(mode=cli_mcp.ExecutionMode.EXECUTE)
     display = _CaptureDisplay()
 
-    state, _quit = await cli.run_cli_loop(
+    state, _quit = await cli_mcp.run_cli_loop(
         ["build one thing"],
         agent=_FakeAgent(),
         model=object(),
@@ -164,9 +136,9 @@ async def test_run_cli_loop_background_execute_allows_followup_commands(monkeypa
     await asyncio.wait_for(started.wait(), timeout=1.0)
     assert state.active_execution_task is not None
     assert not state.active_execution_task.done()
-    assert state.status == cli.SessionStatus.RUNNING
+    assert state.status == cli_mcp.SessionStatus.RUNNING
 
-    await cli.run_cli_loop(
+    await cli_mcp.run_cli_loop(
         ["/status"],
         agent=_FakeAgent(),
         model=object(),
@@ -177,5 +149,4 @@ async def test_run_cli_loop_background_execute_allows_followup_commands(monkeypa
     assert any("running=True" in msg for level, msg in display.messages if level == "info")
 
     finished.set()
-    with contextlib.suppress(asyncio.CancelledError):
-        await state.active_execution_task
+    await state.active_execution_task

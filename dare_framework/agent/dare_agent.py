@@ -47,6 +47,10 @@ from dare_framework.plan.types import (
     ValidatedPlan,
     VerifyResult,
 )
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalDecision,
+    ApprovalEvaluationStatus,
+)
 from dare_framework.tool.types import CapabilityKind
 from dare_framework.transport.types import TransportEnvelope, new_envelope_id
 
@@ -70,6 +74,7 @@ if TYPE_CHECKING:
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
     from dare_framework.tool.interfaces import IExecutionControl
     from dare_framework.tool.kernel import IToolGateway
+    from dare_framework.tool._internal.control.approval_manager import ToolApprovalManager
     from dare_framework.transport.kernel import AgentChannel
 
 
@@ -119,6 +124,7 @@ class DareAgent(BaseAgent):
         # Tool components (optional)
         tool_gateway: IToolGateway | None = None,
         execution_control: IExecutionControl | None = None,
+        approval_manager: ToolApprovalManager | None = None,
         # Plan components (optional - enables full five-layer mode)
         planner: IPlanner | None = None,
         validator: IValidator | None = None,
@@ -151,6 +157,7 @@ class DareAgent(BaseAgent):
             tools: Tool provider for listing tools (optional).
             tool_gateway: Tool gateway for invoking tools (optional).
             execution_control: Execution control for HITL (optional).
+            approval_manager: Tool approval manager for persisted approval memory (optional).
             planner: Plan generator (optional, enables full five-layer).
             validator: Plan/milestone validator (optional).
             remediator: Failure remediator (optional).
@@ -187,6 +194,7 @@ class DareAgent(BaseAgent):
         # Tool components
         self._tool_gateway = tool_gateway
         self._exec_ctl = execution_control
+        self._approval_manager = approval_manager
 
         # Plan components (optional)
         self._planner = planner
@@ -1069,11 +1077,52 @@ class DareAgent(BaseAgent):
         attempts = 0
         risk_level = self._risk_level_value(descriptor)
         requires_approval = self._requires_approval(descriptor)
+        session_id = self._session_state.run_id if self._session_state is not None else None
 
         while True:
             attempts += 1
             self._context.budget_check()
             self._context.budget_use("tool_calls", 1)
+
+            if requires_approval:
+                allowed, approval_error = await self._resolve_tool_approval(
+                    capability_id=request.capability_id,
+                    params=request.params,
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+                if not allowed:
+                    await self._log_event(
+                        "tool.error",
+                        {
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "capability_id": request.capability_id,
+                            "error": approval_error,
+                            "attempt": attempts,
+                        },
+                    )
+                    await self._emit_hook(
+                        HookPhase.AFTER_TOOL,
+                        {
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "capability_id": request.capability_id,
+                            "attempt": attempts,
+                            "success": False,
+                            "error": approval_error,
+                            "approved": False,
+                            "evidence_collected": False,
+                            "duration_ms": 0.0,
+                            "budget_stats": self._budget_stats(),
+                        },
+                    )
+                    return {
+                        "success": False,
+                        "error": approval_error,
+                        "output": {},
+                    }
 
             tool_start = time.perf_counter()
             await self._emit_hook(
@@ -1195,6 +1244,87 @@ class DareAgent(BaseAgent):
                     "error": str(e),
                     "output": {},
                 }
+
+    async def _resolve_tool_approval(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> tuple[bool, str | None]:
+        if self._approval_manager is None:
+            return False, "tool requires approval but no approval manager is configured"
+
+        evaluation = await self._approval_manager.evaluate(
+            capability_id=capability_id,
+            params=params,
+            session_id=session_id,
+            reason=f"Tool {capability_id} requires approval",
+        )
+        if evaluation.status == ApprovalEvaluationStatus.ALLOW:
+            await self._log_event(
+                "tool.approval",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": capability_id,
+                    "status": "allow",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            return True, None
+
+        if evaluation.status == ApprovalEvaluationStatus.DENY:
+            await self._log_event(
+                "tool.approval",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": capability_id,
+                    "status": "deny",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            return False, "tool invocation denied by approval rule"
+
+        if evaluation.request is None:
+            return False, "tool invocation requires approval"
+
+        request_id = evaluation.request.request_id
+        await self._log_event(
+            "exec.waiting_human",
+            {
+                "checkpoint_id": request_id,
+                "reason": evaluation.request.reason,
+                "mode": "approval_memory_wait",
+            },
+        )
+        decision = await self._approval_manager.wait_for_resolution(request_id)
+        await self._log_event(
+            "exec.resume",
+            {
+                "checkpoint_id": request_id,
+                "decision": decision.value,
+            },
+        )
+        await self._log_event(
+            "tool.approval",
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": capability_id,
+                "status": decision.value,
+                "source": "pending_request",
+                "request_id": request_id,
+            },
+        )
+        if decision == ApprovalDecision.ALLOW:
+            return True, None
+        return False, "tool invocation denied by human approval"
 
     # =========================================================================
     # Verify

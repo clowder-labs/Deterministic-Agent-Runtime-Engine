@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +14,12 @@ from dare_framework.config import Config
 from dare_framework.context import Budget, Context, Message
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.types import SessionSummary, Task
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalMatcherKind,
+    ApprovalScope,
+    JsonApprovalRuleStore,
+    ToolApprovalManager,
+)
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityKind, CapabilityType
 
 
@@ -336,6 +343,80 @@ class TestReActMode:
         messages = agent._context.stm_get()
         assert any(msg.role == "assistant" and msg.metadata.get("tool_calls") for msg in messages)
         assert any(msg.role == "tool" for msg in messages)
+
+    @pytest.mark.asyncio
+    async def test_react_mode_requires_approval_then_reuses_workspace_rule(self, tmp_path) -> None:
+        capability = CapabilityDescriptor(
+            id="run_command",
+            type=CapabilityType.TOOL,
+            name="run_command",
+            description="Run a shell command.",
+            input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+            metadata={"requires_approval": True},
+        )
+        tool_gateway = MockToolGateway([capability])
+        approval_manager = ToolApprovalManager(
+            workspace_store=JsonApprovalRuleStore(tmp_path / "workspace" / "approvals.json"),
+            user_store=JsonApprovalRuleStore(tmp_path / "user" / "approvals.json"),
+        )
+
+        first_model = MockModelAdapter(
+            [
+                ModelResponse(
+                    content="Running command...",
+                    tool_calls=[{"name": "run_command", "arguments": {"command": "git status --short"}}],
+                ),
+                ModelResponse(content="Done.", tool_calls=[]),
+            ]
+        )
+        first_agent = DareAgent(
+            name="react-agent-approval",
+            model=first_model,
+            tool_gateway=tool_gateway,
+            approval_manager=approval_manager,
+        )
+
+        first_run = asyncio.create_task(first_agent.run("Run git status"))
+        pending = []
+        for _ in range(100):
+            pending = approval_manager.list_pending()
+            if pending:
+                break
+            await asyncio.sleep(0.01)
+        assert pending
+
+        request_id = pending[0].request_id
+        await approval_manager.grant(
+            request_id,
+            scope=ApprovalScope.WORKSPACE,
+            matcher=ApprovalMatcherKind.EXACT_PARAMS,
+        )
+
+        first_result = await first_run
+        assert first_result.success is True
+        assert len(tool_gateway.invoke_calls) == 1
+        assert approval_manager.list_pending() == []
+
+        second_model = MockModelAdapter(
+            [
+                ModelResponse(
+                    content="Running command again...",
+                    tool_calls=[{"name": "run_command", "arguments": {"command": "git status --short"}}],
+                ),
+                ModelResponse(content="Done again.", tool_calls=[]),
+            ]
+        )
+        second_agent = DareAgent(
+            name="react-agent-approval-second",
+            model=second_model,
+            tool_gateway=tool_gateway,
+            approval_manager=approval_manager,
+        )
+
+        second_result = await second_agent.run("Run git status again")
+        assert second_result.success is True
+        assert len(tool_gateway.invoke_calls) == 2
+        assert approval_manager.list_pending() == []
 
 
 # =============================================================================
