@@ -115,6 +115,11 @@ class _BaseAgentBuilder(Generic[TAgent]):
         # MCP tool provider (optional, provides MCP-backed tools).
         self._mcp_toolkit: IToolProvider | None = None
 
+        # Optional plan provider (e.g. plan_v2.Planner). When set, registered as tool provider
+        # so the agent gets plan tools (create_plan, validate_plan, etc.). ReactAgentBuilder
+        # also passes it to the agent so you can access agent.plan_provider (e.g. .state for copy_for_execution).
+        self._plan_provider: IToolProvider | None = None
+
         # Optional transport channel (agent-facing).
         self._agent_channel: AgentChannel | None = None
 
@@ -230,6 +235,12 @@ class _BaseAgentBuilder(Generic[TAgent]):
         self._tool_providers.append(provider)
         return self
 
+    def with_plan_provider(self: TBuilder, plan_provider: IToolProvider) -> TBuilder:
+        """Optionally mount a plan provider (e.g. plan_v2.Planner). Its tools are registered;
+        for ReactAgent, the same provider is exposed as agent.plan_provider (e.g. to read .state)."""
+        self._plan_provider = plan_provider
+        return self
+
     def with_agent_channel(self: TBuilder, channel: AgentChannel) -> TBuilder:
         """Attach an AgentChannel for transport-backed output/hook streaming."""
         self._agent_channel = channel
@@ -271,9 +282,9 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
     async def build(self) -> TAgent:
         """Build agent with shared dependency resolution and optional MCP preload."""
-        if self._config is not None and getattr(self._config, "mcp_paths", None):
-            self._mcp_toolkit = await load_mcp_toolkit(self._config)
         config = self._resolve_config()
+        if config is not None and getattr(config, "mcp_paths", None):
+            self._mcp_toolkit = await load_mcp_toolkit(config)
         model, model_manager = self._resolve_model_and_model_manager(config)
         approval_manager = self._resolve_approval_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
@@ -418,6 +429,8 @@ class _BaseAgentBuilder(Generic[TAgent]):
             self._tool_manager = tool_manager
 
         providers = list(tool_providers)
+        if self._plan_provider is not None and self._plan_provider not in providers:
+            providers.append(self._plan_provider)
         if self._mcp_toolkit is not None and self._mcp_toolkit not in providers:
             providers.append(self._mcp_toolkit)
 
@@ -510,7 +523,20 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
 
 
 class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
-    """Builder for ReactAgent (ReAct tool loop)."""
+    """Builder for ReactAgent (ReAct tool loop).
+
+    Optional plan: use with_plan_provider(plan_v2.Planner(state)) to mount plan tools;
+    the agent then exposes agent.plan_provider (e.g. .state for copy_for_execution).
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self._max_tool_rounds: int = 10
+
+    def with_max_tool_rounds(self: "ReactAgentBuilder", max_rounds: int) -> "ReactAgentBuilder":
+        """Set max ReAct tool loop rounds. Plan agents may need more (e.g. 25) for multi-step delegation."""
+        self._max_tool_rounds = max_rounds
+        return self
 
     def _build_impl(
             self,
@@ -528,7 +554,9 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
             model=model,
             context=context,
             tool_gateway=tool_gateway,
+            plan_provider=self._plan_provider,
             agent_channel=agent_channel,
+            max_tool_rounds=self._max_tool_rounds,
         )
 
 

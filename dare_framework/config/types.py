@@ -282,6 +282,9 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     mcp: dict[str, dict[str, Any]] = field(default_factory=dict)
     mcp_paths: list[str] = field(default_factory=list)
+    """Directories to scan for MCP config files (e.g. .dare/mcp)."""
+    skill_paths: list[str] = field(default_factory=list)
+    """Directories to scan for skills (SKILL.md). When non-empty, used by SkillStoreBuilder; else default .dare/skills."""
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     allow_tools: list[str] = field(default_factory=list)
     allow_mcps: list[str] = field(default_factory=list)
@@ -306,6 +309,12 @@ class Config:
         mcp_paths = (
             [str(p) for p in mcp_paths_raw]
             if isinstance(mcp_paths_raw, list)
+            else []
+        )
+        skill_paths_raw = data.get("skill_paths")
+        skill_paths = (
+            [str(p) for p in skill_paths_raw]
+            if isinstance(skill_paths_raw, list)
             else []
         )
         tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
@@ -346,6 +355,7 @@ class Config:
             llm=llm,
             mcp=mcp,
             mcp_paths=mcp_paths,
+            skill_paths=skill_paths,
             tools=tools,
             allow_tools=allow_tools,
             allow_mcps=allow_mcps,
@@ -394,6 +404,7 @@ class Config:
             "llm": self.llm.to_dict(),
             "mcp": dict(self.mcp),
             "mcp_paths": list(self.mcp_paths),
+            "skill_paths": list(self.skill_paths),
             "tools": dict(self.tools),
             "allow_tools": list(self.allow_tools),
             "allow_mcps": list(self.allow_mcps),
