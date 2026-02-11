@@ -86,11 +86,16 @@ class PlannerState:
     # Current plan
     plan_description: str = ""
     steps: list[Step] = field(default_factory=list)
+    completed_step_ids: set[str] = field(default_factory=set)
     plan_success: bool = True
     plan_errors: list[str] = field(default_factory=list)
+    # Plan validated by validate_plan (distinguish from create_plan -> validate_plan flow)
+    plan_validated: bool = False
     # Milestone-level verification and remediation (like dare_agent)
     last_verify_errors: list[str] = field(default_factory=list)
     last_remediation_summary: str = ""
+    # Critical block: injected into each LLM round. Updated by plan tools when they mutate state.
+    critical_block: str = ""
 
     def copy_for_execution(self) -> PlannerState:
         """Produce clean state for Execution Agent. Strips plan runtime state."""

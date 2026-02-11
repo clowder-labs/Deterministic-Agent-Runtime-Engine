@@ -281,9 +281,9 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
     async def build(self) -> TAgent:
         """Build agent with shared dependency resolution and optional MCP preload."""
-        if self._config is not None and getattr(self._config, "mcp_paths", None):
-            self._mcp_toolkit = await load_mcp_toolkit(self._config)
         config = self._resolve_config()
+        if config is not None and getattr(config, "mcp_paths", None):
+            self._mcp_toolkit = await load_mcp_toolkit(config)
         model, model_manager = self._resolve_model_and_model_manager(config)
         approval_manager = self._resolve_approval_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
@@ -527,6 +527,15 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
     the agent then exposes agent.plan_provider (e.g. .state for copy_for_execution).
     """
 
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self._max_tool_rounds: int = 10
+
+    def with_max_tool_rounds(self: "ReactAgentBuilder", max_rounds: int) -> "ReactAgentBuilder":
+        """Set max ReAct tool loop rounds. Plan agents may need more (e.g. 25) for multi-step delegation."""
+        self._max_tool_rounds = max_rounds
+        return self
+
     def _build_impl(
             self,
             *,
@@ -544,6 +553,7 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
             context=context,
             plan_provider=self._plan_provider,
             agent_channel=agent_channel,
+            max_tool_rounds=self._max_tool_rounds,
         )
 
 
