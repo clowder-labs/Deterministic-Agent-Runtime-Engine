@@ -1,10 +1,10 @@
 """agent domain stable interfaces.
 
 Alignment note:
-- The minimal runtime surface is `IAgent.run(...)` (orchestration is an agent concern).
+- The minimal runtime surface is `IAgent.__call__(...)` (orchestration is an agent concern).
 
 Design Decision (2026-01-30):
-    The `IAgent.run()` method accepts both `str` and `Task` for flexibility:
+    The `IAgent.__call__()` method accepts both `str` and `Task` for flexibility:
     
     - **Simple usage**: Pass a string for basic task execution (ReAct or simple mode).
     - **Advanced usage**: Pass a `Task` object with pre-defined `milestones` for
@@ -48,7 +48,7 @@ class IAgent(ABC):
 
     Example:
         # Simple string input (auto-routed based on agent config)
-        result = await agent.run("Explain this codebase")
+        result = await agent("Explain this codebase")
 
         # Task object for advanced control
         task = Task(
@@ -58,12 +58,22 @@ class IAgent(ABC):
                 Milestone(milestone_id="m2", description="Write tests"),
             ],
         )
-        result = await agent.run(task)
+        result = await agent(task)
     """
 
     @abstractmethod
-    async def __call__(self, message: str | Task, deps: Any | None = None) -> RunResult:
-        """Invoke the agent directly (no transport attached)."""
+    async def __call__(
+        self,
+        message: str | Task,
+        deps: Any | None = None,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> RunResult:
+        """Invoke the agent directly.
+
+        If no transport is provided, implementations may route through a no-op
+        transport to keep the execution pipeline consistent.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -94,39 +104,6 @@ class IAgent(ABC):
     @abstractmethod
     def reverse(self) -> dict[str, Any]:
         """Rollback/reverse execution if supported."""
-        raise NotImplementedError
-
-    @abstractmethod
-    async def run(
-        self,
-        task: str | Task,
-        deps: Any | None = None,
-        *,
-        transport: AgentChannel | None = None,
-    ) -> RunResult:
-        """Execute a task and return a structured RunResult.
-
-        Args:
-            task: Either a simple string description or a Task object.
-                - **str**: Treated as task description, auto-wrapped into Task.
-                - **Task**: Used directly. If `milestones` are present, enables
-                  full five-layer orchestration; otherwise routes based on
-                  agent configuration (planner presence, tool availability).
-            deps: Optional runtime dependencies (e.g., file handles, clients).
-            transport: Optional transport channel for streaming outputs.
-                Kept separate from Task so Task remains serializable for
-                audit and logging purposes.
-
-        Returns:
-            RunResult containing success status, output, errors, and metadata.
-
-        Note:
-            The execution mode is determined internally by the agent:
-            - If agent has a planner OR task has milestones → Five-Layer Mode
-            - If agent has tools but no planner → ReAct Mode
-            - Otherwise → Simple Mode
-        """
-
         raise NotImplementedError
 
     @abstractmethod

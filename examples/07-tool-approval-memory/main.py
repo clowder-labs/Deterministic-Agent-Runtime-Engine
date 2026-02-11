@@ -181,7 +181,7 @@ async def main() -> None:
     await agent.start()
     try:
         print("== 1) first run: pending approval -> grant workspace rule (command_prefix)")
-        first_run = asyncio.create_task(agent.run("Run the first command"))
+        first_run = asyncio.create_task(agent("Run the first command"))
         first_request_id = await _wait_for_pending_request_id(client_channel)
         print(f"pending request: {first_request_id}")
 
@@ -203,7 +203,7 @@ async def main() -> None:
             print(workspace_rules.read_text(encoding="utf-8"))
 
         print("\n== 2) second run: same command prefix auto-pass (no new pending)")
-        second_result = await agent.run("Run the second command")
+        second_result = await agent("Run the second command")
         listed_after_second = await _invoke_action(client_channel, "approvals:list")
         pending_after_second = listed_after_second.get("pending", [])
         print(f"second run success={second_result.success}, pending_count={len(pending_after_second)}")
@@ -218,7 +218,7 @@ async def main() -> None:
         print(json.dumps(revoked, indent=2, ensure_ascii=False))
 
         print("\n== 4) third run: pending appears again after revoke")
-        third_run = asyncio.create_task(agent.run("Run the third command"))
+        third_run = asyncio.create_task(agent("Run the third command"))
         third_request_id = await _wait_for_pending_request_id(client_channel)
         print(f"pending request after revoke: {third_request_id}")
 

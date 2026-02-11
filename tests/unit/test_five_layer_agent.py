@@ -144,6 +144,13 @@ class MockConfigProvider:
         return self._config
 
 
+def _make_agent(*, model: MockModelAdapter, name: str = "test-agent", **kwargs: Any) -> DareAgent:
+    """Build DareAgent test instances with an explicit context by default."""
+    context = kwargs.pop("context", Context(config=Config()))
+    tool_gateway = kwargs.pop("tool_gateway", MockToolGateway())
+    return DareAgent(name=name, model=model, context=context, tool_gateway=tool_gateway, **kwargs)
+
+
 # =============================================================================
 # Tests: Initialization
 # =============================================================================
@@ -155,18 +162,17 @@ class TestDareAgentInit:
     def test_init_with_minimal_deps(self) -> None:
         """Agent can be created with only required dependencies."""
         model = MockModelAdapter()
-        agent = DareAgent(name="test-agent", model=model)
+        agent = _make_agent(name="test-agent", model=model)
 
         assert agent.name == "test-agent"
         assert agent.context is not None
         assert not agent.is_full_five_layer_mode
-        assert agent.is_simple_mode  # No planner, no tools
 
     def test_init_with_context(self) -> None:
         """Agent can use a provided context."""
         model = MockModelAdapter()
         context = Context(id="custom-context", budget=Budget(max_tokens=1000), config=Config())
-        agent = DareAgent(name="test-agent", model=model, context=context)
+        agent = _make_agent(name="test-agent", model=model, context=context)
 
         assert agent.context.id == "custom-context"
 
@@ -174,7 +180,7 @@ class TestDareAgentInit:
         """Providing a planner enables full five-layer mode."""
         model = MockModelAdapter()
         planner = MockPlanner()
-        agent = DareAgent(name="test-agent", model=model, planner=planner)
+        agent = _make_agent(name="test-agent", model=model, planner=planner)
 
         assert agent.is_full_five_layer_mode
 
@@ -186,7 +192,7 @@ class TestDareAgentInit:
         tool_gateway = MockToolGateway()
         event_log = MockEventLog()
 
-        agent = DareAgent(
+        agent = _make_agent(
             name="full-agent",
             model=model,
             planner=planner,
@@ -206,14 +212,13 @@ class TestDareAgentInit:
         from dare_framework.agent.interfaces import IAgentOrchestration
 
         model = MockModelAdapter()
-        agent = DareAgent(name="test-agent", model=model)
+        agent = _make_agent(name="test-agent", model=model)
 
-        # Verify run_task method exists with correct signature
-        assert hasattr(agent, "run_task")
-        assert callable(agent.run_task)
+        # Verify execute method exists on orchestration contract.
+        assert hasattr(agent, "execute")
+        assert callable(agent.execute)
 
-        # Verify it's structurally compatible with IAgentOrchestration
-        # (Python's Protocol uses structural subtyping)
+        # Verify it's compatible with IAgentOrchestration (ABC inheritance).
         assert isinstance(agent, IAgentOrchestration)
 
 
@@ -231,9 +236,9 @@ class TestDareAgentExecution:
         model = MockModelAdapter([
             ModelResponse(content="The answer is 42.", tool_calls=[])
         ])
-        agent = DareAgent(name="test-agent", model=model)
+        agent = _make_agent(name="test-agent", model=model)
 
-        result = await agent.run("What is the answer?")
+        result = await agent("What is the answer?")
 
         # Result contains the model response content
         assert "The answer is 42." in str(result)
@@ -246,9 +251,9 @@ class TestDareAgentExecution:
         model = MockModelAdapter([
             ModelResponse(content=serialized, tool_calls=[])
         ])
-        agent = DareAgent(name="test-agent", model=model)
+        agent = _make_agent(name="test-agent", model=model)
 
-        result = await agent.run("Generate python file")
+        result = await agent("Generate python file")
 
         assert isinstance(result.output, dict)
         assert result.output.get("content") == serialized
@@ -261,15 +266,14 @@ class TestDareAgentExecution:
         """Events are logged when event_log is provided."""
         model = MockModelAdapter()
         event_log = MockEventLog()
-        agent = DareAgent(name="test-agent", model=model, event_log=event_log)
+        agent = _make_agent(name="test-agent", model=model, event_log=event_log)
 
-        await agent.run("Test task")
+        await agent("Test task")
 
-        # Without planner or tools, runs in simple mode
-        # Should have simple.start, simple.complete
+        # Runs through session loop even without planner/tools.
         event_types = [e[0] for e in event_log.events]
-        assert "simple.start" in event_types
-        assert "simple.complete" in event_types
+        assert "session.start" in event_types
+        assert "session.complete" in event_types
 
     @pytest.mark.asyncio
     async def test_budget_check_called(self) -> None:
@@ -288,40 +292,58 @@ class TestDareAgentExecution:
             metadata={},
         ))
 
-        agent = DareAgent(name="test-agent", model=model, context=context)
-        await agent.run("Test task")
+        agent = _make_agent(name="test-agent", model=model, context=context)
+        await agent("Test task")
 
         # Budget check should be called multiple times
         assert context.budget_check.call_count >= 1
 
+    @pytest.mark.asyncio
+    async def test_no_planner_session_path_does_not_write_debug_output_to_stdout(self, capsys) -> None:
+        """No-planner session path should avoid unconditional debug stdout output."""
+        model = MockModelAdapter([ModelResponse(content="ok", tool_calls=[])])
+        agent = _make_agent(name="test-agent", model=model)
+
+        await agent("quiet task")
+
+        captured = capsys.readouterr()
+        assert "[DEBUG]" not in captured.out
+        assert "--- [0] user ---" not in captured.out
+
 
 # =============================================================================
-# Tests: ReAct Mode (No Planner)
+# Tests: No Planner With Tools
 # =============================================================================
 
 
-class TestReActMode:
-    """Tests for ReAct mode (no planner)."""
+class TestNoPlannerToolExecution:
+    """Tests for no-planner execution path with tools."""
 
     @pytest.mark.asyncio
-    async def test_react_mode_skips_plan_loop(self) -> None:
-        """Without planner but with tools, runs in ReAct mode."""
+    async def test_no_planner_executes_without_plan_loop(self) -> None:
+        """Without planner but with tools, execution still succeeds."""
         model = MockModelAdapter()
-        tool_gateway = MockToolGateway()
-        agent = DareAgent(name="react-agent", model=model, tool_gateway=tool_gateway)
+        tool_gateway = MockToolGateway(
+            [
+                CapabilityDescriptor(
+                    id="read_file",
+                    type=CapabilityType.TOOL,
+                    name="read_file",
+                    description="Read file content.",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
+        agent = _make_agent(name="react-agent", model=model, tool_gateway=tool_gateway)
 
-        # Should be in react mode
-        assert agent.is_react_mode
         assert not agent.is_full_five_layer_mode
-        assert not agent.is_simple_mode
 
-        # Should not raise, just execute in ReAct mode
-        result = await agent.run("Do something")
+        result = await agent("Do something")
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_react_mode_with_tool_calls(self) -> None:
-        """ReAct mode handles tool calls."""
+    async def test_no_planner_with_tool_calls(self) -> None:
+        """No-planner path handles tool calls."""
         model = MockModelAdapter([
             ModelResponse(
                 content="Let me check...",
@@ -329,14 +351,24 @@ class TestReActMode:
             ),
             ModelResponse(content="Done!", tool_calls=[]),
         ])
-        tool_gateway = MockToolGateway()
-        agent = DareAgent(
+        tool_gateway = MockToolGateway(
+            [
+                CapabilityDescriptor(
+                    id="read_file",
+                    type=CapabilityType.TOOL,
+                    name="read_file",
+                    description="Read file content.",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
+        agent = _make_agent(
             name="react-agent",
             model=model,
             tool_gateway=tool_gateway,
         )
 
-        result = await agent.run("Read a file")
+        result = await agent("Read a file")
 
         assert len(tool_gateway.invoke_calls) == 1
         assert tool_gateway.invoke_calls[0][0] == "read_file"
@@ -345,7 +377,7 @@ class TestReActMode:
         assert any(msg.role == "tool" for msg in messages)
 
     @pytest.mark.asyncio
-    async def test_react_mode_requires_approval_then_reuses_workspace_rule(self, tmp_path) -> None:
+    async def test_no_planner_requires_approval_then_reuses_workspace_rule(self, tmp_path) -> None:
         capability = CapabilityDescriptor(
             id="run_command",
             type=CapabilityType.TOOL,
@@ -369,14 +401,14 @@ class TestReActMode:
                 ModelResponse(content="Done.", tool_calls=[]),
             ]
         )
-        first_agent = DareAgent(
+        first_agent = _make_agent(
             name="react-agent-approval",
             model=first_model,
             tool_gateway=tool_gateway,
             approval_manager=approval_manager,
         )
 
-        first_run = asyncio.create_task(first_agent.run("Run git status"))
+        first_run = asyncio.create_task(first_agent("Run git status"))
         pending = []
         for _ in range(100):
             pending = approval_manager.list_pending()
@@ -406,14 +438,14 @@ class TestReActMode:
                 ModelResponse(content="Done again.", tool_calls=[]),
             ]
         )
-        second_agent = DareAgent(
+        second_agent = _make_agent(
             name="react-agent-approval-second",
             model=second_model,
             tool_gateway=tool_gateway,
             approval_manager=approval_manager,
         )
 
-        second_result = await second_agent.run("Run git status again")
+        second_result = await second_agent("Run git status again")
         assert second_result.success is True
         assert len(tool_gateway.invoke_calls) == 2
         assert approval_manager.list_pending() == []
@@ -433,14 +465,14 @@ class TestFiveLayerMode:
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
-        agent = DareAgent(
+        agent = _make_agent(
             name="five-layer-agent",
             model=model,
             planner=planner,
             validator=validator,
         )
 
-        await agent.run("Create a plan")
+        await agent("Create a plan")
 
         assert len(planner.plan_calls) >= 1
         assert len(validator.validate_calls) >= 1
@@ -451,14 +483,14 @@ class TestFiveLayerMode:
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
-        agent = DareAgent(
+        agent = _make_agent(
             name="five-layer-agent",
             model=model,
             planner=planner,
             validator=validator,
         )
 
-        await agent.run("Complete a milestone")
+        await agent("Complete a milestone")
 
         assert len(validator.verify_calls) >= 1
 
@@ -485,7 +517,7 @@ class TestFiveLayerMode:
         planner = MockPlanner()
         validator = MockValidator()
         tool_gateway = MockToolGateway([plan_tool])
-        agent = DareAgent(
+        agent = _make_agent(
             name="five-layer-agent",
             model=model,
             planner=planner,
@@ -493,7 +525,7 @@ class TestFiveLayerMode:
             tool_gateway=tool_gateway,
         )
 
-        result = await agent.run("Handle plan tool")
+        result = await agent("Handle plan tool")
 
         assert result.success is True
         state = agent._session_state.current_milestone_state
@@ -506,14 +538,14 @@ class TestFiveLayerMode:
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
-        agent = DareAgent(
+        agent = _make_agent(
             name="five-layer-agent",
             model=model,
             planner=planner,
             validator=validator,
         )
 
-        result = await agent.run("Summarize this run")
+        result = await agent("Summarize this run")
 
         assert result.success is True
         assert result.errors == []
@@ -525,7 +557,7 @@ class TestFiveLayerMode:
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
-        agent = DareAgent(
+        agent = _make_agent(
             name="five-layer-agent",
             model=model,
             planner=planner,
@@ -545,7 +577,7 @@ class TestFiveLayerMode:
             metadata={},
         )
 
-        await agent.run(
+        await agent(
             Task(
                 description="Follow-up task",
                 previous_session_summary=previous_summary,
@@ -563,7 +595,7 @@ class TestFiveLayerMode:
         planner = MockPlanner()
         validator = MockValidator()
         event_log = MockEventLog()
-        agent = DareAgent(
+        agent = _make_agent(
             name="five-layer-agent",
             model=model,
             planner=planner,
@@ -571,12 +603,33 @@ class TestFiveLayerMode:
             event_log=event_log,
         )
 
-        await agent.run("Task with config")
+        await agent("Task with config")
 
         session_start = [e for e in event_log.events if e[0] == "session.start"]
         assert session_start
         assert session_start[0][1].get("task_id")
         assert session_start[0][1].get("run_id")
+
+    @pytest.mark.asyncio
+    async def test_milestone_attempt_count_is_persisted_on_state(self) -> None:
+        """MilestoneState.attempts should reflect actual retry count."""
+        model = MockModelAdapter([ModelResponse(content="still failing", tool_calls=[])])
+        planner = MockPlanner()
+        validator = MockValidator(verify_success=False)
+        agent = _make_agent(
+            name="five-layer-agent",
+            model=model,
+            planner=planner,
+            validator=validator,
+            max_milestone_attempts=2,
+        )
+
+        result = await agent("Task that fails verification")
+
+        assert result.success is False
+        state = agent._session_state.current_milestone_state
+        assert state is not None
+        assert state.attempts == 2
 
 
 if __name__ == "__main__":

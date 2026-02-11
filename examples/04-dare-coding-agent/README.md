@@ -24,7 +24,7 @@ python main.py
 
 交互命令：
 - `/mode plan`：计划预览模式（先生成计划，等待 /approve 执行）
-- `/mode execute`：直接执行模式（ReAct）
+- `/mode execute`：直接执行模式（跳过 CLI 计划预览，直接调用 DareAgent）
 - `/approve`：执行当前待审批计划
 - `/reject`：取消当前计划
 - `/status`：查看状态

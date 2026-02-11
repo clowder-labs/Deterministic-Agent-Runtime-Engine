@@ -334,12 +334,12 @@ flowchart LR
 
 ### 5.1 agent
 详细设计：`docs/design/modules/agent/README.md`。
-- **职责**：运行入口与编排策略（五层循环 + 降级模式）。
+- **职责**：运行入口与编排策略（Simple/React/Five-layer）。
 - **关键类型**：`Task` / `Milestone` / `RunResult` / `SessionState`。
 - **核心接口**：`IAgent`、`IAgentOrchestration`（`dare_framework/agent/kernel.py`, `interfaces.py`）。
 - **默认实现**：`DareAgent`、`ReactAgent`、`SimpleChatAgent`（`dare_framework/agent/dare_agent.py`, `react_agent.py`, `simple_chat.py`）。
-- **文档结构**：按 Agent 类型拆分设计文档，且 DareAgent 的 Session/Milestone 设计独立成文档。
-  参考：`docs/design/modules/agent/DareAgent.md`, `docs/design/modules/agent/DareAgent_Session.md`, `docs/design/modules/agent/DareAgent_Milestone.md`, `docs/design/modules/agent/ReactAgent.md`, `docs/design/modules/agent/SimpleChatAgent.md`。
+- **文档结构**：每个 agent 一份详细设计 + 单一 TODO 清单。
+  参考：`docs/design/modules/agent/DareAgent_Detailed.md`, `docs/design/modules/agent/ReactAgent_Detailed.md`, `docs/design/modules/agent/SimpleChatAgent_Detailed.md`, `docs/design/modules/agent/TODO.md`。
 - **扩展点**：自定义编排策略、执行控制（HITL）、Hook/Telemetry。
 - **现状限制**：ValidatedPlan.steps 未驱动执行；Hook payload schema 仍在收敛；SecurityBoundary 未接入。
 

@@ -60,10 +60,11 @@ class ListProvider:
 async def test_agent_builder_minimal_build() -> None:
     agent = await BaseAgent.simple_chat_agent_builder("test-agent").with_model(DummyModelAdapter()).build()
 
-    result = await agent.run("hello")
+    result = await agent("hello")
 
     assert result.success is True
     assert result.output == "ok"
+    assert result.output_text == "ok"
 
 
 @pytest.mark.asyncio

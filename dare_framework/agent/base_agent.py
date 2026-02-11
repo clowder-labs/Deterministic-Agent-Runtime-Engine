@@ -5,9 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 import contextlib
+from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING, Any
 
+from dare_framework.agent._internal.output_normalizer import normalize_run_output
+from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.agent.kernel import IAgent
 from dare_framework.agent.status import AgentStatus
 from dare_framework.plan.types import RunResult, Task
@@ -19,7 +22,7 @@ if TYPE_CHECKING:
     from dare_framework.transport.kernel import AgentChannel
 
 
-class BaseAgent(IAgent, ABC):
+class BaseAgent(IAgent, IAgentOrchestration, ABC):
     """Abstract base class for all agent implementations.
 
     Provides common interface for agent execution.
@@ -34,7 +37,6 @@ class BaseAgent(IAgent, ABC):
         """
         self._name = name
         self._agent_channel = agent_channel
-        self._active_transport: AgentChannel | None = None
         self._loop_task: asyncio.Task[None] | None = None
         self._in_flight_task: asyncio.Task[None] | None = None
         self._started = False
@@ -51,9 +53,18 @@ class BaseAgent(IAgent, ABC):
         """Optional transport channel attached to the agent."""
         return self._agent_channel
 
-    async def __call__(self, message: str | Task, deps: Any | None = None) -> RunResult:
-        """Invoke the agent directly (no transport attached)."""
-        return await self.run(message, deps=deps, transport=None)
+    async def __call__(
+        self,
+        message: str | Task,
+        deps: Any | None = None,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> RunResult:
+        """Invoke the agent directly."""
+        _ = deps
+        resolved_transport = transport if transport is not None else _NO_OP_AGENT_CHANNEL
+        execute_output = await self.execute(message, transport=resolved_transport)
+        return self._to_run_result(execute_output)
 
     async def start(self) -> None:
         """Start agent components and spawn the transport loop."""
@@ -133,38 +144,25 @@ class BaseAgent(IAgent, ABC):
         channel = self._agent_channel
         if channel is None:
             raise RuntimeError("Agent has no transport channel configured")
-
-        poll_task: asyncio.Task[TransportEnvelope] = asyncio.create_task(channel.poll())
         try:
             while self._status == AgentStatus.RUNNING:
-                wait_set: set[asyncio.Task[Any]] = {poll_task}
-                if self._in_flight_task is not None:
-                    wait_set.add(self._in_flight_task)
-                done, _pending = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    polled = await channel.poll()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self._logger.exception("agent channel poll failed")
+                    break
 
-                completed_in_flight = self._in_flight_task if self._in_flight_task in done else None
-                if completed_in_flight is not None:
-                    try:
-                        await completed_in_flight
-                    except asyncio.CancelledError:
-                        # Cancelled (typically via interrupt) is expected.
-                        pass
-                    except Exception:
-                        self._logger.exception("agent interaction handler failed")
-                    finally:
-                        if self._in_flight_task is completed_in_flight:
-                            self._in_flight_task = None
+                try:
+                    envelopes = _coerce_polled_envelopes(polled)
+                except Exception:
+                    self._logger.exception("agent channel poll returned invalid envelope payload")
+                    continue
 
-                if poll_task in done:
-                    try:
-                        envelope = poll_task.result()
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        self._logger.exception("agent channel poll failed")
+                for envelope in envelopes:
+                    if self._status != AgentStatus.RUNNING:
                         break
-                    poll_task = asyncio.create_task(channel.poll())
-
                     if envelope.kind != EnvelopeKind.MESSAGE:
                         await _send_transport_error(
                             channel=channel,
@@ -174,7 +172,6 @@ class BaseAgent(IAgent, ABC):
                             reason=f"unsupported envelope kind for agent queue: {envelope.kind.value!r}",
                         )
                         continue
-
                     if self._in_flight_task is not None and not self._in_flight_task.done():
                         await _send_transport_error(
                             channel=channel,
@@ -185,14 +182,19 @@ class BaseAgent(IAgent, ABC):
                         )
                         continue
 
-                    # Channel handles ACTION/CONTROL and only MESSAGE reaches this queue.
                     self._in_flight_task = asyncio.create_task(
-                        _dispatch_message(self, channel, envelope),
+                        self._execute_polled_message(envelope.payload, channel=channel),
                     )
+                    try:
+                        await self._in_flight_task
+                    except asyncio.CancelledError:
+                        # Cancelled (typically via interrupt) is expected.
+                        pass
+                    except Exception:
+                        self._logger.exception("agent interaction handler failed")
+                    finally:
+                        self._in_flight_task = None
         finally:
-            poll_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await poll_task
             self._loop_task = None
 
     async def _start_components(self) -> None:
@@ -201,43 +203,43 @@ class BaseAgent(IAgent, ABC):
     async def _stop_components(self) -> None:
         """Hook for subclasses to stop internal components."""
 
-    async def run(
-        self,
-        task: str | Task,
-        deps: Any | None = None,
-        *,
-        transport: AgentChannel | None = None,
-    ) -> RunResult:
-        """Run a task and return a structured RunResult.
+    async def _execute_polled_message(self, task: str, *, channel: AgentChannel) -> None:
+        """Execute one polled message and send response envelope through channel."""
+        execute_output = await self.execute(task, transport=channel)
+        result = self._to_run_result(execute_output)
+        await self._send_transport_result(result, task=task, transport=channel)
 
-        Args:
-            task: Task description or Task object.
-            deps: Optional dependencies (currently unused).
-            transport: Optional transport for streaming outputs.
-
-        Returns:
-            RunResult with output content.
-        """
-        task_description = task.description if isinstance(task, Task) else task
-        previous = self._active_transport
-        self._active_transport = transport
-        try:
-            output = await self._execute(task_description)
-            result = RunResult(success=True, output=output)
-            await self._send_transport_result(result, task=task_description, transport=transport)
+    def _with_normalized_output_text(self, result: RunResult) -> RunResult:
+        """Ensure RunResult.output_text is filled for downstream consumers."""
+        if result.output_text is not None:
             return result
-        finally:
-            self._active_transport = previous
+        return replace(result, output_text=normalize_run_output(result.output))
+
+    def _to_run_result(self, execute_output: Any) -> RunResult:
+        """Normalize _execute return value to RunResult."""
+        if isinstance(execute_output, RunResult):
+            return self._with_normalized_output_text(execute_output)
+        return RunResult(
+            success=True,
+            output=execute_output,
+            output_text=normalize_run_output(execute_output),
+        )
 
     @abstractmethod
-    async def _execute(self, task: str) -> str:
+    async def execute(
+        self,
+        task: str | Task,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> Any:
         """Execute task - must be implemented by subclasses.
 
         Args:
             task: Task description to execute.
+            transport: Transport channel bound to this execution.
 
         Returns:
-            Model response as string.
+            Execution output or RunResult.
         """
         ...
 
@@ -296,28 +298,51 @@ class BaseAgent(IAgent, ABC):
 
         return DareAgentBuilder(name)
 
-
 __all__ = ["BaseAgent"]
 
 
-async def _dispatch_message(agent: BaseAgent, channel: AgentChannel, envelope: TransportEnvelope) -> None:
-    payload = envelope.payload
-    if not _is_prompt_payload(payload):
-        await _send_transport_error(
-            channel=channel,
-            envelope_id=envelope.id,
-            target="prompt",
-            code="INVALID_MESSAGE_PAYLOAD",
-            reason="invalid message payload (expected string prompt or Task)",
-        )
-        return
-    await agent.run(payload, transport=channel)
+class _NoOpAgentChannel:
+    """AgentChannel no-op implementation for direct execution path."""
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def poll(self) -> TransportEnvelope:
+        raise RuntimeError("NoOpAgentChannel does not support polling")
+
+    async def send(self, msg: TransportEnvelope) -> None:
+        _ = msg
+
+    def add_action_handler_dispatcher(self, dispatcher: Any) -> None:
+        _ = dispatcher
+
+    def add_agent_control_handler(self, handler: Any) -> None:
+        _ = handler
+
+    def get_action_handler_dispatcher(self) -> None:
+        return None
+
+    def get_agent_control_handler(self) -> None:
+        return None
 
 
-def _is_prompt_payload(payload: Any) -> bool:
-    if isinstance(payload, str):
-        return True
-    return hasattr(payload, "description") and payload.__class__.__name__ == "Task"
+_NO_OP_AGENT_CHANNEL = _NoOpAgentChannel()
+
+
+def _coerce_polled_envelopes(polled: Any) -> list[TransportEnvelope]:
+    if isinstance(polled, TransportEnvelope):
+        return [polled]
+    if isinstance(polled, list):
+        envelopes: list[TransportEnvelope] = []
+        for envelope in polled:
+            if not isinstance(envelope, TransportEnvelope):
+                raise TypeError(f"invalid envelope type in batch poll: {type(envelope).__name__}")
+            envelopes.append(envelope)
+        return envelopes
+    raise TypeError(f"invalid poll return type: {type(polled).__name__}")
 
 
 async def _send_transport_error(

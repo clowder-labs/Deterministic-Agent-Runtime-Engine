@@ -6,25 +6,27 @@ contracts (e.g., orchestration strategies).
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TYPE_CHECKING, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import Any, TYPE_CHECKING
 
-from dare_framework.plan.types import RunResult, Task
+from dare_framework.plan.types import Task
 
 if TYPE_CHECKING:
     from dare_framework.transport.kernel import AgentChannel
 
 
-@runtime_checkable
-class IAgentOrchestration(Protocol):
+class IAgentOrchestration(ABC):
     """A pluggable orchestration strategy (five-layer loop is only one option)."""
 
-    async def run_task(
+    @abstractmethod
+    async def execute(
         self,
-        task: Task,
-        deps: Any | None = None,
+        task: str | Task,
         *,
         transport: AgentChannel | None = None,
-    ) -> RunResult: ...
+    ) -> Any:
+        """Execute one orchestration task."""
+        raise NotImplementedError
 
 
 __all__ = ["IAgentOrchestration"]

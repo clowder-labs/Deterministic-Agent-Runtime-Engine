@@ -34,8 +34,8 @@ class AgentChannel(Protocol):
     async def stop(self) -> None:
         """Stop the channel pump and drop pending outgoing messages."""
 
-    async def poll(self) -> TransportEnvelope:
-        """Poll the next incoming envelope from the client."""
+    async def poll(self) -> TransportEnvelope | list[TransportEnvelope]:
+        """Poll the next incoming envelope(s) from the client."""
 
     async def send(self, msg: TransportEnvelope) -> None:
         """Send an outgoing envelope to the client (may apply backpressure)."""

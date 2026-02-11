@@ -64,7 +64,7 @@ MCP server 定义在 `.dare/mcp/local_math.json`：
 ## CLI 命令
 
 - `/mode plan`：计划预览模式（先生成计划，等待 `/approve`）
-- `/mode execute`：直接执行模式
+- `/mode execute`：直接执行模式（跳过 CLI 计划预览，直接调用 DareAgent）
 - `/approve`：执行待审批计划
 - `/reject`：取消待审批计划
 - `/status`：查看当前状态

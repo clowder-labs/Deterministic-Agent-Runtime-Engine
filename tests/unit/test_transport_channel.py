@@ -265,6 +265,42 @@ async def test_invalid_control_payload_returns_structured_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_invalid_message_payload_returns_structured_error_and_is_not_enqueued() -> None:
+    seen: list[TransportEnvelope] = []
+    sent = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+        sent.set()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client)
+    await channel.start()
+    try:
+        sender = client.sender
+        assert sender is not None
+        await sender(
+            TransportEnvelope(
+                id="req-message-invalid",
+                kind=EnvelopeKind.MESSAGE,
+                payload={"invalid": "payload"},
+            )
+        )
+        await asyncio.wait_for(sent.wait(), timeout=1.0)
+    finally:
+        await channel.stop()
+
+    assert len(seen) == 1
+    payload = seen[0].payload
+    assert isinstance(payload, dict)
+    assert payload.get("type") == "error"
+    assert payload.get("kind") == "message"
+    assert payload.get("ok") is False
+    assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
+    assert isinstance(payload.get("reason"), str)
+
+
+@pytest.mark.asyncio
 async def test_action_timeout_returns_structured_error_and_channel_keeps_processing() -> None:
     seen: list[TransportEnvelope] = []
     sent = asyncio.Event()

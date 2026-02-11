@@ -72,7 +72,7 @@ class DefaultAgentChannel(AgentChannel):
         self._started = False
         self._drain_outbox()
 
-    async def poll(self) -> TransportEnvelope:
+    async def poll(self) -> TransportEnvelope | list[TransportEnvelope]:
         return await self._inbox.get()
 
     async def send(self, msg: TransportEnvelope) -> None:
@@ -100,6 +100,15 @@ class DefaultAgentChannel(AgentChannel):
 
     async def _enqueue_inbox(self, msg: TransportEnvelope) -> None:
         if msg.kind == EnvelopeKind.MESSAGE:
+            if not isinstance(msg.payload, str):
+                await self._send_error(
+                    reply_to=msg.id,
+                    kind="message",
+                    target="prompt",
+                    code="INVALID_MESSAGE_PAYLOAD",
+                    reason="invalid message payload (expected string)",
+                )
+                return
             await self._inbox.put(msg)
             return
 
@@ -189,7 +198,7 @@ class DefaultAgentChannel(AgentChannel):
             return
 
         try:
-            result = self._control_handler.invoke(control, dict(msg.meta))
+            result = self._control_handler.invoke(control, **dict(msg.meta))
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:
