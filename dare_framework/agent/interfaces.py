@@ -7,9 +7,9 @@ contracts (e.g., orchestration strategies).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from dare_framework.plan.types import Task
+from dare_framework.plan.types import RunResult, Task
 
 if TYPE_CHECKING:
     from dare_framework.transport.kernel import AgentChannel
@@ -24,7 +24,7 @@ class IAgentOrchestration(ABC):
         task: str | Task,
         *,
         transport: AgentChannel | None = None,
-    ) -> Any:
+    ) -> RunResult:
         """Execute one orchestration task."""
         raise NotImplementedError
 

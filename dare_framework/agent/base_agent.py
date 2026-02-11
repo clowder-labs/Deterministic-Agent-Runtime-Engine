@@ -63,8 +63,8 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         """Invoke the agent directly."""
         _ = deps
         resolved_transport = transport if transport is not None else _NO_OP_AGENT_CHANNEL
-        execute_output = await self.execute(message, transport=resolved_transport)
-        return self._to_run_result(execute_output)
+        result = await self.execute(message, transport=resolved_transport)
+        return self._with_normalized_output_text(result)
 
     async def start(self) -> None:
         """Start agent components and spawn the transport loop."""
@@ -214,8 +214,8 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
 
     async def _execute_polled_message(self, task: str, *, channel: AgentChannel) -> None:
         """Execute one polled message and send response envelope through channel."""
-        execute_output = await self.execute(task, transport=channel)
-        result = self._to_run_result(execute_output)
+        result = await self.execute(task, transport=channel)
+        result = self._with_normalized_output_text(result)
         await self._send_transport_result(result, task=task, transport=channel)
 
     def _with_normalized_output_text(self, result: RunResult) -> RunResult:
@@ -224,23 +224,13 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
             return result
         return replace(result, output_text=normalize_run_output(result.output))
 
-    def _to_run_result(self, execute_output: Any) -> RunResult:
-        """Normalize _execute return value to RunResult."""
-        if isinstance(execute_output, RunResult):
-            return self._with_normalized_output_text(execute_output)
-        return RunResult(
-            success=True,
-            output=execute_output,
-            output_text=normalize_run_output(execute_output),
-        )
-
     @abstractmethod
     async def execute(
         self,
         task: str | Task,
         *,
         transport: AgentChannel | None = None,
-    ) -> Any:
+    ) -> RunResult:
         """Execute task - must be implemented by subclasses.
 
         Args:
@@ -248,7 +238,7 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
             transport: Transport channel bound to this execution.
 
         Returns:
-            Execution output or RunResult.
+            Normalized run result.
         """
         ...
 

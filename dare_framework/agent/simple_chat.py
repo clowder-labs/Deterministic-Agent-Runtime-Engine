@@ -9,7 +9,7 @@ from __future__ import annotations
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
-from dare_framework.plan.types import Task
+from dare_framework.plan.types import RunResult, Task
 from dare_framework.tool import IToolGateway
 
 from dare_framework.transport.kernel import AgentChannel
@@ -65,7 +65,7 @@ class SimpleChatAgent(BaseAgent):
         task: str | Task,
         *,
         transport: AgentChannel | None = None,
-    ) -> str:
+    ) -> RunResult:
         """Execute task using simple chat strategy.
 
         Flow:
@@ -79,7 +79,7 @@ class SimpleChatAgent(BaseAgent):
             task: Task description to execute.
 
         Returns:
-            Model response content as string.
+            Normalized run result.
         """
         _ = transport
         task_description = task.description if isinstance(task, Task) else task
@@ -126,8 +126,12 @@ class SimpleChatAgent(BaseAgent):
         # 7. Check budget
         self._context.budget_check()
 
-        # 8. Return model response content directly
-        return response.content
+        # 8. Return model response content
+        return RunResult(
+            success=True,
+            output=response.content,
+            output_text=response.content,
+        )
 
 
 __all__ = ["SimpleChatAgent"]

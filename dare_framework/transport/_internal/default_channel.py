@@ -76,6 +76,15 @@ class DefaultAgentChannel(AgentChannel):
         return await self._inbox.get()
 
     async def send(self, msg: TransportEnvelope) -> None:
+        # Direct-call agent flows may emit hook events before channel.start().
+        # Drop these envelopes instead of blocking on the bounded outbox.
+        if not self._started:
+            _logger.warning(
+                "agent channel not started; dropping outgoing envelope id=%s kind=%s",
+                msg.id,
+                msg.kind.value,
+            )
+            return
         await self._outbox.put(msg)
 
     def add_action_handler_dispatcher(self, dispatcher: ActionHandlerDispatcher) -> None:

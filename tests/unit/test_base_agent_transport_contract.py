@@ -7,6 +7,7 @@ import pytest
 
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent.status import AgentStatus
+from dare_framework.plan.types import RunResult
 from dare_framework.transport import EnvelopeKind, TransportEnvelope
 
 
@@ -16,13 +17,13 @@ class _CaptureAgent(BaseAgent):
         self.seen_transport: Any | None = None
         self.seen_tasks: list[str] = []
 
-    async def execute(self, task: str | Any, *, transport: Any = None) -> str:
+    async def execute(self, task: str | Any, *, transport: Any = None) -> RunResult:
         task_text = task.description if hasattr(task, "description") else str(task)
         self.seen_transport = transport
         self.seen_tasks.append(task_text)
         if len(self.seen_tasks) >= 2:
             self._status = AgentStatus.STOPPED
-        return f"ok:{task_text}"
+        return RunResult(success=True, output=f"ok:{task_text}", output_text=f"ok:{task_text}")
 
 
 class _StopAfterFirstAgent(BaseAgent):
@@ -30,12 +31,12 @@ class _StopAfterFirstAgent(BaseAgent):
         super().__init__(name, agent_channel=agent_channel)
         self.seen_tasks: list[str] = []
 
-    async def execute(self, task: str | Any, *, transport: Any = None) -> str:
+    async def execute(self, task: str | Any, *, transport: Any = None) -> RunResult:
         _ = transport
         task_text = task.description if hasattr(task, "description") else str(task)
         self.seen_tasks.append(task_text)
         self._status = AgentStatus.STOPPED
-        return f"ok:{task_text}"
+        return RunResult(success=True, output=f"ok:{task_text}", output_text=f"ok:{task_text}")
 
 
 class _BatchPollingChannel:

@@ -10,6 +10,7 @@ from dare_framework.config import Config
 from dare_framework.context import Context
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import ToolResult
+from dare_framework.transport import AgentChannel, TransportEnvelope
 
 
 class _Model:
@@ -58,14 +59,16 @@ class _RecordingChannel:
         return None
 
 
-class _NotStartedChannel(_RecordingChannel):
-    def __init__(self) -> None:
-        super().__init__()
-        self._started = False
+class _ClientChannel:
+    def __init__(self, receiver: Any) -> None:
+        self._receiver = receiver
+        self.sender: Any = None
 
-    async def send(self, msg: Any) -> None:
-        _ = msg
-        raise AssertionError("send should not be called while channel is not started")
+    def attach_agent_envelope_sender(self, sender: Any) -> None:
+        self.sender = sender
+
+    def agent_envelope_receiver(self) -> Any:
+        return self._receiver
 
 
 @pytest.mark.asyncio
@@ -108,8 +111,13 @@ async def test_dare_builder_registers_agent_event_transport_hook_when_channel_pr
 
 
 @pytest.mark.asyncio
-async def test_transport_hook_does_not_send_when_channel_not_started() -> None:
-    channel = _NotStartedChannel()
+async def test_transport_hook_messages_are_dropped_when_default_channel_not_started(caplog) -> None:
+    seen: list[TransportEnvelope] = []
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+
+    channel = AgentChannel.build(_ClientChannel(receiver), max_inbox=1, max_outbox=1)
     builder = BaseAgent.dare_agent_builder("hook-start-guard").with_model(_Model())
 
     agent = builder._build_impl(
@@ -121,7 +129,9 @@ async def test_transport_hook_does_not_send_when_channel_not_started() -> None:
         agent_channel=channel,
     )
 
-    result = await asyncio.wait_for(agent("hello"), timeout=1.0)
+    with caplog.at_level("WARNING", logger="dare.transport"):
+        result = await asyncio.wait_for(agent("hello"), timeout=1.0)
 
     assert result.success is True
-    assert channel.sent == []
+    assert seen == []
+    assert any("dropping outgoing envelope" in record.getMessage() for record in caplog.records)

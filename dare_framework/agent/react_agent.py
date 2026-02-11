@@ -12,6 +12,7 @@ from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import Envelope
+from dare_framework.plan.types import RunResult
 from dare_framework.plan.types import Task
 from dare_framework.tool import IToolGateway, IToolProvider
 from dare_framework.transport.kernel import AgentChannel
@@ -59,7 +60,7 @@ class ReactAgent(BaseAgent):
         task: str | Task,
         *,
         transport: AgentChannel | None = None,
-    ) -> str:
+    ) -> RunResult:
         _ = transport
         task_description = task.description if isinstance(task, Task) else task
         user_message = Message(role="user", content=task_description)
@@ -111,7 +112,11 @@ class ReactAgent(BaseAgent):
             if not response.tool_calls:
                 assistant_message = Message(role="assistant", content=response.content or "")
                 self._context.stm_add(assistant_message)
-                return response.content or ""
+                return RunResult(
+                    success=True,
+                    output=response.content or "",
+                    output_text=response.content or "",
+                )
 
             assistant_msg = Message(
                 role="assistant",
@@ -151,7 +156,12 @@ class ReactAgent(BaseAgent):
                 tool_msg = Message(role="tool", name=tool_call_id or name, content=tool_content)
                 self._context.stm_add(tool_msg)
 
-        return "(Reached max tool rounds without final reply.)"
+        final_message = "(Reached max tool rounds without final reply.)"
+        return RunResult(
+            success=True,
+            output=final_message,
+            output_text=final_message,
+        )
 
 
 __all__ = ["ReactAgent"]

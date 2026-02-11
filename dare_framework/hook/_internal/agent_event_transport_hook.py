@@ -30,10 +30,6 @@ class AgentEventTransportHook(IHook):
 
     async def invoke(self, phase: HookPhase, *args: Any, **kwargs: Any) -> Any:
         _ = args
-        # Avoid blocking direct-call flows when an AgentChannel is attached but not started.
-        # DefaultAgentChannel uses bounded outbox + background pump; before start(), send() may block.
-        if not _channel_started(self._transport):
-            return None
         payload = kwargs.get("payload", {})
         if not isinstance(payload, dict):
             payload = {}
@@ -51,20 +47,6 @@ class AgentEventTransportHook(IHook):
             _logger.exception("agent event transport hook send failed")
             return None
         return None
-
-
-def _channel_started(transport: AgentChannel) -> bool:
-    is_started = getattr(transport, "is_started", None)
-    if callable(is_started):
-        try:
-            return bool(is_started())
-        except Exception:
-            return False
-    started_flag = getattr(transport, "_started", None)
-    if isinstance(started_flag, bool):
-        return started_flag
-    # Unknown transport implementation: preserve prior behavior.
-    return True
 
 
 __all__ = ["AgentEventTransportHook"]
