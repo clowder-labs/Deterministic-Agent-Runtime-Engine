@@ -24,7 +24,7 @@ python main.py
 
 交互命令：
 - `/mode plan`：计划预览模式（先生成计划，等待 /approve 执行）
-- `/mode execute`：直接执行模式（ReAct）
+- `/mode execute`：直接执行模式（跳过 CLI 计划预览，直接调用 DareAgent）
 - `/approve`：执行当前待审批计划
 - `/reject`：取消当前计划
 - `/status`：查看状态
@@ -96,7 +96,7 @@ agent = (
 
 - 相对 04，新增 Knowledge（rawdata + 内存存储）与 MCP 工具接入
 - 支持 Skill 动态挂载（Builder / Config / 运行时）
-- 继承 04 的五层循环与计划/执行模式
+- 继承 04 的五层循环与计划预览/直接执行两种 CLI 交互模式
 
 **架构（五层循环）**
 

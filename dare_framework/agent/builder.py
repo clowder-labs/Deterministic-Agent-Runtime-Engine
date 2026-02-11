@@ -32,6 +32,7 @@ from dare_framework.context import Budget, Context, IAssembleContext
 from dare_framework.event.kernel import IEventLog
 from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IHook
+from dare_framework.hook._internal.agent_event_transport_hook import AgentEventTransportHook
 from dare_framework.knowledge import IKnowledge, create_knowledge
 from dare_framework.knowledge._internal.knowledge_tools import (
     KnowledgeAddTool,
@@ -511,11 +512,12 @@ class SimpleChatAgentBuilder(_BaseAgentBuilder[SimpleChatAgent]):
             approval_manager: ToolApprovalManager,
             agent_channel: AgentChannel | None,
     ) -> SimpleChatAgent:
-        _ = (config, tool_gateway, approval_manager)
+        _ = (config, approval_manager)
         return SimpleChatAgent(
             name=self._name,
             model=model,
             context=context,
+            tool_gateway=tool_gateway,
             agent_channel=agent_channel,
         )
 
@@ -551,6 +553,7 @@ class ReactAgentBuilder(_BaseAgentBuilder[ReactAgent]):
             name=self._name,
             model=model,
             context=context,
+            tool_gateway=tool_gateway,
             plan_provider=self._plan_provider,
             agent_channel=agent_channel,
             max_tool_rounds=self._max_tool_rounds,
@@ -653,6 +656,11 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             )
 
         hooks = resolved_hooks or None
+        if agent_channel is not None:
+            if hooks is None:
+                hooks = []
+            if not any(hook.name == "agent_event_transport" for hook in hooks):
+                hooks.append(AgentEventTransportHook(agent_channel))
 
         telemetry = self._telemetry
         return DareAgent(

@@ -173,7 +173,7 @@ async def test_simple_chat_builder_resolves_model_via_manager() -> None:
         .build()
     )
 
-    result = await agent.run("hello")
+    result = await agent("hello")
     assert result.output == "from-manager"
 
 
@@ -188,7 +188,7 @@ async def test_simple_chat_builder_explicit_model_overrides_manager() -> None:
         .build()
     )
 
-    result = await agent.run("hello")
+    result = await agent("hello")
     assert result.output == "explicit"
 
 

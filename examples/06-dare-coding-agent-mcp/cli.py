@@ -173,7 +173,7 @@ class CLIDisplay:
 
     def show_tool_lists(self, agent: Any) -> None:
         """Print MCP tool list and local tool list."""
-        gateway = getattr(getattr(agent, "context", None), "_tool_gateway", None)
+        gateway = getattr(getattr(agent, "context", None), "tool_gateway", None)
         if gateway is None:
             self.info("tools: (none)")
             return
@@ -372,7 +372,7 @@ def _network_error_hint(exc: Exception) -> str | None:
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
     try:
-        result = await agent.run(Task(description=task_text))
+        result = await agent(Task(description=task_text))
     except Exception as exc:
         display.error(f"execution error: {exc}")
         hint = _network_error_hint(exc)
@@ -394,7 +394,7 @@ async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
 
 def _resolve_tool_manager(agent: Any) -> ToolManager | None:
     context = getattr(agent, "context", None)
-    gateway = getattr(context, "_tool_gateway", None)
+    gateway = getattr(context, "tool_gateway", None)
     if isinstance(gateway, ToolManager):
         return gateway
     return None

@@ -22,7 +22,7 @@ agent = (
     .with_model(model_adapter)
     .build()
 )
-result = await agent.run("Hello!")
+result = await agent("Hello!")
 ```
 
 ## 进阶点

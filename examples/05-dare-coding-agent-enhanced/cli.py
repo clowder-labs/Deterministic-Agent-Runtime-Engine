@@ -152,7 +152,7 @@ class CLIDisplay:
 
     def show_tool_lists(self, agent: Any) -> None:
         """打印 MCP 工具列表与本地工具列表。"""
-        gateway = getattr(getattr(agent, "context", None), "_tool_gateway", None)
+        gateway = getattr(getattr(agent, "context", None), "tool_gateway", None)
         if gateway is None:
             self.info("tools: (none)")
             return
@@ -335,7 +335,7 @@ def _format_result_output(output: Any) -> str | None:
 
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
-    result = await agent.run(Task(description=task_text))
+    result = await agent(Task(description=task_text))
     if result.success:
         display.ok("task completed")
         # Show model reply when no tool calls (e.g. 运势、问答类)
@@ -352,7 +352,7 @@ async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
 
 def _resolve_tool_manager(agent: Any) -> ToolManager | None:
     context = getattr(agent, "context", None)
-    gateway = getattr(context, "_tool_gateway", None)
+    gateway = getattr(context, "tool_gateway", None)
     if isinstance(gateway, ToolManager):
         return gateway
     return None

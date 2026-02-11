@@ -87,6 +87,10 @@ class Context(IContext):
         return self._config
 
     @property
+    def tool_gateway(self) -> IToolGateway | None:
+        return self._tool_gateway
+
+    @property
     def sys_prompt(self) -> Prompt | None:
         return self._sys_prompt
 
@@ -156,6 +160,9 @@ class Context(IContext):
         return float("inf")
 
     # ========== Tool Methods ==========
+
+    def set_tool_gateway(self, tool_gateway: IToolGateway | None) -> None:
+        self._tool_gateway = tool_gateway
 
     def list_tools(self) -> list[CapabilityDescriptor]:
         """Get tool list from a ToolManager or provider."""

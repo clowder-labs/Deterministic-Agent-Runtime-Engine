@@ -76,3 +76,13 @@ def test_context_list_tools_returns_capability_descriptors_from_tool_manager():
     assert len(tools) == 1
     assert tools[0].id == "noop"
     assert tools[0].name == "noop"
+
+
+def test_context_exposes_public_tool_gateway_accessor_and_setter():
+    manager = ToolManager(load_entrypoints=False)
+    ctx = Context(config=Config())
+
+    assert ctx.tool_gateway is None
+
+    ctx.set_tool_gateway(manager)
+    assert ctx.tool_gateway is manager

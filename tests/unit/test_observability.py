@@ -8,10 +8,13 @@ from typing import Any, Generator
 import pytest
 
 from dare_framework.agent import DareAgent
+from dare_framework.config import Config
+from dare_framework.context import Context
 from dare_framework.observability._internal.tracing_hook import ObservabilityHook
 from dare_framework.observability.kernel import ITelemetryProvider
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput, ModelResponse
+from dare_framework.tool.types import ToolResult
 
 
 class MockModelAdapter:
@@ -30,6 +33,21 @@ class MockPlanner:
 
         return ProposedPlan(plan_description="plan", steps=[], attempt=1)
 
+    async def decompose(self, task: Any, ctx: Any) -> Any:
+        _ = ctx
+        from dare_framework.plan.types import DecompositionResult, Milestone
+
+        return DecompositionResult(
+            milestones=[
+                Milestone(
+                    milestone_id=f"{getattr(task, 'task_id', 'task')}_m1",
+                    description=getattr(task, "description", "task"),
+                    user_input=getattr(task, "description", "task"),
+                )
+            ],
+            reasoning="mock decomposition",
+        )
+
 
 class MockValidator:
     async def validate_plan(self, plan: Any, ctx: Any) -> Any:
@@ -41,6 +59,15 @@ class MockValidator:
         from dare_framework.plan.types import VerifyResult
 
         return VerifyResult(success=True, errors=[])
+
+
+class NoopToolGateway:
+    def list_capabilities(self) -> list[Any]:
+        return []
+
+    async def invoke(self, capability_id: str, *, envelope: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = (capability_id, envelope, params)
+        return ToolResult(success=False, output={}, error="unexpected invoke")
 
 
 class RecordingSpan:
@@ -115,13 +142,15 @@ async def test_telemetry_span_structure_for_five_layer_run() -> None:
     agent = DareAgent(
         name="telemetry-agent",
         model=model,
+        context=Context(config=Config()),
+        tool_gateway=NoopToolGateway(),
         planner=MockPlanner(),
         validator=MockValidator(),
         telemetry=provider,
         hooks=[hook],
     )
 
-    await agent.run("test task")
+    await agent("test task")
 
     span_names = [span.name for span in provider.spans]
     assert "dare.session" in span_names
@@ -144,11 +173,13 @@ async def test_metrics_emitted_for_context_and_tokens() -> None:
     agent = DareAgent(
         name="metrics-agent",
         model=model,
+        context=Context(config=Config()),
+        tool_gateway=NoopToolGateway(),
         telemetry=provider,
         hooks=[hook],
     )
 
-    await agent.run("metrics task")
+    await agent("metrics task")
 
     metric_names = {metric["name"] for metric in provider.metrics}
     assert "gen_ai.client.token.usage" in metric_names

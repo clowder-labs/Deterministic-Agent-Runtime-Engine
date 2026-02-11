@@ -52,7 +52,7 @@ class RecordActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {ResourceAction.TOOLS_LIST}
 
-    async def invoke(self, action: ResourceAction, _params: dict[str, object]):
+    async def invoke(self, action: ResourceAction, **_params: object):
         self._calls.append(action.value)
         return {"ok": True}
 
@@ -61,22 +61,32 @@ class SlowActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {ResourceAction.TOOLS_LIST}
 
-    async def invoke(self, _action: ResourceAction, _params: dict[str, object]):
+    async def invoke(self, _action: ResourceAction, **_params: object):
         await asyncio.sleep(0.2)
         return {"ok": True}
 
 
 @pytest.mark.asyncio
-async def test_outbox_backpressure_blocks() -> None:
+async def test_outbox_backpressure_blocks_when_receiver_is_slow() -> None:
+    release = asyncio.Event()
+
     async def receiver(msg: TransportEnvelope) -> None:
-        return None
+        _ = msg
+        await release.wait()
 
     client = DummyClientChannel(receiver)
     channel = AgentChannel.build(client, max_outbox=1, max_inbox=1)
-
-    await channel.send(_envelope("one"))
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(channel.send(_envelope("two")), timeout=0.1)
+    await channel.start()
+    try:
+        await channel.send(_envelope("one"))
+        # Yield once so pump can pick the first envelope and block in receiver().
+        await asyncio.sleep(0)
+        await channel.send(_envelope("two"))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(channel.send(_envelope("three")), timeout=0.1)
+    finally:
+        release.set()
+        await channel.stop()
 
 
 @pytest.mark.asyncio
@@ -112,17 +122,42 @@ async def test_start_stop_idempotent() -> None:
 
 @pytest.mark.asyncio
 async def test_stop_drops_outbox() -> None:
+    release = asyncio.Event()
+
     async def receiver(msg: TransportEnvelope) -> None:
-        return None
+        _ = msg
+        await release.wait()
 
     client = DummyClientChannel(receiver)
-    channel = AgentChannel.build(client, max_outbox=10)
-
-    await channel.send(_envelope("one"))
-    await channel.send(_envelope("two"))
-    await channel.stop()
+    channel = AgentChannel.build(client, max_outbox=2)
+    await channel.start()
+    try:
+        await channel.send(_envelope("one"))
+        await asyncio.sleep(0)
+        await channel.send(_envelope("two"))
+    finally:
+        await channel.stop()
+        release.set()
 
     assert channel._outbox.empty()
+
+
+@pytest.mark.asyncio
+async def test_send_before_start_drops_outgoing_envelope(caplog) -> None:
+    seen: list[TransportEnvelope] = []
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client, max_outbox=1)
+
+    with caplog.at_level("WARNING", logger="dare.transport"):
+        await channel.send(_envelope("pre-start"))
+
+    assert channel._outbox.empty()
+    assert seen == []
+    assert any("dropping outgoing envelope" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -261,6 +296,42 @@ async def test_invalid_control_payload_returns_structured_error() -> None:
     assert payload.get("kind") == "control"
     assert payload.get("ok") is False
     assert payload.get("code") == "INVALID_CONTROL_PAYLOAD"
+    assert isinstance(payload.get("reason"), str)
+
+
+@pytest.mark.asyncio
+async def test_invalid_message_payload_returns_structured_error_and_is_not_enqueued() -> None:
+    seen: list[TransportEnvelope] = []
+    sent = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+        sent.set()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client)
+    await channel.start()
+    try:
+        sender = client.sender
+        assert sender is not None
+        await sender(
+            TransportEnvelope(
+                id="req-message-invalid",
+                kind=EnvelopeKind.MESSAGE,
+                payload={"invalid": "payload"},
+            )
+        )
+        await asyncio.wait_for(sent.wait(), timeout=1.0)
+    finally:
+        await channel.stop()
+
+    assert len(seen) == 1
+    payload = seen[0].payload
+    assert isinstance(payload, dict)
+    assert payload.get("type") == "error"
+    assert payload.get("kind") == "message"
+    assert payload.get("ok") is False
+    assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
     assert isinstance(payload.get("reason"), str)
 
 

@@ -6,12 +6,11 @@
 > TODO markers indicate gaps or ambiguity that need module owners to confirm.
 
 ## Modules
-- agent: `docs/design/modules/agent/README.md` (assessment: `docs/design/modules/agent/Assessment.md`)
-  - DareAgent: `docs/design/modules/agent/DareAgent.md`
-  - DareAgent Session: `docs/design/modules/agent/DareAgent_Session.md`
-  - DareAgent Milestone: `docs/design/modules/agent/DareAgent_Milestone.md`
-  - ReactAgent: `docs/design/modules/agent/ReactAgent.md`
-  - SimpleChatAgent: `docs/design/modules/agent/SimpleChatAgent.md`
+- agent: `docs/design/modules/agent/README.md`
+  - DareAgent: `docs/design/modules/agent/DareAgent_Detailed.md`
+  - ReactAgent: `docs/design/modules/agent/ReactAgent_Detailed.md`
+  - SimpleChatAgent: `docs/design/modules/agent/SimpleChatAgent_Detailed.md`
+  - Agent TODO: `docs/design/modules/agent/TODO.md`
 - context: `docs/design/modules/context/README.md` (assessment: `docs/design/modules/context/Assessment.md`)
 - tool: `docs/design/modules/tool/README.md`
 - plan: `docs/design/modules/plan/README.md`

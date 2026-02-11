@@ -7,27 +7,22 @@ to context, and calls the model again until the model returns a final text respo
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 
 from dare_framework.agent.base_agent import BaseAgent
-from dare_framework.config import Config
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import Envelope
-from dare_framework.tool import IToolProvider
-
-if TYPE_CHECKING:
-    from dare_framework.context import Budget
-    from dare_framework.memory import IShortTermMemory, ILongTermMemory
-    from dare_framework.knowledge import IKnowledge
-    from dare_framework.transport.kernel import AgentChannel
+from dare_framework.plan.types import RunResult
+from dare_framework.plan.types import Task
+from dare_framework.tool import IToolGateway, IToolProvider
+from dare_framework.transport.kernel import AgentChannel
 
 
 class ReactAgent(BaseAgent):
     """Chat agent that executes tool calls in a ReAct loop.
 
     Same context-centric setup as SimpleChatAgent, but when the model returns
-    tool_calls, executes each tool via the context's tool provider (e.g. ToolManager),
+    tool_calls, executes each tool via the injected tool gateway (e.g. ToolGateway),
     adds tool result messages to STM, reassembles, and calls the model again.
     Loops until the model returns no tool_calls, then returns that content.
     """
@@ -37,35 +32,19 @@ class ReactAgent(BaseAgent):
         name: str,
         *,
         model: IModelAdapter,
-        context: Context | None = None,
-        short_term_memory: IShortTermMemory | None = None,
-        long_term_memory: ILongTermMemory | None = None,
-        knowledge: IKnowledge | None = None,
-        tools: IToolProvider | None = None,
+        context: Context,
+        tool_gateway: IToolGateway,
         plan_provider: IToolProvider | None = None,
-        budget: Budget | None = None,
         max_tool_rounds: int = 10,
         agent_channel: AgentChannel | None = None,
     ) -> None:
         super().__init__(name, agent_channel=agent_channel)
         self._model = model
         self._max_tool_rounds = max_tool_rounds
+        self._context = context
+        self._tool_gateway = tool_gateway
         self._plan_provider = plan_provider
-
-        if context is None:
-            from dare_framework.context import Budget
-            self._context = Context(
-                id=f"context_{name}",
-                short_term_memory=short_term_memory,
-                long_term_memory=long_term_memory,
-                knowledge=knowledge,
-                budget=budget or Budget(),
-                config=Config(),
-            )
-            if tools is not None:
-                self._context._tool_gateway = tools
-        else:
-            self._context = context
+        self._context.set_tool_gateway(self._tool_gateway)
 
     @property
     def context(self) -> Context:
@@ -73,16 +52,21 @@ class ReactAgent(BaseAgent):
 
     @property
     def plan_provider(self) -> IToolProvider | None:
-        """When built with with_plan_provider(plan_v2.Planner(...)), the mounted planner.
-        Use e.g. getattr(agent.plan_provider, "state", None) to get PlannerState for copy_for_execution()."""
+        """Return optional mounted plan provider (if configured by builder)."""
         return self._plan_provider
 
-    async def _execute(self, task: str) -> str:
-        user_message = Message(role="user", content=task)
+    async def execute(
+        self,
+        task: str | Task,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> RunResult:
+        _ = transport
+        task_description = task.description if isinstance(task, Task) else task
+        user_message = Message(role="user", content=task_description)
         self._context.stm_add(user_message)
 
-        gateway = getattr(self._context, "_tool_gateway", None)
-        has_invoke = gateway is not None and hasattr(gateway, "invoke")
+        gateway = self._tool_gateway
 
         for round_idx in range(self._max_tool_rounds):
             print(f"[{self.name}] Round {round_idx + 1}/{self._max_tool_rounds}: 调用模型中...", flush=True)
@@ -128,15 +112,11 @@ class ReactAgent(BaseAgent):
             if not response.tool_calls:
                 assistant_message = Message(role="assistant", content=response.content or "")
                 self._context.stm_add(assistant_message)
-                return response.content or ""
-
-            if not has_invoke:
-                assistant_message = Message(
-                    role="assistant",
-                    content=response.content or "(Tool calls returned but no tool gateway to execute them.)",
+                return RunResult(
+                    success=True,
+                    output=response.content or "",
+                    output_text=response.content or "",
                 )
-                self._context.stm_add(assistant_message)
-                return response.content or "(Tool calls not executed.)"
 
             assistant_msg = Message(
                 role="assistant",
@@ -176,7 +156,12 @@ class ReactAgent(BaseAgent):
                 tool_msg = Message(role="tool", name=tool_call_id or name, content=tool_content)
                 self._context.stm_add(tool_msg)
 
-        return "(Reached max tool rounds without final reply.)"
+        final_message = "(Reached max tool rounds without final reply.)"
+        return RunResult(
+            success=True,
+            output=final_message,
+            output_text=final_message,
+        )
 
 
 __all__ = ["ReactAgent"]

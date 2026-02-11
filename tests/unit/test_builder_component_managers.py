@@ -36,6 +36,6 @@ async def test_builder_wires_kernel_defaults(tmp_path):
         .build()
     )
 
-    result = await agent.run("noop")
+    result = await agent("noop")
     assert result.success is True
     assert await event_log.verify_chain() is True
