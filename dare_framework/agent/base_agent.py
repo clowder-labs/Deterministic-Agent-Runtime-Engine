@@ -172,6 +172,15 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
                             reason=f"unsupported envelope kind for agent queue: {envelope.kind.value!r}",
                         )
                         continue
+                    if not isinstance(envelope.payload, str):
+                        await _send_transport_error(
+                            channel=channel,
+                            envelope_id=envelope.id,
+                            target="prompt",
+                            code="INVALID_MESSAGE_PAYLOAD",
+                            reason="invalid message payload (expected string)",
+                        )
+                        continue
                     if self._in_flight_task is not None and not self._in_flight_task.done():
                         await _send_transport_error(
                             channel=channel,

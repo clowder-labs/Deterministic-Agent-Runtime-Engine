@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -57,6 +58,16 @@ class _RecordingChannel:
         return None
 
 
+class _NotStartedChannel(_RecordingChannel):
+    def __init__(self) -> None:
+        super().__init__()
+        self._started = False
+
+    async def send(self, msg: Any) -> None:
+        _ = msg
+        raise AssertionError("send should not be called while channel is not started")
+
+
 @pytest.mark.asyncio
 async def test_dare_agent_does_not_emit_hook_messages_without_transport_hook() -> None:
     transport = _RecordingChannel()
@@ -94,3 +105,23 @@ async def test_dare_builder_registers_agent_event_transport_hook_when_channel_pr
     hooks = getattr(agent, "_hooks", [])
     names = {hook.name for hook in hooks}
     assert "agent_event_transport" in names
+
+
+@pytest.mark.asyncio
+async def test_transport_hook_does_not_send_when_channel_not_started() -> None:
+    channel = _NotStartedChannel()
+    builder = BaseAgent.dare_agent_builder("hook-start-guard").with_model(_Model())
+
+    agent = builder._build_impl(
+        config=Config(),
+        model=_Model(),
+        context=Context(config=Config()),
+        tool_gateway=_ToolGateway(),
+        approval_manager=None,
+        agent_channel=channel,
+    )
+
+    result = await asyncio.wait_for(agent("hello"), timeout=1.0)
+
+    assert result.success is True
+    assert channel.sent == []
