@@ -29,6 +29,12 @@ class HookPhase(Enum):
     BEFORE_VERIFY = "before_verify"
     AFTER_VERIFY = "after_verify"
 
+    @property
+    def is_before_phase(self) -> bool:
+        """Whether this phase runs before the corresponding runtime action."""
+
+        return self.value.startswith("before_")
+
 
 class HookDecision(Enum):
     """Governance decision returned by hook dispatch."""
