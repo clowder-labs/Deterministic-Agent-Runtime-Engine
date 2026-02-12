@@ -76,3 +76,29 @@ async def test_approvals_action_handler_revoke_rule(manager) -> None:
     rule = granted["rule"]
     revoked = await handler.invoke(ResourceAction.APPROVALS_REVOKE, rule_id=rule["rule_id"])
     assert revoked["removed"] is True
+
+
+@pytest.mark.asyncio
+async def test_approvals_action_handler_poll_returns_pending_request(manager) -> None:
+    handler = ApprovalsActionHandler(manager)
+
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "git status --short"},
+        session_id="session-poll",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+
+    polled = await handler.invoke(ResourceAction.APPROVALS_POLL)
+    request = polled["request"]
+    assert isinstance(request, dict)
+    assert request["request_id"] == first.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_approvals_action_handler_poll_timeout_returns_null_request(manager) -> None:
+    handler = ApprovalsActionHandler(manager)
+
+    polled = await handler.invoke(ResourceAction.APPROVALS_POLL, timeout_seconds=0.05)
+    assert polled["request"] is None

@@ -18,7 +18,8 @@ python main.py
 
 ## 你会看到什么
 
-- 第一次 run：打印 `pending request: ...`，随后调用 `approvals:grant`。
+- 第一次 run：先收到 `approval_pending` 通知并打印 `pending request: ...`，随后调用 `approvals:grant`。
+- 第一次 run 同时演示 `approvals:poll`（控制面阻塞拉取待审批请求）。
 - 第二次 run：`pending_count=0`（自动放行）。
 - 撤销规则后第三次 run：再次出现 `pending request after revoke: ...`。
 - 末尾打印当前 `pending/rules` 状态和规则文件路径。
@@ -29,6 +30,7 @@ python main.py
 - 通道侧：`DirectClientChannel + AgentChannel`
 - 审批 action：
   - `approvals:list`
+  - `approvals:poll`
   - `approvals:grant`
   - `approvals:revoke`
 - 规则持久化路径：

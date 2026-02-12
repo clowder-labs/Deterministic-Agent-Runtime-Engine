@@ -217,6 +217,7 @@ class ToolApprovalManager:
         self._pending_by_id: dict[str, _PendingApproval] = {}
         self._pending_by_fingerprint: dict[str, _PendingApproval] = {}
         self._resolved_by_id: dict[str, ApprovalDecision] = {}
+        self._pending_available = asyncio.Event()
         self._lock = asyncio.Lock()
 
     @classmethod
@@ -226,7 +227,35 @@ class ToolApprovalManager:
         return cls(workspace_store=workspace_store, user_store=user_store)
 
     def list_pending(self) -> list[PendingApprovalRequest]:
-        return [entry.request for entry in self._pending_by_id.values()]
+        pending = [entry.request for entry in self._pending_by_id.values()]
+        pending.sort(key=lambda item: (item.created_at, item.request_id))
+        return pending
+
+    async def poll_pending(self, *, timeout_seconds: float | None = None) -> PendingApprovalRequest | None:
+        """Return the oldest pending approval request, optionally waiting for one."""
+        if timeout_seconds is not None and timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be >= 0")
+
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout_seconds is None else loop.time() + timeout_seconds
+        while True:
+            async with self._lock:
+                request = self._oldest_pending_locked()
+                if request is not None:
+                    return request
+                wait_event = self._pending_available
+
+            if deadline is None:
+                await wait_event.wait()
+                continue
+
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return None
+            try:
+                await asyncio.wait_for(wait_event.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return None
 
     def list_rules(self) -> list[ApprovalRule]:
         combined = [
@@ -286,6 +315,7 @@ class ToolApprovalManager:
                 existing = _PendingApproval(request=request, fingerprint=fingerprint)
                 self._pending_by_fingerprint[fingerprint] = existing
                 self._pending_by_id[request.request_id] = existing
+                self._pending_available.set()
 
             return ApprovalEvaluation(
                 status=ApprovalEvaluationStatus.PENDING,
@@ -389,6 +419,8 @@ class ToolApprovalManager:
             self._resolved_by_id[request_id] = decision
             self._pending_by_id.pop(request_id, None)
             self._pending_by_fingerprint.pop(pending.fingerprint, None)
+            if not self._pending_by_id:
+                self._pending_available.clear()
             return rule
 
     def _append_rule(self, rule: ApprovalRule) -> None:
@@ -476,6 +508,15 @@ class ToolApprovalManager:
             if rule.decision == ApprovalDecision.ALLOW:
                 return rule
         return None
+
+    def _oldest_pending_locked(self) -> PendingApprovalRequest | None:
+        if not self._pending_by_id:
+            return None
+        oldest = min(
+            self._pending_by_id.values(),
+            key=lambda item: (item.request.created_at, item.request.request_id),
+        )
+        return oldest.request
 
 
 def _rule_matches(

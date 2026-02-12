@@ -58,6 +58,7 @@ class ApprovalsActionHandler(IActionHandler):
     def supports(self) -> set[ResourceAction]:
         return {
             ResourceAction.APPROVALS_LIST,
+            ResourceAction.APPROVALS_POLL,
             ResourceAction.APPROVALS_GRANT,
             ResourceAction.APPROVALS_DENY,
             ResourceAction.APPROVALS_REVOKE,
@@ -73,6 +74,11 @@ class ApprovalsActionHandler(IActionHandler):
             pending = [_pending_to_dict(item) for item in self._approval_manager.list_pending()]
             rules = [_rule_to_dict(item) for item in self._approval_manager.list_rules()]
             return {"pending": pending, "rules": rules}
+
+        if action == ResourceAction.APPROVALS_POLL:
+            timeout_seconds = _parse_timeout_seconds(params)
+            request = await self._approval_manager.poll_pending(timeout_seconds=timeout_seconds)
+            return {"request": _pending_to_dict(request) if request is not None else None}
 
         if action == ResourceAction.APPROVALS_GRANT:
             request_id = _require_request_id(params)
@@ -172,6 +178,22 @@ def _optional_matcher_value(raw: Any) -> str | None:
         return None
     text = str(raw).strip()
     return text or None
+
+
+def _parse_timeout_seconds(params: dict[str, Any]) -> float | None:
+    raw_seconds = params.get("timeout_seconds")
+    raw_millis = params.get("timeout_ms")
+    if raw_seconds is not None:
+        value = float(raw_seconds)
+        if value < 0:
+            raise ValueError("timeout_seconds must be >= 0")
+        return value
+    if raw_millis is not None:
+        millis = float(raw_millis)
+        if millis < 0:
+            raise ValueError("timeout_ms must be >= 0")
+        return millis / 1000.0
+    return None
 
 
 __all__ = ["ApprovalsActionHandler", "IToolCatalog", "ToolsActionHandler"]

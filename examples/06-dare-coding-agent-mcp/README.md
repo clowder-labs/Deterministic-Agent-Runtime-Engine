@@ -69,6 +69,7 @@ MCP server 定义在 `.dare/mcp/local_math.json`：
 - `/reject`：取消待审批计划
 - `/status`：查看当前状态
 - `/approvals list`：查看待审批请求与当前审批规则
+- `/approvals poll [timeout_ms=30000]`：阻塞等待下一个待审批请求（无请求则超时返回）
 - `/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]`：批准请求并可写入规则
 - `/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]`：拒绝请求并可写入规则
 - `/approvals revoke <rule_id>`：撤销审批规则
@@ -84,7 +85,7 @@ MCP server 定义在 `.dare/mcp/local_math.json`：
 ### 审批操作建议流程（交互模式）
 
 1. 执行一个可能触发高风险工具的任务（例如会调用 `run_command`）。
-2. 使用 `/approvals list` 获取待审批 `request_id`。
+2. 使用 `/approvals poll timeout_ms=30000`（或 `/approvals list`）获取待审批 `request_id`。
 3. 使用以下命令做决策并继续运行：
    - `/approvals grant <request_id> scope=workspace matcher=exact_params`
    - `/approvals deny <request_id> scope=once matcher=exact_params`

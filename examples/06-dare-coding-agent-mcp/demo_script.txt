@@ -1,9 +1,11 @@
 # Demo flow: inspect tools/MCP -> run task -> inspect approvals
 /mcp list
 /approvals list
+/approvals poll timeout_ms=500
 用 local_math:add 工具计算 17 + 25，只返回数字
 /mcp reload
 /approvals list
+/approvals poll timeout_ms=500
 用 local_math:multiply 工具计算 6 * 7，只返回数字
 /status
 /quit

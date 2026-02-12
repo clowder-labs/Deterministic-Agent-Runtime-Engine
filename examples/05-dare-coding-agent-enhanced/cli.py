@@ -472,6 +472,7 @@ async def _handle_mcp_command(
 
 def _approvals_usage(display: CLIDisplay) -> None:
     display.info("/approvals list")
+    display.info("/approvals poll [timeout_ms=30000]")
     display.info("/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]")
     display.info("/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]")
     display.info("/approvals revoke <rule_id>")
@@ -528,10 +529,25 @@ async def _handle_approvals_command(
     subcommand = args[0].lower()
     try:
         if subcommand == "list":
-            result = await handler.invoke(ResourceAction.APPROVALS_LIST, {})
+            result = await handler.invoke(ResourceAction.APPROVALS_LIST)
             pending = result.get("pending", [])
             rules = result.get("rules", [])
             display.info(f"pending={len(pending)} rules={len(rules)}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+
+        if subcommand == "poll":
+            _positional, options = _parse_key_value_args(args[1:])
+            params: dict[str, Any] = {}
+            for key in ("timeout_ms", "timeout_seconds"):
+                if key in options and options[key]:
+                    params[key] = options[key]
+            result = await handler.invoke(ResourceAction.APPROVALS_POLL, **params)
+            request = result.get("request")
+            if isinstance(request, dict):
+                display.info(f"pending request: {request.get('request_id', '?')}")
+            else:
+                display.info("no pending approval request")
             print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
             return
 
@@ -547,7 +563,7 @@ async def _handle_approvals_command(
                 else ResourceAction.APPROVALS_DENY
             )
             params = _build_approval_action_params(request_id=request_id, trailing_args=args[2:])
-            result = await handler.invoke(action, params)
+            result = await handler.invoke(action, **params)
             display.ok(f"{subcommand} applied: {request_id}")
             print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
             return
@@ -560,7 +576,7 @@ async def _handle_approvals_command(
             rule_id = args[1]
             result = await handler.invoke(
                 ResourceAction.APPROVALS_REVOKE,
-                {"rule_id": rule_id},
+                rule_id=rule_id,
             )
             if result.get("removed"):
                 display.ok(f"revoked rule: {rule_id}")
@@ -653,7 +669,7 @@ async def run_cli_loop(
             if cmd.type == CommandType.HELP:
                 display.info(
                     "/mode [plan|execute], /approve, /reject, /status, "
-                    "/approvals [list|grant|deny|revoke], /mcp [list|reload|unload], /quit"
+                    "/approvals [list|poll|grant|deny|revoke], /mcp [list|reload|unload], /quit"
                 )
                 continue
             if cmd.type == CommandType.STATUS:

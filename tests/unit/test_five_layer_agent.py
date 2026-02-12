@@ -144,6 +144,37 @@ class MockConfigProvider:
         return self._config
 
 
+class RecordingTransportChannel:
+    """Transport double that captures outgoing envelopes from direct calls."""
+
+    def __init__(self) -> None:
+        self.sent: list[Any] = []
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def poll(self) -> Any:
+        raise RuntimeError("poll is not used in this test transport")
+
+    async def send(self, msg: Any) -> None:
+        self.sent.append(msg)
+
+    def add_action_handler_dispatcher(self, dispatcher: Any) -> None:
+        _ = dispatcher
+
+    def add_agent_control_handler(self, handler: Any) -> None:
+        _ = handler
+
+    def get_action_handler_dispatcher(self) -> Any:
+        return object()
+
+    def get_agent_control_handler(self) -> Any:
+        return object()
+
+
 def _make_agent(*, model: MockModelAdapter, name: str = "test-agent", **kwargs: Any) -> DareAgent:
     """Build DareAgent test instances with an explicit context by default."""
     context = kwargs.pop("context", Context(config=Config()))
@@ -449,6 +480,68 @@ class TestNoPlannerToolExecution:
         assert second_result.success is True
         assert len(tool_gateway.invoke_calls) == 2
         assert approval_manager.list_pending() == []
+
+    @pytest.mark.asyncio
+    async def test_no_planner_emits_transport_approval_pending_message(self, tmp_path) -> None:
+        capability = CapabilityDescriptor(
+            id="run_command",
+            type=CapabilityType.TOOL,
+            name="run_command",
+            description="Run a shell command.",
+            input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+            metadata={"requires_approval": True},
+        )
+        tool_gateway = MockToolGateway([capability])
+        approval_manager = ToolApprovalManager(
+            workspace_store=JsonApprovalRuleStore(tmp_path / "workspace" / "approvals.json"),
+            user_store=JsonApprovalRuleStore(tmp_path / "user" / "approvals.json"),
+        )
+        model = MockModelAdapter(
+            [
+                ModelResponse(
+                    content="Running command...",
+                    tool_calls=[{"name": "run_command", "arguments": {"command": "git status --short"}}],
+                ),
+                ModelResponse(content="Done.", tool_calls=[]),
+            ]
+        )
+        agent = _make_agent(
+            name="react-agent-approval-transport",
+            model=model,
+            tool_gateway=tool_gateway,
+            approval_manager=approval_manager,
+        )
+        transport = RecordingTransportChannel()
+
+        run_task = asyncio.create_task(agent("Run git status", transport=transport))
+        request_id: str | None = None
+        for _ in range(100):
+            for envelope in transport.sent:
+                payload = getattr(envelope, "payload", None)
+                if not isinstance(payload, dict):
+                    continue
+                if payload.get("type") != "approval_pending":
+                    continue
+                resp = payload.get("resp")
+                if not isinstance(resp, dict):
+                    continue
+                request = resp.get("request")
+                if isinstance(request, dict) and isinstance(request.get("request_id"), str):
+                    request_id = request["request_id"]
+                    break
+            if request_id is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert request_id is not None
+
+        await approval_manager.grant(
+            request_id,
+            scope=ApprovalScope.ONCE,
+            matcher=ApprovalMatcherKind.EXACT_PARAMS,
+        )
+
+        result = await run_task
+        assert result.success is True
 
 
 # =============================================================================

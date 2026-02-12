@@ -192,7 +192,11 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
                         continue
 
                     self._in_flight_task = asyncio.create_task(
-                        self._execute_polled_message(envelope.payload, channel=channel),
+                        self._execute_polled_message(
+                            envelope.payload,
+                            channel=channel,
+                            envelope_id=envelope.id,
+                        ),
                     )
                     try:
                         await self._in_flight_task
@@ -212,11 +216,17 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
     async def _stop_components(self) -> None:
         """Hook for subclasses to stop internal components."""
 
-    async def _execute_polled_message(self, task: str, *, channel: AgentChannel) -> None:
+    async def _execute_polled_message(
+        self,
+        task: str,
+        *,
+        channel: AgentChannel,
+        envelope_id: str | None,
+    ) -> None:
         """Execute one polled message and send response envelope through channel."""
         result = await self.execute(task, transport=channel)
         result = self._with_normalized_output_text(result)
-        await self._send_transport_result(result, task=task, transport=channel)
+        await self._send_transport_result(result, task=task, transport=channel, reply_to=envelope_id)
 
     def _with_normalized_output_text(self, result: RunResult) -> RunResult:
         """Ensure RunResult.output_text is filled for downstream consumers."""
@@ -248,12 +258,14 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         *,
         task: str | None = None,
         transport: AgentChannel | None = None,
+        reply_to: str | None = None,
     ) -> None:
         channel = transport
         if channel is None:
             return
         envelope = TransportEnvelope(
             id=new_envelope_id(),
+            reply_to=reply_to,
             payload={
                 **build_success_payload(
                     kind="message",

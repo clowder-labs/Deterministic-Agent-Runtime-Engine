@@ -180,6 +180,7 @@ async def test_transport_loop_accepts_batched_messages_from_poll() -> None:
 
     assert agent.seen_tasks == ["first", "second"]
     assert len(channel._sent) == 2
+    assert [envelope.reply_to for envelope in channel._sent] == ["m1", "m2"]
 
 
 @pytest.mark.asyncio

@@ -15,10 +15,13 @@ class ResourceAction(StrEnum):
     ACTIONS_LIST = "actions:list"
     TOOLS_LIST = "tools:list"
     APPROVALS_LIST = "approvals:list"
+    APPROVALS_POLL = "approvals:poll"
     APPROVALS_GRANT = "approvals:grant"
     APPROVALS_DENY = "approvals:deny"
     APPROVALS_REVOKE = "approvals:revoke"
     MCP_LIST = "mcp:list"
+    MCP_RELOAD = "mcp:reload"
+    MCP_SHOW_TOOL = "mcp:show-tool"
     SKILLS_LIST = "skills:list"
     MODEL_GET = "model:get"
 
