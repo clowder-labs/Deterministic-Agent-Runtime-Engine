@@ -114,6 +114,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
         # MCP tool provider (optional, provides MCP-backed tools).
         self._mcp_toolkit: IToolProvider | None = None
+        self._mcp_manager: Any | None = None
 
         # Optional plan provider (e.g. plan_v2.Planner). When set, registered as tool provider
         # so the agent gets plan tools (create_plan, validate_plan, etc.). ReactAgentBuilder
@@ -284,7 +285,13 @@ class _BaseAgentBuilder(Generic[TAgent]):
         """Build agent with shared dependency resolution and optional MCP preload."""
         config = self._resolve_config()
         if config is not None and getattr(config, "mcp_paths", None):
-            self._mcp_toolkit = await load_mcp_toolkit(config)
+            from dare_framework.mcp.manager import MCPManager
+
+            self._mcp_manager = MCPManager(config)
+            self._mcp_toolkit = await self._mcp_manager.load_provider()
+        else:
+            self._mcp_manager = None
+            self._mcp_toolkit = None
         model, model_manager = self._resolve_model_and_model_manager(config)
         approval_manager = self._resolve_approval_manager(config)
         sys_prompt = self._resolve_sys_prompt(model)
@@ -668,6 +675,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             model=model,
             context=context,
             tool_gateway=tool_gateway,
+            mcp_manager=self._mcp_manager,
             execution_control=self._execution_control,
             planner=planner,
             validator=validator,
@@ -711,45 +719,9 @@ async def load_mcp_toolkit(
         Remember to close the provider when done to disconnect MCP clients:
             await provider.close()
     """
-    from dare_framework.mcp.defaults import create_mcp_clients, load_mcp_configs, MCPToolProvider
     if config is None:
         raise ValueError("load_mcp_toolkit requires a non-null Config.")
+    from dare_framework.mcp.manager import MCPManager
 
-    # Determine scan paths
-    if paths is None:
-        paths = config.mcp_paths if config.mcp_paths else None
-
-    # todo 这后面的内容都可以放到mcp manager的位置去搞定的 然后还有重新加载某个mcp或者全部mcp mcp的管理应该都放到那边的
-    # Load MCP server configurations
-    mcp_configs = load_mcp_configs(
-        paths=paths,
-        workspace_dir=config.workspace_dir,
-        user_dir=config.user_dir,
-    )
-
-    if not mcp_configs:
-        logger.debug("No MCP configurations found")
-        return MCPToolProvider([])
-
-    # Filter by allow_mcps if specified
-    if config.allow_mcps:
-        allowed = set(config.allow_mcps)
-        mcp_configs = [c for c in mcp_configs if c.name in allowed]
-
-    if not mcp_configs:
-        logger.debug("No MCP configurations matched allow_mcps filter")
-        return MCPToolProvider([])
-
-    # Create and connect clients
-    clients = await create_mcp_clients(mcp_configs, connect=True, skip_errors=True)
-
-    # Wrap in provider and initialize (list tools from each server)
-    provider = MCPToolProvider(clients)
-    await provider.initialize()
-
-    logger.info(
-        f"MCP tool provider loaded: {len(clients)} servers, "
-        f"{len(provider.list_tools())} tools"
-    )
-
-    return provider
+    manager = MCPManager(config)
+    return await manager.load_provider(paths=paths)

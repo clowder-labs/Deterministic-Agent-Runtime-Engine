@@ -22,7 +22,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import DareAgentBuilder
-from dare_framework.agent.builder import load_mcp_toolkit
 from dare_framework.config import Config, FileConfigProvider
 from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
@@ -30,7 +29,6 @@ from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
 from dare_framework.tool.action_handler import ApprovalsActionHandler
-from dare_framework.tool import ToolManager
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
 from dare_framework.transport.interaction.resource_action import ResourceAction
 
@@ -86,7 +84,6 @@ class MCPRuntimeState:
     config_provider: FileConfigProvider
     config: Config
     config_base_dir: Path
-    provider: Any | None = None
 
 
 def _normalize_mcp_paths(paths: list[str], base_dir: Path) -> list[str]:
@@ -173,16 +170,15 @@ class CLIDisplay:
 
     def show_tool_lists(self, agent: Any) -> None:
         """Print MCP tool list and local tool list."""
-        gateway = getattr(getattr(agent, "context", None), "tool_gateway", None)
-        if gateway is None:
-            self.info("tools: (none)")
-            return
-
         try:
-            list_tool_defs = getattr(gateway, "list_tool_defs", None)
+            list_tool_defs = getattr(agent, "list_tool_defs", None)
             if callable(list_tool_defs):
                 tools = list_tool_defs()
             else:
+                gateway = getattr(getattr(agent, "context", None), "_tool_gateway", None)
+                if gateway is None:
+                    self.info("tools: (none)")
+                    return
                 tools = gateway.list_tools()
         except Exception:
             self.info("tools: (unable to list)")
@@ -294,7 +290,7 @@ async def build_agent(
     timeout_seconds: float,
     display: CLIDisplay,
     config: Config,
-) -> tuple[Any, Any | None]:
+) -> Any:
     model = OpenRouterModelAdapter(
         model=model_name,
         api_key=api_key,
@@ -322,7 +318,7 @@ async def build_agent(
     )
 
     agent = await builder.build()
-    return agent, getattr(builder, "_mcp_toolkit", None)
+    return agent
 
 
 async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: CLIDisplay) -> Any:
@@ -392,23 +388,6 @@ async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
             display.error(f"errors: {result.errors}")
 
 
-def _resolve_tool_manager(agent: Any) -> ToolManager | None:
-    context = getattr(agent, "context", None)
-    gateway = getattr(context, "tool_gateway", None)
-    if isinstance(gateway, ToolManager):
-        return gateway
-    return None
-
-
-async def _close_provider(provider: Any) -> None:
-    close_method = getattr(provider, "close", None)
-    if not callable(close_method):
-        return
-    maybe_coro = close_method()
-    if asyncio.iscoroutine(maybe_coro):
-        await maybe_coro
-
-
 async def _reload_mcp_provider(
     *,
     agent: Any,
@@ -416,8 +395,8 @@ async def _reload_mcp_provider(
     mcp_state: MCPRuntimeState,
     paths: list[str] | None = None,
 ) -> None:
-    gateway = _resolve_tool_manager(agent)
-    if gateway is None:
+    reload_mcp = getattr(agent, "reload_mcp", None)
+    if not callable(reload_mcp):
         display.warn("current gateway does not support dynamic MCP registration")
         return
 
@@ -426,29 +405,11 @@ async def _reload_mcp_provider(
     effective_paths = _normalize_mcp_paths(paths, mcp_state.config_base_dir) if paths else None
 
     try:
-        new_provider = await load_mcp_toolkit(mcp_state.config, paths=effective_paths)
+        await reload_mcp(config=mcp_state.config, paths=effective_paths)
     except Exception as exc:
-        display.error(f"failed to load MCP config: {exc}")
+        display.error(f"failed to reload MCP provider: {exc}")
         return
 
-    old_provider = mcp_state.provider
-    if old_provider is not None:
-        gateway.unregister_provider(old_provider)
-
-    try:
-        gateway.register_provider(new_provider)
-        await gateway.refresh()
-    except Exception as exc:
-        await _close_provider(new_provider)
-        if old_provider is not None:
-            gateway.register_provider(old_provider)
-            await gateway.refresh()
-        display.error(f"failed to register MCP provider: {exc}")
-        return
-
-    if old_provider is not None:
-        await _close_provider(old_provider)
-    mcp_state.provider = new_provider
     display.ok("MCP reloaded")
     display.show_tool_lists(agent)
 
@@ -459,18 +420,17 @@ async def _unload_mcp_provider(
     display: CLIDisplay,
     mcp_state: MCPRuntimeState,
 ) -> None:
-    gateway = _resolve_tool_manager(agent)
-    if gateway is None:
+    unload_mcp = getattr(agent, "unload_mcp", None)
+    if not callable(unload_mcp):
         display.warn("current gateway does not support dynamic MCP registration")
         return
-    if mcp_state.provider is None:
-        display.warn("no active MCP provider to unload")
+
+    try:
+        removed = await unload_mcp()
+    except Exception as exc:
+        display.error(f"failed to unload MCP provider: {exc}")
         return
 
-    removed = gateway.unregister_provider(mcp_state.provider)
-    await gateway.refresh()
-    await _close_provider(mcp_state.provider)
-    mcp_state.provider = None
     if removed:
         display.ok("MCP unloaded")
     else:
@@ -484,34 +444,16 @@ def _inspect_mcp_tools(
     display: CLIDisplay,
     tool_name: str | None = None,
 ) -> None:
-    gateway = _resolve_tool_manager(agent)
-    if gateway is None:
+    inspect_mcp_tools = getattr(agent, "inspect_mcp_tools", None)
+    if not callable(inspect_mcp_tools):
         display.warn("current gateway does not support dynamic MCP registration")
         return
 
     try:
-        tool_defs = gateway.list_tool_defs()
+        mcp_tool_defs = inspect_mcp_tools(tool_name=tool_name)
     except Exception as exc:
         display.error(f"failed to inspect tools: {exc}")
         return
-
-    mcp_tool_defs: list[dict[str, Any]] = []
-    for tool_def in tool_defs:
-        function = tool_def.get("function")
-        if not isinstance(function, dict):
-            continue
-        name = function.get("name")
-        if not isinstance(name, str) or ":" not in name:
-            continue
-        mcp_tool_defs.append(tool_def)
-
-    if tool_name:
-        mcp_tool_defs = [
-            tool_def
-            for tool_def in mcp_tool_defs
-            if isinstance(tool_def.get("function"), dict)
-            and tool_def["function"].get("name") == tool_name
-        ]
 
     if not mcp_tool_defs:
         if tool_name:
@@ -911,7 +853,7 @@ async def main(argv: list[str] | None = None) -> None:
     else:
         display.warn("No mcp_paths configured. MCP tools will not be loaded by default.")
 
-    agent, initial_provider = await build_agent(
+    agent = await build_agent(
         workspace,
         model_name,
         api_key,
@@ -924,7 +866,6 @@ async def main(argv: list[str] | None = None) -> None:
         config_provider=config_provider,
         config=config,
         config_base_dir=example_dir,
-        provider=initial_provider,
     )
     display.show_tool_lists(agent)
 

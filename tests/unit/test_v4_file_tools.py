@@ -3,7 +3,12 @@ import pytest
 from dare_framework.tool._internal.tools import (
     EditLineTool,
     ReadFileTool,
+    RunCommandTool,
+    RunCmdTool,
+    ReadCodeTool,
     SearchCodeTool,
+    SearchFileTool,
+    WriteCodeTool,
     WriteFileTool,
 )
 from dare_framework.tool.types import RunContext
@@ -194,3 +199,101 @@ async def test_search_code_respects_max_results(tmp_path):
     assert result.success is True
     assert result.output["total_matches"] == 2
     assert result.output["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_command_rejects_missing_cwd(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    missing = root / "missing-dir"
+    ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
+
+    tool = RunCommandTool()
+    result = await tool.execute({"command": "pwd", "cwd": str(missing)}, ctx)
+
+    assert result.success is False
+    assert result.output.get("code") == "INVALID_CWD"
+
+
+@pytest.mark.asyncio
+async def test_run_command_truncates_large_output(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    ctx = RunContext(
+        deps=None,
+        run_id="run",
+        config={
+            "workspace_roots": [str(root)],
+            "tools": {"run_command": {"max_output_bytes": 32}},
+        },
+    )
+
+    tool = RunCommandTool()
+    result = await tool.execute(
+        {"command": "printf 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz'"},
+        ctx,
+    )
+
+    assert result.success is True
+    assert len(result.output["stdout"].encode("utf-8")) <= 32
+    assert result.output["stdout_truncated"] is True
+    assert result.output["stderr_truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_cmd_alias_executes_command(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
+
+    tool = RunCmdTool()
+    result = await tool.execute({"command": "printf 'ok'"}, ctx)
+
+    assert result.success is True
+    assert result.output["stdout"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_read_code_alias_reads_line_range(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    target = root / "sample.py"
+    target.write_text("a\nb\nc\n")
+    ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
+
+    tool = ReadCodeTool()
+    result = await tool.execute({"path": "sample.py", "start_line": 2, "end_line": 2}, ctx)
+
+    assert result.success is True
+    assert result.output["content"] == "b\n"
+
+
+@pytest.mark.asyncio
+async def test_write_code_alias_writes_file(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
+
+    tool = WriteCodeTool()
+    result = await tool.execute({"path": "main.py", "content": "print('x')\n"}, ctx)
+
+    assert result.success is True
+    assert (root / "main.py").read_text() == "print('x')\n"
+
+
+@pytest.mark.asyncio
+async def test_search_file_finds_matching_paths(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "a.py").write_text("x\n")
+    (root / "b.txt").write_text("x\n")
+    nested = root / "pkg"
+    nested.mkdir()
+    (nested / "c.py").write_text("x\n")
+    ctx = RunContext(deps=None, run_id="run", config={"workspace_roots": [str(root)]})
+
+    tool = SearchFileTool()
+    result = await tool.execute({"path": ".", "pattern": "*.py"}, ctx)
+
+    assert result.success is True
+    assert result.output["paths"] == ["a.py", "pkg/c.py"]

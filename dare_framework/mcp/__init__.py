@@ -38,6 +38,7 @@ Or use the automatic integration via AgentBuilder:
 """
 
 from dare_framework.mcp.kernel import IMCPClient
+from dare_framework.mcp.manager import MCPManager
 from dare_framework.mcp.types import MCPConfigFile, MCPServerConfig, TransportType
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "MCPServerConfig",
     "TransportType",
     "IMCPClient",
+    "MCPManager",
 ]

@@ -7,6 +7,7 @@ from dare_framework.mcp.factory import (
     create_mcp_clients,
 )
 from dare_framework.mcp.loader import MCPConfigLoader, load_mcp_configs
+from dare_framework.mcp.manager import MCPManager
 from dare_framework.mcp.tool_provider import MCPToolProvider
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "create_mcp_clients",
     "MCPConfigLoader",
     "load_mcp_configs",
+    "MCPManager",
     "MCPToolProvider",
 ]

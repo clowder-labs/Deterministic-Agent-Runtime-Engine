@@ -20,7 +20,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dare_framework.agent import DareAgentBuilder
-from dare_framework.agent.builder import load_mcp_toolkit
 from dare_framework.config import FileConfigProvider
 from dare_framework.config.types import Config
 from dare_framework.context import Context, Message
@@ -30,7 +29,6 @@ from dare_framework.knowledge import create_knowledge
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
 from dare_framework.tool.action_handler import ApprovalsActionHandler
-from dare_framework.tool import ToolManager
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
 from dare_framework.transport.interaction.resource_action import ResourceAction
 
@@ -85,7 +83,6 @@ class CLISessionState:
 class MCPRuntimeState:
     config_provider: FileConfigProvider
     config: Config
-    provider: Any | None = None
 
 
 def parse_command(user_input: str) -> Command | tuple[None, str]:
@@ -152,15 +149,15 @@ class CLIDisplay:
 
     def show_tool_lists(self, agent: Any) -> None:
         """打印 MCP 工具列表与本地工具列表。"""
-        gateway = getattr(getattr(agent, "context", None), "tool_gateway", None)
-        if gateway is None:
-            self.info("tools: (none)")
-            return
         try:
-            list_tool_defs = getattr(gateway, "list_tool_defs", None)
+            list_tool_defs = getattr(agent, "list_tool_defs", None)
             if callable(list_tool_defs):
                 tools = list_tool_defs()
             else:
+                gateway = getattr(getattr(agent, "context", None), "_tool_gateway", None)
+                if gateway is None:
+                    self.info("tools: (none)")
+                    return
                 tools = gateway.list_tools()
         except Exception:
             self.info("tools: (unable to list)")
@@ -350,23 +347,6 @@ async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
             display.error(f"errors: {result.errors}")
 
 
-def _resolve_tool_manager(agent: Any) -> ToolManager | None:
-    context = getattr(agent, "context", None)
-    gateway = getattr(context, "tool_gateway", None)
-    if isinstance(gateway, ToolManager):
-        return gateway
-    return None
-
-
-async def _close_provider(provider: Any) -> None:
-    close_method = getattr(provider, "close", None)
-    if not callable(close_method):
-        return
-    maybe_coro = close_method()
-    if asyncio.iscoroutine(maybe_coro):
-        await maybe_coro
-
-
 async def _reload_mcp_provider(
     *,
     agent: Any,
@@ -374,8 +354,8 @@ async def _reload_mcp_provider(
     mcp_state: MCPRuntimeState,
     paths: list[str] | None = None,
 ) -> None:
-    gateway = _resolve_tool_manager(agent)
-    if gateway is None:
+    reload_mcp = getattr(agent, "reload_mcp", None)
+    if not callable(reload_mcp):
         display.warn("current gateway does not support dynamic MCP registration")
         return
 
@@ -383,29 +363,11 @@ async def _reload_mcp_provider(
     effective_paths = [str(Path(p).expanduser()) for p in paths] if paths else None
 
     try:
-        new_provider = await load_mcp_toolkit(mcp_state.config, paths=effective_paths)
+        await reload_mcp(config=mcp_state.config, paths=effective_paths)
     except Exception as exc:
-        display.error(f"failed to load MCP config: {exc}")
+        display.error(f"failed to reload MCP provider: {exc}")
         return
 
-    old_provider = mcp_state.provider
-    if old_provider is not None:
-        gateway.unregister_provider(old_provider)
-
-    try:
-        gateway.register_provider(new_provider)
-        await gateway.refresh()
-    except Exception as exc:
-        await _close_provider(new_provider)
-        if old_provider is not None:
-            gateway.register_provider(old_provider)
-            await gateway.refresh()
-        display.error(f"failed to register MCP provider: {exc}")
-        return
-
-    if old_provider is not None:
-        await _close_provider(old_provider)
-    mcp_state.provider = new_provider
     display.ok("MCP reloaded")
     display.show_tool_lists(agent)
 
@@ -416,18 +378,17 @@ async def _unload_mcp_provider(
     display: CLIDisplay,
     mcp_state: MCPRuntimeState,
 ) -> None:
-    gateway = _resolve_tool_manager(agent)
-    if gateway is None:
+    unload_mcp = getattr(agent, "unload_mcp", None)
+    if not callable(unload_mcp):
         display.warn("current gateway does not support dynamic MCP registration")
         return
-    if mcp_state.provider is None:
-        display.warn("no active MCP provider to unload")
+
+    try:
+        removed = await unload_mcp()
+    except Exception as exc:
+        display.error(f"failed to unload MCP provider: {exc}")
         return
 
-    removed = gateway.unregister_provider(mcp_state.provider)
-    await gateway.refresh()
-    await _close_provider(mcp_state.provider)
-    mcp_state.provider = None
     if removed:
         display.ok("MCP unloaded")
     else:
@@ -815,7 +776,6 @@ async def main(argv: list[str] | None = None) -> None:
     mcp_state = MCPRuntimeState(
         config_provider=config_provider,
         config=config,
-        provider=getattr(builder, "_mcp_toolkit", None),
     )
     display.show_tool_lists(agent)
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -68,14 +69,17 @@ class MilestoneResult:
 
 
 if TYPE_CHECKING:
+    from dare_framework.config.types import Config
     from dare_framework.context.kernel import IContext
     from dare_framework.event.kernel import IEventLog
     from dare_framework.hook.kernel import IHook
+    from dare_framework.mcp.manager import MCPManager
     from dare_framework.observability.kernel import ITelemetryProvider
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
     from dare_framework.tool.interfaces import IExecutionControl
-    from dare_framework.tool.kernel import IToolGateway
+    from dare_framework.tool.kernel import IToolGateway, IToolManager, IToolProvider
     from dare_framework.tool._internal.control.approval_manager import ToolApprovalManager
+    from dare_framework.tool.types import ToolDefinition
     from dare_framework.transport.kernel import AgentChannel
 
 
@@ -111,6 +115,7 @@ class DareAgent(BaseAgent):
         context: IContext,
         # Tool components
         tool_gateway: IToolGateway,
+        mcp_manager: MCPManager | None = None,
         execution_control: IExecutionControl | None = None,
         approval_manager: ToolApprovalManager | None = None,
         # Plan components (optional - enables full five-layer mode)
@@ -164,6 +169,7 @@ class DareAgent(BaseAgent):
 
         # Tool components
         self._tool_gateway = tool_gateway
+        self._mcp_manager = mcp_manager
         self._exec_ctl = execution_control
         self._approval_manager = approval_manager
 
@@ -213,6 +219,58 @@ class DareAgent(BaseAgent):
     def is_full_five_layer_mode(self) -> bool:
         """Check if agent has full five-layer capabilities."""
         return self._planner is not None
+
+    @property
+    def supports_mcp_management(self) -> bool:
+        """Whether runtime MCP management APIs are available on this agent."""
+        try:
+            self._require_tool_manager()
+            self._require_mcp_manager()
+        except RuntimeError:
+            return False
+        return True
+
+    async def reload_mcp(
+        self,
+        *,
+        config: Config | None = None,
+        paths: list[str | Path] | None = None,
+    ) -> IToolProvider:
+        """Reload MCP providers and refresh registry state."""
+        manager = self._require_mcp_manager()
+        tool_manager = self._require_tool_manager()
+        return await manager.reload(tool_manager, config=config, paths=paths)
+
+    async def unload_mcp(self) -> bool:
+        """Unload active MCP providers from the registry."""
+        manager = self._require_mcp_manager()
+        tool_manager = self._require_tool_manager()
+        return await manager.unload(tool_manager)
+
+    def inspect_mcp_tools(self, *, tool_name: str | None = None) -> list[ToolDefinition]:
+        """Inspect currently exposed MCP tool definitions."""
+        manager = self._require_mcp_manager()
+        tool_manager = self._require_tool_manager()
+        return manager.list_mcp_tool_defs(tool_manager, tool_name=tool_name)
+
+    def list_tool_defs(self) -> list[ToolDefinition]:
+        """List all tool definitions currently visible to the model."""
+        return self._require_tool_manager().list_tool_defs()
+
+    def _require_tool_manager(self) -> IToolManager:
+        from dare_framework.tool.kernel import IToolManager
+
+        if isinstance(self._tool_gateway, IToolManager):
+            return self._tool_gateway
+        candidate = getattr(self._tool_gateway, "_tool_manager", None)
+        if isinstance(candidate, IToolManager):
+            return candidate
+        raise RuntimeError("Tool gateway does not support provider management.")
+
+    def _require_mcp_manager(self) -> MCPManager:
+        if self._mcp_manager is None:
+            raise RuntimeError("MCP manager is not configured on this agent.")
+        return self._mcp_manager
 
     def _log(self, message: str) -> None:
         """Write debug messages when verbose mode is enabled."""
