@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
-from dare_framework.hook.types import HookPhase
+from dare_framework.hook.types import HookPhase, HookResult
 from dare_framework.infra.component import ComponentType, IComponent
 
 HookFn = Callable[[dict[str, Any]], Any]
@@ -37,7 +37,7 @@ class IHook(IComponent, Protocol):
 class IExtensionPoint(Protocol):
     def register_hook(self, phase: HookPhase, hook: HookFn) -> None: ...
 
-    async def emit(self, phase: HookPhase, payload: dict[str, Any]) -> None: ...
+    async def emit(self, phase: HookPhase, payload: dict[str, Any]) -> HookResult | None: ...
 
 
 __all__ = ["IExtensionPoint", "IHook", "HookFn"]

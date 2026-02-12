@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class HookPhase(Enum):
@@ -28,4 +30,33 @@ class HookPhase(Enum):
     AFTER_VERIFY = "after_verify"
 
 
-__all__ = ["HookPhase"]
+class HookDecision(Enum):
+    """Governance decision returned by hook dispatch."""
+
+    ALLOW = "allow"
+    BLOCK = "block"
+    ASK = "ask"
+
+
+@dataclass(frozen=True)
+class HookEnvelope:
+    """Typed hook payload envelope used by governed hook dispatch."""
+
+    hook_version: int
+    phase: str
+    invocation_id: str
+    context_id: str
+    timestamp_ms: int
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class HookResult:
+    """Normalized hook result contract for governance decisions."""
+
+    decision: HookDecision
+    patch: dict[str, Any] | None = None
+    message: str | None = None
+
+
+__all__ = ["HookDecision", "HookEnvelope", "HookPhase", "HookResult"]
