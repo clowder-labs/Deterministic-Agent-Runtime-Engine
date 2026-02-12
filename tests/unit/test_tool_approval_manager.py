@@ -149,3 +149,42 @@ async def test_revoke_rule_removes_automatic_pass(manager) -> None:
         reason="Tool run_command requires approval",
     )
     assert second.status == ApprovalEvaluationStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_returns_next_request_when_available(manager) -> None:
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "git status --short"},
+        session_id="session-poll",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+
+    polled = await manager.poll_pending()
+    assert polled is not None
+    assert polled.request_id == first.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_waits_until_request_arrives(manager) -> None:
+    waiter = asyncio.create_task(manager.poll_pending(timeout_seconds=1.0))
+    await asyncio.sleep(0.05)
+
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "git status --branch"},
+        session_id="session-poll-wait",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+
+    polled = await waiter
+    assert polled is not None
+    assert polled.request_id == first.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_timeout_returns_none(manager) -> None:
+    polled = await manager.poll_pending(timeout_seconds=0.05)
+    assert polled is None

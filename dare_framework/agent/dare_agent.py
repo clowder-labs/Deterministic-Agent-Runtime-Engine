@@ -51,6 +51,11 @@ from dare_framework.tool._internal.control.approval_manager import (
     ApprovalEvaluationStatus,
 )
 from dare_framework.tool.types import CapabilityKind
+from dare_framework.transport.interaction.payloads import (
+    build_approval_pending_payload,
+    build_approval_resolved_payload,
+)
+from dare_framework.transport.types import TransportEnvelope, new_envelope_id
 
 
 @dataclass
@@ -196,6 +201,7 @@ class DareAgent(BaseAgent):
 
         # Runtime state (set during execution)
         self._session_state: SessionState | None = None
+        self._active_transport: AgentChannel | None = None
         self._token_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
 
     @property
@@ -220,7 +226,8 @@ class DareAgent(BaseAgent):
         transport: AgentChannel | None = None,
     ) -> RunResult:
         """Execute a task with automatic mode selection."""
-        _ = transport
+        previous_transport = self._active_transport
+        self._active_transport = transport
         if isinstance(task, Task):
             task_obj = task
         else:
@@ -252,6 +259,7 @@ class DareAgent(BaseAgent):
             error = exc
             raise
         finally:
+            self._active_transport = previous_transport
             duration_ms = (time.perf_counter() - start_time) * 1000.0
             errors: list[str] = []
             if result is not None and result.errors:
@@ -1038,6 +1046,12 @@ class DareAgent(BaseAgent):
             return False, "tool invocation requires approval"
 
         request_id = evaluation.request.request_id
+        await self._emit_approval_pending_message(
+            request=evaluation.request.to_dict(),
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
         await self._log_event(
             "exec.waiting_human",
             {
@@ -1064,6 +1078,13 @@ class DareAgent(BaseAgent):
                 "source": "pending_request",
                 "request_id": request_id,
             },
+        )
+        await self._emit_approval_resolved_message(
+            request_id=request_id,
+            decision=decision.value,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
         )
         if decision == ApprovalDecision.ALLOW:
             return True, None
@@ -1300,6 +1321,53 @@ class DareAgent(BaseAgent):
                 await self._extension_point.emit(phase, enriched)
             except Exception:
                 pass
+
+    async def _emit_approval_pending_message(
+        self,
+        *,
+        request: dict[str, Any],
+        capability_id: str,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> None:
+        payload = build_approval_pending_payload(
+            request=request,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        await self._send_transport_payload(payload)
+
+    async def _emit_approval_resolved_message(
+        self,
+        *,
+        request_id: str,
+        decision: str,
+        capability_id: str,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> None:
+        payload = build_approval_resolved_payload(
+            request_id=request_id,
+            decision=decision,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        await self._send_transport_payload(payload)
+
+    async def _send_transport_payload(self, payload: dict[str, Any]) -> None:
+        channel = self._active_transport
+        if channel is None:
+            return
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            payload=payload,
+        )
+        try:
+            await channel.send(envelope)
+        except Exception:
+            self._logger.exception("agent approval transport send failed")
 
     def _record_token_usage(self, usage: dict[str, Any] | None) -> None:
         if not usage:

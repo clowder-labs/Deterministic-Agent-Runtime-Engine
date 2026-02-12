@@ -18,6 +18,7 @@
 - 创建逻辑：`ToolApprovalManager.from_paths(workspace_dir=config.workspace_dir, user_dir=config.user_dir)`
 - action 暴露：
   - `approvals:list`
+  - `approvals:poll`
   - `approvals:grant`
   - `approvals:deny`
   - `approvals:revoke`
@@ -107,6 +108,37 @@
 
 输出：`{"rule_id": "...", "removed": true|false}`
 
+### 4.5 `approvals:poll`
+
+用于控制面阻塞等待下一个待审批请求（避免高频 `approvals:list` 轮询）。
+
+可选参数：
+
+- `timeout_seconds` 或 `timeout_ms`
+
+输出：
+
+```json
+{
+  "request": {
+    "request_id": "...",
+    "capability_id": "run_command",
+    "...": "..."
+  }
+}
+```
+
+若超时未出现 pending，则 `request=null`。
+
+## 5. Transport 审批事件（推荐）
+
+当 `requires_approval=true` 的工具调用进入 pending 时，runtime 会通过 transport 主动发出：
+
+- `type="approval_pending"`：包含 pending request 详情
+- `type="approval_resolved"`：包含 request_id 与最终 decision（allow/deny）
+
+这允许客户端实现 Codex/Claude Code 风格的“消息流里出现审批卡片”，同时再用 `approvals:grant|deny` 完成决策。
+
 ## 5. 接入示例（推荐）
 
 完整可运行示例见：`examples/07-tool-approval-memory/main.py`
@@ -123,6 +155,7 @@
 `examples/05-dare-coding-agent-enhanced/cli.py` 与 `examples/06-dare-coding-agent-mcp/cli.py` 都支持：
 
 - `/approvals list`
+- `/approvals poll [timeout_ms=30000]`
 - `/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]`
 - `/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]`
 - `/approvals revoke <rule_id>`

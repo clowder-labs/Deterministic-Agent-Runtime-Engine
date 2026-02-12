@@ -95,6 +95,13 @@ async def test_handle_approvals_command_list_and_grant_mcp_cli(tmp_path: Path) -
     )
     assert any("pending" in msg for level, msg in display.messages if level == "info")
 
+    await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
+        ["poll", "timeout_ms=10"],
+        agent=_FakeAgent(),
+        display=display,
+    )
+    assert any("pending request:" in msg for level, msg in display.messages if level == "info")
+
     wait_task = asyncio.create_task(manager.wait_for_resolution(request_id))
     await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
         ["grant", request_id, "scope=workspace", "matcher=exact_params"],

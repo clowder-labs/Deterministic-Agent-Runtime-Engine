@@ -1,9 +1,11 @@
 # Demo flow: preview plan -> execute -> inspect approval memory
 /status
 /approvals list
+/approvals poll timeout_ms=500
 /mode plan
 Create snake_game.py in Python that prints a startup message.
 /approve
 /status
+/approvals poll timeout_ms=500
 /approvals list
 /quit

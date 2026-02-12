@@ -45,6 +45,22 @@ class StdioClientChannel(ClientChannel):
                         output = resp if resp is not None else payload
                 elif payload_type == "error":
                     output = payload.get("reason") or payload.get("error")
+                elif payload_type == "approval_pending":
+                    resp = payload.get("resp")
+                    request_id = None
+                    if isinstance(resp, dict):
+                        request = resp.get("request")
+                        if isinstance(request, dict):
+                            request_id = request.get("request_id")
+                    output = f"approval pending: request_id={request_id or '?'}"
+                elif payload_type == "approval_resolved":
+                    resp = payload.get("resp")
+                    request_id = None
+                    decision = None
+                    if isinstance(resp, dict):
+                        request_id = resp.get("request_id")
+                        decision = resp.get("decision")
+                    output = f"approval resolved: request_id={request_id or '?'} decision={decision or '?'}"
                 elif payload_type == "hook":
                     output = payload.get("event")
                 else:
@@ -132,6 +148,7 @@ class DirectClientChannel(ClientChannel):
     def __init__(self) -> None:
         self._sender: Sender | None = None
         self._pending: dict[str, asyncio.Future[TransportEnvelope]] = {}
+        self._events: asyncio.Queue[TransportEnvelope] = asyncio.Queue()
 
     def attach_agent_envelope_sender(self, sender: Sender) -> None:
         self._sender = sender
@@ -142,6 +159,8 @@ class DirectClientChannel(ClientChannel):
                 fut = self._pending[msg.reply_to]
                 if not fut.done():
                     fut.set_result(msg)
+                    return
+            await self._events.put(msg)
 
         return recv
 
@@ -166,6 +185,17 @@ class DirectClientChannel(ClientChannel):
             return await asyncio.wait_for(fut, timeout)
         finally:
             self._pending.pop(req.id, None)
+
+    async def poll(self, timeout: float | None = None) -> TransportEnvelope | None:
+        """Poll unsolicited envelopes emitted by the agent channel."""
+        if timeout is not None and timeout < 0:
+            raise ValueError("timeout must be >= 0")
+        if timeout is None:
+            return await self._events.get()
+        try:
+            return await asyncio.wait_for(self._events.get(), timeout)
+        except asyncio.TimeoutError:
+            return None
 
 
 def _default_serialize(msg: TransportEnvelope) -> str:

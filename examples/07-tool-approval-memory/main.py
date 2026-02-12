@@ -137,14 +137,44 @@ async def _wait_for_pending_request_id(
 ) -> str:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
-        listed = await _invoke_action(client, "approvals:list")
-        pending = listed.get("pending", [])
-        if isinstance(pending, list) and pending:
-            first = pending[0]
-            if isinstance(first, dict) and isinstance(first.get("request_id"), str):
-                return first["request_id"]
-        await asyncio.sleep(0.05)
-    raise TimeoutError("pending approval request was not created in time")
+        envelope = await client.poll(timeout=0.2)
+        if envelope is None:
+            continue
+        payload = envelope.payload
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("type") != "approval_pending":
+            continue
+        resp = payload.get("resp")
+        if not isinstance(resp, dict):
+            continue
+        request = resp.get("request")
+        if isinstance(request, dict) and isinstance(request.get("request_id"), str):
+            return request["request_id"]
+    raise TimeoutError("approval_pending event was not received in time")
+
+
+def _new_prompt_envelope(prompt: str) -> TransportEnvelope:
+    return TransportEnvelope(
+        id=new_envelope_id(),
+        kind=EnvelopeKind.MESSAGE,
+        payload=prompt,
+    )
+
+
+def _extract_run_success(response: TransportEnvelope) -> bool:
+    payload = response.payload
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("type") == "error":
+        return False
+    raw_success = payload.get("success")
+    if isinstance(raw_success, bool):
+        return raw_success
+    resp = payload.get("resp")
+    if isinstance(resp, dict):
+        return bool(resp.get("success", False))
+    return False
 
 
 async def main() -> None:
@@ -181,9 +211,12 @@ async def main() -> None:
     await agent.start()
     try:
         print("== 1) first run: pending approval -> grant workspace rule (command_prefix)")
-        first_run = asyncio.create_task(agent("Run the first command"))
+        first_run = asyncio.create_task(client_channel.ask(_new_prompt_envelope("Run the first command"), timeout=30.0))
         first_request_id = await _wait_for_pending_request_id(client_channel)
         print(f"pending request: {first_request_id}")
+
+        polled = await _invoke_action(client_channel, "approvals:poll", timeout_seconds=0.2)
+        print(f"approvals:poll => {json.dumps(polled, ensure_ascii=False)}")
 
         granted = await _invoke_action(
             client_channel,
@@ -195,18 +228,18 @@ async def main() -> None:
         )
         print(json.dumps(granted, indent=2, ensure_ascii=False))
 
-        first_result = await first_run
-        print(f"first run success={first_result.success}, errors={first_result.errors}")
+        first_response = await first_run
+        print(f"first run success={_extract_run_success(first_response)}")
 
         if workspace_rules.exists():
             print("workspace approvals file:")
             print(workspace_rules.read_text(encoding="utf-8"))
 
         print("\n== 2) second run: same command prefix auto-pass (no new pending)")
-        second_result = await agent("Run the second command")
+        second_response = await client_channel.ask(_new_prompt_envelope("Run the second command"), timeout=30.0)
         listed_after_second = await _invoke_action(client_channel, "approvals:list")
         pending_after_second = listed_after_second.get("pending", [])
-        print(f"second run success={second_result.success}, pending_count={len(pending_after_second)}")
+        print(f"second run success={_extract_run_success(second_response)}, pending_count={len(pending_after_second)}")
 
         rule = granted.get("rule")
         if not isinstance(rule, dict) or not isinstance(rule.get("rule_id"), str):
@@ -218,7 +251,7 @@ async def main() -> None:
         print(json.dumps(revoked, indent=2, ensure_ascii=False))
 
         print("\n== 4) third run: pending appears again after revoke")
-        third_run = asyncio.create_task(agent("Run the third command"))
+        third_run = asyncio.create_task(client_channel.ask(_new_prompt_envelope("Run the third command"), timeout=30.0))
         third_request_id = await _wait_for_pending_request_id(client_channel)
         print(f"pending request after revoke: {third_request_id}")
 
@@ -229,8 +262,8 @@ async def main() -> None:
             scope="once",
             matcher="exact_params",
         )
-        third_result = await third_run
-        print(f"third run success={third_result.success}, errors={third_result.errors}")
+        third_response = await third_run
+        print(f"third run success={_extract_run_success(third_response)}")
 
         final_state = await _invoke_action(client_channel, "approvals:list")
         print("\n== Final approval state")
