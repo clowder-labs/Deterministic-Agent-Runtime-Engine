@@ -68,3 +68,17 @@ For GitHub branch protection and merge queue settings, follow `docs/governance/b
 - `MAIN_GUARD_ALLOW_MARKER`: commit marker to bypass incident (default `[main-guard:allow-direct-push]`)
 
 Use bypass only for emergency hotfixes and always attach a postmortem note in follow-up PR/issue.
+
+## Manual Merge Guard (No Auto-Self-Merge Fallback)
+- Workflow: `.github/workflows/manual-merge-guard.yml`
+- Trigger: every merged PR close event on `main` (`pull_request_target: closed`)
+- Policy:
+  - merged PR must have at least one independent `APPROVED` review
+  - self-merge (`author == merged_by`) is treated as non-compliant by default
+  - non-compliant merge triggers incident issue + optional rollback PR
+
+### Repository Variables
+- `MANUAL_MERGE_GUARD_MODE`: `revert-pr` (default) or `alert-only`
+- `MANUAL_MERGE_GUARD_ALLOW_MERGERS`: comma-separated emergency allowlist for mergers
+
+This is a free-tier fallback when GitHub branch protection/rulesets are not available on private repositories.

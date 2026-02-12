@@ -70,6 +70,21 @@ pytest -q tests/smoke -m smoke
 - `MAIN_GUARD_ALLOW_ACTORS`: 紧急允许直推的 actor 白名单（逗号分隔）
 - `MAIN_GUARD_ALLOW_MARKER`: 提交信息绕过标记（默认 `[main-guard:allow-direct-push]`）
 
+## 4.1 合并人工审批护栏（manual-merge-guard）
+
+工作流：
+- `/Users/lysander/projects/dare-framework/.github/workflows/manual-merge-guard.yml`
+
+作用：
+1. PR 合入 `main` 后检查是否符合人工审批策略。
+2. 默认把“作者自合并”视为违规（`author == merged_by`）。
+3. 必须存在至少一个独立 `APPROVED` review。
+4. 违规时自动发 incident，必要时自动回滚 PR。
+
+仓库变量：
+- `MANUAL_MERGE_GUARD_MODE`: `revert-pr` 或 `alert-only`
+- `MANUAL_MERGE_GUARD_ALLOW_MERGERS`: 紧急白名单（逗号分隔）
+
 ## 5. 冲突最小化策略（并行开发必做）
 
 1. 小 PR：尽量控制在一个目标、少文件、少行数。

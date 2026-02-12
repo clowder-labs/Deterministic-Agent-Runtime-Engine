@@ -46,3 +46,4 @@ Reference: `docs/agent_rules.md`
 - [ ] Public interfaces/data structures unchanged unless explicitly required
 - [ ] Tests added/updated and evidence attached
 - [ ] Any `skip/only/exclude` usage is explained and reviewed
+- [ ] Merge will be done by approved reviewer (no self-merge auto-ship)

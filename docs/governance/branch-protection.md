@@ -57,6 +57,24 @@ Use `.github/workflows/main-guard.yml` as an automated guard rail:
 
 This fallback does not replace native branch protection, but it gives enforceable detection and remediation when plan limits block branch rules.
 
+## Free-Tier Fallback: Manual Approval Enforcement
+Use `.github/workflows/manual-merge-guard.yml` to enforce a review-based policy after merge:
+
+1. Trigger on merged PR close events targeting `main`.
+2. Mark non-compliant when:
+   - PR is self-merged (`author == merged_by`), or
+   - no independent `APPROVED` review exists.
+3. Open incident issue automatically.
+4. In `MANUAL_MERGE_GUARD_MODE=revert-pr`, auto-create a rollback PR.
+5. Fail the guard run for visible audit signal.
+
+### Variables
+- `MANUAL_MERGE_GUARD_MODE`
+  - `revert-pr`: detect + issue + rollback PR
+  - `alert-only`: detect + issue only
+- `MANUAL_MERGE_GUARD_ALLOW_MERGERS`
+  - Emergency merger allowlist (comma-separated)
+
 ## Verification Steps
 1. Open a small PR.
 2. Confirm `lint` and `build` run automatically.

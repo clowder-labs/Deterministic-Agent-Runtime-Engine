@@ -1,0 +1,149 @@
+name: manual-merge-guard
+
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+
+concurrency:
+  # Preserve every incident run for audit trail.
+  group: manual-merge-guard-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  enforce-manual-approval:
+    name: enforce-manual-approval
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+    runs-on: ubuntu-latest
+    env:
+      MANUAL_MERGE_GUARD_MODE: ${{ vars.MANUAL_MERGE_GUARD_MODE }}
+      MANUAL_MERGE_GUARD_ALLOW_MERGERS: ${{ vars.MANUAL_MERGE_GUARD_ALLOW_MERGERS }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Classify merged PR event
+        id: classify
+        run: |
+          python scripts/ci/manual_merge_guard.py \
+            --event "$GITHUB_EVENT_PATH" \
+            --repository "$GITHUB_REPOSITORY" \
+            --token "${{ secrets.GITHUB_TOKEN }}" \
+            --allow-mergers "${MANUAL_MERGE_GUARD_ALLOW_MERGERS:-}"
+
+      - name: Write run summary
+        run: |
+          {
+            echo "## Manual Merge Guard Result"
+            echo "- Eligible event: \`${{ steps.classify.outputs.is_eligible_event }}\`"
+            echo "- Compliant: \`${{ steps.classify.outputs.is_compliant }}\`"
+            echo "- Needs rollback: \`${{ steps.classify.outputs.needs_rollback }}\`"
+            echo "- Reason: \`${{ steps.classify.outputs.reason }}\`"
+            echo "- PR number: \`${{ steps.classify.outputs.pr_number }}\`"
+            echo "- Author: \`${{ steps.classify.outputs.author }}\`"
+            echo "- Merger: \`${{ steps.classify.outputs.merger }}\`"
+            echo "- Approved reviewers: \`${{ steps.classify.outputs.approved_reviewers }}\`"
+            echo "- Mode: \`${MANUAL_MERGE_GUARD_MODE:-revert-pr}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create incident issue
+        id: incident
+        if: steps.classify.outputs.needs_rollback == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mode="${MANUAL_MERGE_GUARD_MODE:-revert-pr}"
+          title="Manual-merge-guard incident: PR #${{ steps.classify.outputs.pr_number }}"
+          body=$(cat <<EOF
+          ## Manual Merge Guard Incident
+
+          A non-compliant merge to \`main\` was detected.
+
+          - Repo: \`${GITHUB_REPOSITORY}\`
+          - PR: #${{ steps.classify.outputs.pr_number }}
+          - Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Reason: \`${{ steps.classify.outputs.reason }}\`
+          - Author: \`${{ steps.classify.outputs.author }}\`
+          - Merger: \`${{ steps.classify.outputs.merger }}\`
+          - Approved reviewers: \`${{ steps.classify.outputs.approved_reviewers }}\`
+          - Mode: \`${mode}\`
+          EOF
+          )
+          issue_url=$(gh issue create --title "$title" --body "$body")
+          echo "issue_url=$issue_url" >> "$GITHUB_OUTPUT"
+
+      - name: Create rollback branch and PR
+        id: rollback
+        if: steps.classify.outputs.needs_rollback == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_SHA: ${{ steps.classify.outputs.merge_commit_sha }}
+        run: |
+          mode="${MANUAL_MERGE_GUARD_MODE:-revert-pr}"
+          if [ "$mode" != "revert-pr" ]; then
+            echo "rollback_pr_url=" >> "$GITHUB_OUTPUT"
+            echo "Skipping rollback PR because MANUAL_MERGE_GUARD_MODE=${mode}."
+            exit 0
+          fi
+
+          if [ -z "$MERGE_SHA" ]; then
+            echo "rollback_pr_url=" >> "$GITHUB_OUTPUT"
+            echo "Missing merge_commit_sha; cannot create rollback PR."
+            exit 0
+          fi
+
+          git config user.name "manual-merge-guard[bot]"
+          git config user.email "manual-merge-guard[bot]@users.noreply.github.com"
+
+          rollback_branch="auto/manual-merge-guard-revert-${GITHUB_RUN_ID}"
+          git switch --create "$rollback_branch"
+
+          parent_words=$(git rev-list --parents -n 1 "$MERGE_SHA" | wc -w | tr -d ' ')
+          if [ "$parent_words" -ge 3 ]; then
+            git revert -m 1 --no-edit "$MERGE_SHA"
+          else
+            git revert --no-edit "$MERGE_SHA"
+          fi
+
+          git push origin "$rollback_branch"
+          rollback_pr_url=$(gh pr create \
+            --base main \
+            --head "$rollback_branch" \
+            --title "revert: non-compliant merge for PR #${{ steps.classify.outputs.pr_number }}" \
+            --body "Auto-generated rollback PR by \`manual-merge-guard\`.
+
+          - Incident run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Reason: \`${{ steps.classify.outputs.reason }}\`
+          - Merge SHA reverted: \`${MERGE_SHA}\`")
+          echo "rollback_pr_url=$rollback_pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Add remediation links to summary
+        if: steps.classify.outputs.needs_rollback == 'true'
+        run: |
+          {
+            echo ""
+            echo "## Manual Merge Guard Remediation"
+            echo "- Incident issue: \`${{ steps.incident.outputs.issue_url }}\`"
+            echo "- Rollback PR: \`${{ steps.rollback.outputs.rollback_pr_url }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark policy violation
+        if: steps.classify.outputs.needs_rollback == 'true'
+        run: |
+          echo "Manual merge policy violation detected and remediation workflow executed."
+          exit 1
