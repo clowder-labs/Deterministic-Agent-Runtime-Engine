@@ -102,3 +102,27 @@ async def test_approvals_action_handler_poll_timeout_returns_null_request(manage
 
     polled = await handler.invoke(ResourceAction.APPROVALS_POLL, timeout_seconds=0.05)
     assert polled["request"] is None
+
+
+@pytest.mark.asyncio
+async def test_approvals_action_handler_poll_filters_by_session_id(manager) -> None:
+    handler = ApprovalsActionHandler(manager)
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo session-a"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    second = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo session-b"},
+        session_id="session-b",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+    assert second.request is not None
+
+    polled = await handler.invoke(ResourceAction.APPROVALS_POLL, session_id="session-b")
+    request = polled["request"]
+    assert isinstance(request, dict)
+    assert request["request_id"] == second.request.request_id

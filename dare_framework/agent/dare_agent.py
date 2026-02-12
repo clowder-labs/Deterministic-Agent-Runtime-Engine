@@ -56,7 +56,7 @@ from dare_framework.transport.interaction.payloads import (
     build_approval_pending_payload,
     build_approval_resolved_payload,
 )
-from dare_framework.transport.types import TransportEnvelope, new_envelope_id
+from dare_framework.transport.types import TransportEnvelope, TransportEventType, new_envelope_id
 
 
 @dataclass
@@ -1501,7 +1501,10 @@ class DareAgent(BaseAgent):
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         )
-        await self._send_transport_payload(payload)
+        await self._send_transport_payload(
+            payload,
+            event_type=TransportEventType.APPROVAL_PENDING.value,
+        )
 
     async def _emit_approval_resolved_message(
         self,
@@ -1519,14 +1522,23 @@ class DareAgent(BaseAgent):
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         )
-        await self._send_transport_payload(payload)
+        await self._send_transport_payload(
+            payload,
+            event_type=TransportEventType.APPROVAL_RESOLVED.value,
+        )
 
-    async def _send_transport_payload(self, payload: dict[str, Any]) -> None:
+    async def _send_transport_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        event_type: str | None = None,
+    ) -> None:
         channel = self._active_transport
         if channel is None:
             return
         envelope = TransportEnvelope(
             id=new_envelope_id(),
+            event_type=event_type,
             payload=payload,
         )
         try:

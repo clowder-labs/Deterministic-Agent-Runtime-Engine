@@ -3,7 +3,13 @@ import inspect
 
 import pytest
 
-from dare_framework.transport import AgentChannel, EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport import (
+    AgentChannel,
+    EnvelopeKind,
+    TransportEnvelope,
+    TransportEventType,
+    new_envelope_id,
+)
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.interaction.control_handler import AgentControlHandler
 from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
@@ -290,9 +296,9 @@ async def test_invalid_control_payload_returns_structured_error() -> None:
         await channel.stop()
 
     assert len(seen) == 1
+    assert seen[0].event_type == TransportEventType.ERROR.value
     payload = seen[0].payload
     assert isinstance(payload, dict)
-    assert payload.get("type") == "error"
     assert payload.get("kind") == "control"
     assert payload.get("ok") is False
     assert payload.get("code") == "INVALID_CONTROL_PAYLOAD"
@@ -326,9 +332,9 @@ async def test_invalid_message_payload_returns_structured_error_and_is_not_enque
         await channel.stop()
 
     assert len(seen) == 1
+    assert seen[0].event_type == TransportEventType.ERROR.value
     payload = seen[0].payload
     assert isinstance(payload, dict)
-    assert payload.get("type") == "error"
     assert payload.get("kind") == "message"
     assert payload.get("ok") is False
     assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
@@ -377,9 +383,9 @@ async def test_action_timeout_returns_structured_error_and_channel_keeps_process
         await channel.stop()
 
     assert msg.payload == "hello-after-timeout"
+    assert seen[0].event_type == TransportEventType.ERROR.value
     timeout_payload = seen[0].payload
     assert isinstance(timeout_payload, dict)
-    assert timeout_payload.get("type") == "error"
     assert timeout_payload.get("kind") == "action"
     assert timeout_payload.get("ok") is False
     assert timeout_payload.get("code") == "ACTION_TIMEOUT"

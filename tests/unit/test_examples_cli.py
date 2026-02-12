@@ -4,15 +4,19 @@ import asyncio
 import contextlib
 from pathlib import Path
 import sys
+from typing import Any
 
 import pytest
 
+from dare_framework.tool.action_handler import ApprovalsActionHandler
 from dare_framework.tool._internal.control.approval_manager import (
     ApprovalDecision,
     ApprovalEvaluationStatus,
     JsonApprovalRuleStore,
     ToolApprovalManager,
 )
+from dare_framework.transport import EnvelopeKind, TransportEnvelope
+from dare_framework.transport.interaction.resource_action import ResourceAction
 
 
 def _resolve_example_dir() -> Path:
@@ -99,6 +103,52 @@ class _CaptureDisplay:
         return
 
 
+class _HandlerBackedApprovalClient:
+    """Minimal ask-capable client shim backed by the real approvals action handler."""
+
+    def __init__(self, manager: ToolApprovalManager) -> None:
+        self._handler = ApprovalsActionHandler(manager)
+
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
+        _ = timeout
+        action = ResourceAction(str(req.payload))
+        result = await self._handler.invoke(action, **dict(req.meta))
+        return TransportEnvelope(
+            id=f"resp-{req.id}",
+            reply_to=req.id,
+            kind=EnvelopeKind.MESSAGE,
+            event_type="result",
+            payload={"resp": {"result": result}},
+        )
+
+
+class _CaptureApprovalClient:
+    def __init__(self) -> None:
+        self.last_meta: dict[str, Any] | None = None
+
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
+        _ = timeout
+        self.last_meta = dict(req.meta)
+        return TransportEnvelope(
+            id=f"resp-{req.id}",
+            reply_to=req.id,
+            kind=EnvelopeKind.MESSAGE,
+            event_type="result",
+            payload={"resp": {"result": {"request": None}}},
+        )
+
+
+class _MissingEventTypeApprovalClient:
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
+        _ = timeout
+        return TransportEnvelope(
+            id=f"resp-{req.id}",
+            reply_to=req.id,
+            kind=EnvelopeKind.MESSAGE,
+            payload={"resp": {"result": {"request": None}}},
+        )
+
+
 @pytest.mark.asyncio
 async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
     manager = ToolApprovalManager(
@@ -115,21 +165,19 @@ async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
     assert evaluation.request is not None
     request_id = evaluation.request.request_id
 
-    class _FakeAgent:
-        _approval_manager = manager
-
     display = _CaptureDisplay()
+    approval_client = _HandlerBackedApprovalClient(manager)
 
     await cli._handle_approvals_command(  # type: ignore[attr-defined]
         ["list"],
-        agent=_FakeAgent(),
+        approval_client=approval_client,
         display=display,
     )
     assert any("pending" in msg for level, msg in display.messages if level == "info")
 
     await cli._handle_approvals_command(  # type: ignore[attr-defined]
         ["poll", "timeout_ms=10"],
-        agent=_FakeAgent(),
+        approval_client=approval_client,
         display=display,
     )
     assert any("pending request:" in msg for level, msg in display.messages if level == "info")
@@ -137,10 +185,35 @@ async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
     wait_task = asyncio.create_task(manager.wait_for_resolution(request_id))
     await cli._handle_approvals_command(  # type: ignore[attr-defined]
         ["grant", request_id, "scope=workspace", "matcher=exact_params"],
-        agent=_FakeAgent(),
+        approval_client=approval_client,
         display=display,
     )
     assert await wait_task == ApprovalDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_handle_approvals_poll_forwards_session_filter() -> None:
+    display = _CaptureDisplay()
+    approval_client = _CaptureApprovalClient()
+    await cli._handle_approvals_command(  # type: ignore[attr-defined]
+        ["poll", "timeout_ms=10", "session_id=session-42"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert approval_client.last_meta is not None
+    assert approval_client.last_meta.get("session_id") == "session-42"
+
+
+@pytest.mark.asyncio
+async def test_handle_approvals_command_requires_event_type_in_response() -> None:
+    display = _CaptureDisplay()
+    approval_client = _MissingEventTypeApprovalClient()
+    await cli._handle_approvals_command(  # type: ignore[attr-defined]
+        ["list"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert any("missing event_type" in msg for level, msg in display.messages if level == "error")
 
 
 @pytest.mark.asyncio

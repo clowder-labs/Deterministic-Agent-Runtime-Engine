@@ -16,6 +16,7 @@ from dare_framework.transport.types import (
     Receiver,
     Sender,
     TransportEnvelope,
+    TransportEventType,
     new_envelope_id,
 )
 
@@ -258,6 +259,7 @@ class DefaultAgentChannel(AgentChannel):
                 id=new_envelope_id(),
                 reply_to=reply_to,
                 kind=EnvelopeKind.MESSAGE,
+                event_type=TransportEventType.RESULT.value,
                 payload=build_success_payload(
                     kind=kind,
                     target=target,
@@ -280,6 +282,7 @@ class DefaultAgentChannel(AgentChannel):
                 id=new_envelope_id(),
                 reply_to=reply_to,
                 kind=EnvelopeKind.MESSAGE,
+                event_type=TransportEventType.ERROR.value,
                 payload=build_error_payload(
                     kind=kind,
                     target=target,

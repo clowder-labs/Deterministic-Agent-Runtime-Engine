@@ -7,8 +7,16 @@ import json
 from typing import Any, Callable
 
 from dare_framework.transport.interaction.controls import AgentControl
-from dare_framework.transport.kernel import ClientChannel
-from dare_framework.transport.types import EnvelopeKind, Receiver, Sender, TransportEnvelope, new_envelope_id
+from dare_framework.transport.kernel import ClientChannel, PollableClientChannel
+from dare_framework.transport.types import (
+    EnvelopeKind,
+    normalize_transport_event_type,
+    Receiver,
+    Sender,
+    TransportEnvelope,
+    TransportEventType,
+    new_envelope_id,
+)
 
 
 class StdioClientChannel(ClientChannel):
@@ -30,10 +38,10 @@ class StdioClientChannel(ClientChannel):
 
     def agent_envelope_receiver(self) -> Receiver:
         async def recv(msg: TransportEnvelope) -> None:
+            event_type = _resolve_transport_event_type(msg)
             payload = msg.payload
             if isinstance(payload, dict):
-                payload_type = payload.get("type")
-                if payload_type == "result":
+                if event_type == TransportEventType.RESULT.value:
                     kind = payload.get("kind")
                     resp = payload.get("resp")
                     if kind == "message":
@@ -43,9 +51,9 @@ class StdioClientChannel(ClientChannel):
                             output = payload.get("output")
                     else:
                         output = resp if resp is not None else payload
-                elif payload_type == "error":
+                elif event_type == TransportEventType.ERROR.value:
                     output = payload.get("reason") or payload.get("error")
-                elif payload_type == "approval_pending":
+                elif event_type == TransportEventType.APPROVAL_PENDING.value:
                     resp = payload.get("resp")
                     request_id = None
                     if isinstance(resp, dict):
@@ -53,7 +61,7 @@ class StdioClientChannel(ClientChannel):
                         if isinstance(request, dict):
                             request_id = request.get("request_id")
                     output = f"approval pending: request_id={request_id or '?'}"
-                elif payload_type == "approval_resolved":
+                elif event_type == TransportEventType.APPROVAL_RESOLVED.value:
                     resp = payload.get("resp")
                     request_id = None
                     decision = None
@@ -61,7 +69,7 @@ class StdioClientChannel(ClientChannel):
                         request_id = resp.get("request_id")
                         decision = resp.get("decision")
                     output = f"approval resolved: request_id={request_id or '?'} decision={decision or '?'}"
-                elif payload_type == "hook":
+                elif event_type == TransportEventType.HOOK.value:
                     output = payload.get("event")
                 else:
                     output = payload
@@ -142,7 +150,7 @@ class WebSocketClientChannel(ClientChannel):
         await self._sender(envelope)
 
 
-class DirectClientChannel(ClientChannel):
+class DirectClientChannel(PollableClientChannel):
     """Direct in-process adapter for request/response patterns."""
 
     def __init__(self) -> None:
@@ -172,6 +180,7 @@ class DirectClientChannel(ClientChannel):
                 id=new_envelope_id(),
                 reply_to=req.reply_to,
                 kind=req.kind,
+                event_type=req.event_type,
                 payload=req.payload,
                 meta=req.meta,
                 stream_id=req.stream_id,
@@ -203,6 +212,7 @@ def _default_serialize(msg: TransportEnvelope) -> str:
         "id": msg.id,
         "reply_to": msg.reply_to,
         "kind": msg.kind,
+        "event_type": msg.event_type,
         "payload": msg.payload,
         "meta": msg.meta,
         "stream_id": msg.stream_id,
@@ -226,11 +236,19 @@ def _default_deserialize(raw: Any) -> TransportEnvelope:
         id=str(data.get("id") or new_envelope_id()),
         reply_to=data.get("reply_to"),
         kind=data.get("kind"),
+        event_type=data.get("event_type"),
         payload=data.get("payload"),
         meta=data.get("meta") or {},
         stream_id=data.get("stream_id"),
         seq=data.get("seq"),
     )
+
+
+def _resolve_transport_event_type(msg: TransportEnvelope) -> str | None:
+    """Resolve event_type for receiver routing."""
+    if isinstance(msg.event_type, str):
+        return normalize_transport_event_type(msg.event_type)
+    return None
 
 
 __all__ = ["StdioClientChannel", "WebSocketClientChannel", "DirectClientChannel"]

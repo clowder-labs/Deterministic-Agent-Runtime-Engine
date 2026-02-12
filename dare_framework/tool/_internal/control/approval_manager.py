@@ -217,8 +217,10 @@ class ToolApprovalManager:
         self._pending_by_id: dict[str, _PendingApproval] = {}
         self._pending_by_fingerprint: dict[str, _PendingApproval] = {}
         self._resolved_by_id: dict[str, ApprovalDecision] = {}
-        self._pending_available = asyncio.Event()
         self._lock = asyncio.Lock()
+        # Condition-based wakeups avoid tight loops when polling with a session filter
+        # while unrelated pending requests exist.
+        self._pending_state_changed = asyncio.Condition(self._lock)
 
     @classmethod
     def from_paths(cls, *, workspace_dir: str | Path, user_dir: str | Path) -> ToolApprovalManager:
@@ -231,31 +233,36 @@ class ToolApprovalManager:
         pending.sort(key=lambda item: (item.created_at, item.request_id))
         return pending
 
-    async def poll_pending(self, *, timeout_seconds: float | None = None) -> PendingApprovalRequest | None:
-        """Return the oldest pending approval request, optionally waiting for one."""
+    async def poll_pending(
+        self,
+        *,
+        timeout_seconds: float | None = None,
+        session_id: str | None = None,
+    ) -> PendingApprovalRequest | None:
+        """Return the oldest pending approval request, optionally filtered by session."""
         if timeout_seconds is not None and timeout_seconds < 0:
             raise ValueError("timeout_seconds must be >= 0")
 
         loop = asyncio.get_running_loop()
         deadline = None if timeout_seconds is None else loop.time() + timeout_seconds
-        while True:
-            async with self._lock:
-                request = self._oldest_pending_locked()
+
+        async with self._pending_state_changed:
+            while True:
+                request = self._oldest_pending_locked(session_id=session_id)
                 if request is not None:
                     return request
-                wait_event = self._pending_available
 
-            if deadline is None:
-                await wait_event.wait()
-                continue
+                if deadline is None:
+                    await self._pending_state_changed.wait()
+                    continue
 
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                return None
-            try:
-                await asyncio.wait_for(wait_event.wait(), timeout=remaining)
-            except asyncio.TimeoutError:
-                return None
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return None
+                try:
+                    await asyncio.wait_for(self._pending_state_changed.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    return None
 
     def list_rules(self) -> list[ApprovalRule]:
         combined = [
@@ -278,7 +285,8 @@ class ToolApprovalManager:
         command = _extract_command(params)
         fingerprint = _request_fingerprint(capability_id, params_hash)
 
-        async with self._lock:
+        # Use the condition lock consistently for pending-state mutations.
+        async with self._pending_state_changed:
             matched_rule = self._find_matching_rule(
                 capability_id=capability_id,
                 params_hash=params_hash,
@@ -315,7 +323,7 @@ class ToolApprovalManager:
                 existing = _PendingApproval(request=request, fingerprint=fingerprint)
                 self._pending_by_fingerprint[fingerprint] = existing
                 self._pending_by_id[request.request_id] = existing
-                self._pending_available.set()
+                self._pending_state_changed.notify_all()
 
             return ApprovalEvaluation(
                 status=ApprovalEvaluationStatus.PENDING,
@@ -329,7 +337,9 @@ class ToolApprovalManager:
         *,
         timeout_seconds: float | None = None,
     ) -> ApprovalDecision:
-        async with self._lock:
+        # Keep all pending/resolution map access on the same condition-backed lock
+        # so concurrency audits only need to reason about one synchronization surface.
+        async with self._pending_state_changed:
             resolved = self._resolved_by_id.pop(request_id, None)
             if resolved is not None:
                 return resolved
@@ -345,7 +355,7 @@ class ToolApprovalManager:
 
         if pending.resolution is None:
             raise RuntimeError(f"Approval request resolved without decision: {request_id}")
-        async with self._lock:
+        async with self._pending_state_changed:
             self._resolved_by_id.pop(request_id, None)
         return pending.resolution
 
@@ -382,7 +392,7 @@ class ToolApprovalManager:
         )
 
     async def revoke(self, rule_id: str) -> bool:
-        async with self._lock:
+        async with self._pending_state_changed:
             removed = self._remove_rule(rule_id)
             if removed:
                 self._persist_rules_for_scope(removed.scope)
@@ -397,7 +407,8 @@ class ToolApprovalManager:
         matcher: ApprovalMatcherKind,
         matcher_value: str | None,
     ) -> ApprovalRule | None:
-        async with self._lock:
+        # Keep pending-state transitions on the condition lock to avoid mixed styles.
+        async with self._pending_state_changed:
             pending = self._pending_by_id.get(request_id)
             if pending is None:
                 raise KeyError(f"Unknown approval request: {request_id}")
@@ -419,8 +430,7 @@ class ToolApprovalManager:
             self._resolved_by_id[request_id] = decision
             self._pending_by_id.pop(request_id, None)
             self._pending_by_fingerprint.pop(pending.fingerprint, None)
-            if not self._pending_by_id:
-                self._pending_available.clear()
+            self._pending_state_changed.notify_all()
             return rule
 
     def _append_rule(self, rule: ApprovalRule) -> None:
@@ -509,11 +519,16 @@ class ToolApprovalManager:
                 return rule
         return None
 
-    def _oldest_pending_locked(self) -> PendingApprovalRequest | None:
+    def _oldest_pending_locked(self, *, session_id: str | None = None) -> PendingApprovalRequest | None:
         if not self._pending_by_id:
             return None
+        candidates = list(self._pending_by_id.values())
+        if session_id is not None:
+            candidates = [item for item in candidates if item.request.session_id == session_id]
+            if not candidates:
+                return None
         oldest = min(
-            self._pending_by_id.values(),
+            candidates,
             key=lambda item: (item.request.created_at, item.request.request_id),
         )
         return oldest.request

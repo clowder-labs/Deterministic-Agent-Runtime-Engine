@@ -517,10 +517,10 @@ class TestNoPlannerToolExecution:
         request_id: str | None = None
         for _ in range(100):
             for envelope in transport.sent:
+                if getattr(envelope, "event_type", None) != "approval.pending":
+                    continue
                 payload = getattr(envelope, "payload", None)
                 if not isinstance(payload, dict):
-                    continue
-                if payload.get("type") != "approval_pending":
                     continue
                 resp = payload.get("resp")
                 if not isinstance(resp, dict):

@@ -77,7 +77,11 @@ class ApprovalsActionHandler(IActionHandler):
 
         if action == ResourceAction.APPROVALS_POLL:
             timeout_seconds = _parse_timeout_seconds(params)
-            request = await self._approval_manager.poll_pending(timeout_seconds=timeout_seconds)
+            session_id = _optional_session_id(params.get("session_id"))
+            request = await self._approval_manager.poll_pending(
+                timeout_seconds=timeout_seconds,
+                session_id=session_id,
+            )
             return {"request": _pending_to_dict(request) if request is not None else None}
 
         if action == ResourceAction.APPROVALS_GRANT:
@@ -174,6 +178,13 @@ def _parse_matcher(raw: Any, *, default: ApprovalMatcherKind) -> ApprovalMatcher
 
 
 def _optional_matcher_value(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
+def _optional_session_id(raw: Any) -> str | None:
     if raw is None:
         return None
     text = str(raw).strip()

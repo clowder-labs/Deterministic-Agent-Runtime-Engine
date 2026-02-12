@@ -8,7 +8,6 @@ from typing import Any
 def build_success_payload(*, kind: str, target: str, resp: Any) -> dict[str, Any]:
     """Build a unified success payload for action/control/message paths."""
     return {
-        "type": "result",
         "kind": kind,
         "target": target,
         "ok": True,
@@ -20,7 +19,6 @@ def build_error_payload(*, kind: str, target: str, code: str, reason: str) -> di
     """Build a unified error payload with deterministic error fields."""
     detail = {"code": code, "reason": reason}
     return {
-        "type": "error",
         "kind": kind,
         "target": target,
         "ok": False,
@@ -40,7 +38,6 @@ def build_approval_pending_payload(
 ) -> dict[str, Any]:
     """Build a transport payload for a pending tool approval request."""
     return {
-        "type": "approval_pending",
         "kind": "approval",
         "target": capability_id,
         "ok": True,
@@ -63,7 +60,6 @@ def build_approval_resolved_payload(
 ) -> dict[str, Any]:
     """Build a transport payload for a resolved tool approval request."""
     return {
-        "type": "approval_resolved",
         "kind": "approval",
         "target": capability_id,
         "ok": True,

@@ -16,6 +16,33 @@ class EnvelopeKind(StrEnum):
     CONTROL = "control"
 
 
+class TransportEventType(StrEnum):
+    """Canonical event categories carried by message envelopes."""
+
+    RESULT = "result"
+    ERROR = "error"
+    HOOK = "hook"
+    APPROVAL_PENDING = "approval.pending"
+    APPROVAL_RESOLVED = "approval.resolved"
+
+
+_LEGACY_PAYLOAD_EVENT_TYPE_MAP: dict[str, str] = {
+    # Only legacy aliases that differ from canonical event_type values.
+    "approval_pending": TransportEventType.APPROVAL_PENDING.value,
+    "approval_resolved": TransportEventType.APPROVAL_RESOLVED.value,
+}
+
+
+def normalize_transport_event_type(raw: str | None) -> str | None:
+    """Normalize legacy/new event_type strings into canonical values."""
+    if raw is None:
+        return None
+    normalized = raw.strip()
+    if not normalized:
+        return None
+    return _LEGACY_PAYLOAD_EVENT_TYPE_MAP.get(normalized, normalized)
+
+
 @dataclass(frozen=True)
 class TransportEnvelope:
     """Transport envelope for agent/client messages."""
@@ -23,6 +50,7 @@ class TransportEnvelope:
     id: str
     reply_to: str | None = None
     kind: EnvelopeKind = EnvelopeKind.MESSAGE
+    event_type: str | None = None
     payload: Any = None
     meta: dict[str, Any] = field(default_factory=dict)
     stream_id: str | None = None
@@ -35,9 +63,22 @@ class TransportEnvelope:
                 object.__setattr__(self, "kind", EnvelopeKind(kind))
             except ValueError as exc:
                 raise ValueError(f"invalid envelope kind: {kind!r}") from exc
-            return
+            kind = self.kind
         if not isinstance(kind, EnvelopeKind):
             raise TypeError(f"invalid envelope kind type: {type(kind).__name__}")
+
+        event_type = self.event_type
+        if isinstance(event_type, TransportEventType):
+            object.__setattr__(self, "event_type", event_type.value)
+            return
+        if event_type is None:
+            return
+        if not isinstance(event_type, str):
+            raise TypeError(f"invalid event_type type: {type(event_type).__name__}")
+        normalized = normalize_transport_event_type(event_type)
+        if normalized is None:
+            raise ValueError("event_type must not be empty")
+        object.__setattr__(self, "event_type", normalized)
 
 
 def new_envelope_id() -> str:
@@ -51,6 +92,8 @@ Receiver = Callable[[TransportEnvelope], Awaitable[None]]
 
 __all__ = [
     "EnvelopeKind",
+    "TransportEventType",
+    "normalize_transport_event_type",
     "TransportEnvelope",
     "new_envelope_id",
     "Sender",

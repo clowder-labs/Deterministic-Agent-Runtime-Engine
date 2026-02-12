@@ -115,6 +115,7 @@
 可选参数：
 
 - `timeout_seconds` 或 `timeout_ms`
+- `session_id`（仅返回该 session 的最早 pending）
 
 输出：
 
@@ -134,8 +135,10 @@
 
 当 `requires_approval=true` 的工具调用进入 pending 时，runtime 会通过 transport 主动发出：
 
-- `type="approval_pending"`：包含 pending request 详情
-- `type="approval_resolved"`：包含 request_id 与最终 decision（allow/deny）
+- `event_type="approval.pending"`：包含 pending request 详情
+- `event_type="approval.resolved"`：包含 request_id 与最终 decision（allow/deny）
+
+协议说明：客户端应仅使用 `event_type` 做分流；`payload.type` 已移除。
 
 这允许客户端实现 Codex/Claude Code 风格的“消息流里出现审批卡片”，同时再用 `approvals:grant|deny` 完成决策。
 
@@ -155,7 +158,7 @@
 `examples/05-dare-coding-agent-enhanced/cli.py` 与 `examples/06-dare-coding-agent-mcp/cli.py` 都支持：
 
 - `/approvals list`
-- `/approvals poll [timeout_ms=30000]`
+- `/approvals poll [timeout_ms=30000] [session_id=...]`
 - `/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]`
 - `/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]`
 - `/approvals revoke <rule_id>`

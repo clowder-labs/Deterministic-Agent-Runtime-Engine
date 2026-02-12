@@ -1,9 +1,11 @@
 """transport domain facade."""
 
-from dare_framework.transport.interfaces import AgentChannel, ClientChannel
+from dare_framework.transport.interfaces import AgentChannel, ClientChannel, PollableClientChannel
 from dare_framework.transport.types import (
     EnvelopeKind,
+    TransportEventType,
     TransportEnvelope,
+    normalize_transport_event_type,
     new_envelope_id,
     Receiver,
     Sender,
@@ -23,8 +25,11 @@ from dare_framework.transport._internal import (
 __all__ = [
     "AgentChannel",
     "ClientChannel",
+    "PollableClientChannel",
     "EnvelopeKind",
+    "TransportEventType",
     "TransportEnvelope",
+    "normalize_transport_event_type",
     "new_envelope_id",
     "Receiver",
     "Sender",

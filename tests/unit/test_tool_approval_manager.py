@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 
 import pytest
@@ -164,6 +165,71 @@ async def test_poll_pending_returns_next_request_when_available(manager) -> None
     polled = await manager.poll_pending()
     assert polled is not None
     assert polled.request_id == first.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_filters_by_session_id(manager) -> None:
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo session-a"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    second = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo session-b"},
+        session_id="session-b",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+    assert second.request is not None
+
+    polled = await manager.poll_pending(session_id="session-b")
+    assert polled is not None
+    assert polled.request_id == second.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_session_filter_timeout_returns_none(manager) -> None:
+    await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo session-a"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+
+    polled = await manager.poll_pending(session_id="session-miss", timeout_seconds=0.05)
+    assert polled is None
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_session_filter_waiter_does_not_busy_loop_on_unrelated_pending(manager, monkeypatch) -> None:
+    await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo session-a"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+
+    call_count = 0
+    original = manager._oldest_pending_locked
+
+    def tracked_oldest_pending(*, session_id: str | None = None):
+        nonlocal call_count
+        call_count += 1
+        return original(session_id=session_id)
+
+    monkeypatch.setattr(manager, "_oldest_pending_locked", tracked_oldest_pending)
+    waiter = asyncio.create_task(manager.poll_pending(session_id="session-miss"))
+    await asyncio.sleep(0.05)
+
+    assert waiter.done() is False
+    # A healthy waiter should sleep on condition changes instead of tight-loop polling.
+    assert call_count < 30
+
+    waiter.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await waiter
 
 
 @pytest.mark.asyncio

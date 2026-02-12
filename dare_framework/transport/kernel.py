@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from dare_framework.transport.types import (
     Receiver,
@@ -23,6 +23,14 @@ class ClientChannel(Protocol):
 
     def agent_envelope_receiver(self) -> Receiver:
         """Return the receiver used to deliver envelopes from the agent outbox."""
+
+
+@runtime_checkable
+class PollableClientChannel(ClientChannel, Protocol):
+    """Extension for client channels that support polling unsolicited events."""
+
+    async def poll(self, timeout: float | None = None) -> TransportEnvelope | None:
+        """Poll unsolicited envelopes emitted by the agent channel."""
 
 
 class AgentChannel(Protocol):
@@ -75,4 +83,4 @@ class AgentChannel(Protocol):
         )
 
 
-__all__ = ["AgentChannel", "ClientChannel"]
+__all__ = ["AgentChannel", "ClientChannel", "PollableClientChannel"]

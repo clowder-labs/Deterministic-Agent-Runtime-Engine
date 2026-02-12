@@ -117,7 +117,10 @@ async def _invoke_action(
     payload = response.payload
     if not isinstance(payload, dict):
         raise RuntimeError(f"unexpected action response payload: {payload!r}")
-    if payload.get("type") == "error":
+    event_type = response.event_type
+    if not isinstance(event_type, str) or not event_type:
+        raise RuntimeError("invalid action response: missing event_type")
+    if event_type == "error":
         raise RuntimeError(f"action failed ({action_id}): {payload.get('reason')}")
 
     resp = payload.get("resp")
@@ -143,7 +146,8 @@ async def _wait_for_pending_request_id(
         payload = envelope.payload
         if not isinstance(payload, dict):
             continue
-        if payload.get("type") != "approval_pending":
+        event_type = envelope.event_type
+        if event_type != "approval.pending":
             continue
         resp = payload.get("resp")
         if not isinstance(resp, dict):
@@ -151,7 +155,7 @@ async def _wait_for_pending_request_id(
         request = resp.get("request")
         if isinstance(request, dict) and isinstance(request.get("request_id"), str):
             return request["request_id"]
-    raise TimeoutError("approval_pending event was not received in time")
+    raise TimeoutError("approval.pending event was not received in time")
 
 
 def _new_prompt_envelope(prompt: str) -> TransportEnvelope:
@@ -166,7 +170,8 @@ def _extract_run_success(response: TransportEnvelope) -> bool:
     payload = response.payload
     if not isinstance(payload, dict):
         return False
-    if payload.get("type") == "error":
+    event_type = response.event_type
+    if event_type != "result":
         return False
     raw_success = payload.get("success")
     if isinstance(raw_success, bool):

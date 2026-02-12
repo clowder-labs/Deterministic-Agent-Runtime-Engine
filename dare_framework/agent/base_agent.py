@@ -15,7 +15,12 @@ from dare_framework.agent.kernel import IAgent
 from dare_framework.agent.status import AgentStatus
 from dare_framework.plan.types import RunResult, Task
 from dare_framework.transport.interaction.payloads import build_error_payload, build_success_payload
-from dare_framework.transport.types import EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport.types import (
+    EnvelopeKind,
+    TransportEnvelope,
+    TransportEventType,
+    new_envelope_id,
+)
 
 if TYPE_CHECKING:
     from dare_framework.agent.builder import DareAgentBuilder, ReactAgentBuilder, SimpleChatAgentBuilder
@@ -274,6 +279,7 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         envelope = TransportEnvelope(
             id=new_envelope_id(),
             reply_to=reply_to,
+            event_type=TransportEventType.RESULT.value,
             payload={
                 **build_success_payload(
                     kind="message",
@@ -378,6 +384,7 @@ async def _send_transport_error(
                 id=new_envelope_id(),
                 kind=EnvelopeKind.MESSAGE,
                 reply_to=envelope_id,
+                event_type=TransportEventType.ERROR.value,
                 payload=build_error_payload(
                     kind="message",
                     target=target,

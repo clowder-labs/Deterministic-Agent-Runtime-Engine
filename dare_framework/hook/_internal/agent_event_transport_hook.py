@@ -9,7 +9,7 @@ from dare_framework.hook.kernel import IHook
 from dare_framework.hook.types import HookPhase
 from dare_framework.infra.component import ComponentType
 from dare_framework.transport.kernel import AgentChannel
-from dare_framework.transport.types import TransportEnvelope, new_envelope_id
+from dare_framework.transport.types import TransportEnvelope, TransportEventType, new_envelope_id
 
 _logger = logging.getLogger("dare.hook")
 
@@ -35,8 +35,8 @@ class AgentEventTransportHook(IHook):
             payload = {}
         envelope = TransportEnvelope(
             id=new_envelope_id(),
+            event_type=TransportEventType.HOOK.value,
             payload={
-                "type": "hook",
                 "phase": phase.value,
                 "payload": payload,
             },

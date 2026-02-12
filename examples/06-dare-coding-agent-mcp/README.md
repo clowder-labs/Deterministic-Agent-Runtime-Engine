@@ -69,7 +69,7 @@ MCP server 定义在 `.dare/mcp/local_math.json`：
 - `/reject`：取消待审批计划
 - `/status`：查看当前状态
 - `/approvals list`：查看待审批请求与当前审批规则
-- `/approvals poll [timeout_ms=30000]`：阻塞等待下一个待审批请求（无请求则超时返回）
+- `/approvals poll [timeout_ms=30000] [session_id=...]`：阻塞等待下一个待审批请求（可按 session 过滤）
 - `/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]`：批准请求并可写入规则
 - `/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]`：拒绝请求并可写入规则
 - `/approvals revoke <rule_id>`：撤销审批规则

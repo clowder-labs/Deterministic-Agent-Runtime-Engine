@@ -8,7 +8,7 @@ import pytest
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.agent.status import AgentStatus
 from dare_framework.plan.types import RunResult
-from dare_framework.transport import EnvelopeKind, TransportEnvelope
+from dare_framework.transport import EnvelopeKind, TransportEnvelope, TransportEventType
 
 
 class _CaptureAgent(BaseAgent):
@@ -224,6 +224,7 @@ async def test_transport_loop_accepts_batched_messages_from_poll() -> None:
     assert agent.seen_tasks == ["first", "second"]
     assert len(channel._sent) == 2
     assert [envelope.reply_to for envelope in channel._sent] == ["m1", "m2"]
+    assert all(envelope.event_type == TransportEventType.RESULT.value for envelope in channel._sent)
 
 
 @pytest.mark.asyncio
@@ -238,12 +239,18 @@ async def test_transport_loop_returns_structured_error_for_invalid_message_paylo
     error_payloads = [
         envelope.payload
         for envelope in channel._sent
-        if isinstance(envelope.payload, dict) and envelope.payload.get("type") == "error"
+        if getattr(envelope, "event_type", None) == TransportEventType.ERROR.value and isinstance(envelope.payload, dict)
     ]
     assert len(error_payloads) == 1
     payload = error_payloads[0]
     assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
     assert payload.get("kind") == "message"
+    error_envelope = next(
+        envelope
+        for envelope in channel._sent
+        if getattr(envelope, "event_type", None) == TransportEventType.ERROR.value and isinstance(envelope.payload, dict)
+    )
+    assert error_envelope.event_type == TransportEventType.ERROR.value
 
 
 @pytest.mark.asyncio
@@ -254,12 +261,15 @@ async def test_transport_loop_returns_structured_error_when_execute_raises() -> 
 
     await agent._run_transport_loop()
 
-    error_payloads = [
-        envelope.payload
+    error_envelopes = [
+        envelope
         for envelope in channel._sent
-        if isinstance(envelope.payload, dict) and envelope.payload.get("type") == "error"
+        if getattr(envelope, "event_type", None) == TransportEventType.ERROR.value and isinstance(envelope.payload, dict)
     ]
-    assert len(error_payloads) == 1
-    payload = error_payloads[0]
+    assert len(error_envelopes) == 1
+    error_envelope = error_envelopes[0]
+    assert error_envelope.event_type == TransportEventType.ERROR.value
+    payload = error_envelope.payload
+    assert isinstance(payload, dict)
     assert payload.get("code") == "AGENT_EXECUTION_FAILED"
     assert "simulated model timeout" in str(payload.get("reason"))
