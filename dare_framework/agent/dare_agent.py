@@ -717,8 +717,13 @@ class DareAgent(BaseAgent):
                 "model_name": getattr(self._model, "name", None),
                 "model_input": model_input,
             })
-            if before_model_dispatch.decision is HookDecision.BLOCK:
-                errors.append("model invocation denied by hook policy")
+            if before_model_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+                policy_error = (
+                    "model invocation requires hook approval"
+                    if before_model_dispatch.decision is HookDecision.ASK
+                    else "model invocation denied by hook policy"
+                )
+                errors.append(policy_error)
                 return await self._finalize_execute(
                     execute_start,
                     {"success": False, "outputs": outputs, "errors": errors},
@@ -959,8 +964,12 @@ class DareAgent(BaseAgent):
                     "requires_approval": requires_approval,
                 },
             )
-            if before_tool_dispatch.decision is HookDecision.BLOCK:
-                policy_error = "tool invocation denied by hook policy"
+            if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+                policy_error = (
+                    "tool invocation requires hook approval"
+                    if before_tool_dispatch.decision is HookDecision.ASK
+                    else "tool invocation denied by hook policy"
+                )
                 await self._emit_hook(
                     HookPhase.AFTER_TOOL,
                     {
@@ -1205,10 +1214,15 @@ class DareAgent(BaseAgent):
         if self._session_state and self._session_state.current_milestone_state:
             milestone_id = self._session_state.current_milestone_state.milestone.milestone_id
         before_verify_dispatch = await self._emit_hook(HookPhase.BEFORE_VERIFY, {"milestone_id": milestone_id})
-        if before_verify_dispatch.decision is HookDecision.BLOCK:
+        if before_verify_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+            policy_error = (
+                "milestone verification requires hook approval"
+                if before_verify_dispatch.decision is HookDecision.ASK
+                else "milestone verification denied by hook policy"
+            )
             return VerifyResult(
                 success=False,
-                errors=["milestone verification denied by hook policy"],
+                errors=[policy_error],
             )
 
         # TODO: Need to convert execute_result to proper type
