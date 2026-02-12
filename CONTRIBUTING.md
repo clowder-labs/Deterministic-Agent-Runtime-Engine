@@ -49,6 +49,7 @@ pytest -q tests/smoke -m smoke
 ## Team Agent Rules
 Read and follow `docs/agent_rules.md` before opening a PR.
 Team collaboration playbook: `docs/guides/Team_Agent_Collab_Playbook.md`.
+GitHub access troubleshooting: `docs/guides/GitHub_Access_Troubleshooting.md`.
 
 ## Governance Setup
 For GitHub branch protection and merge queue settings, follow `docs/governance/branch-protection.md`.
