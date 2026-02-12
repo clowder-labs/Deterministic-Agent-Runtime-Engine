@@ -7,6 +7,7 @@ import pytest
 
 from dare_framework.agent.dare_agent import DareAgent
 from dare_framework.config.types import Config
+from dare_framework.context import Context
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse
@@ -68,6 +69,7 @@ async def test_dare_agent_reload_mcp_delegates_to_manager() -> None:
     agent = DareAgent(
         "agent",
         model=DummyModelAdapter(),
+        context=Context(config=Config()),
         tool_gateway=gateway,
         mcp_manager=mcp_manager,  # type: ignore[arg-type]
     )
@@ -89,6 +91,7 @@ async def test_dare_agent_unload_mcp_delegates_to_manager() -> None:
     agent = DareAgent(
         "agent",
         model=DummyModelAdapter(),
+        context=Context(config=Config()),
         tool_gateway=gateway,
         mcp_manager=mcp_manager,  # type: ignore[arg-type]
     )
@@ -105,6 +108,7 @@ def test_dare_agent_inspect_mcp_tools_delegates_to_manager() -> None:
     agent = DareAgent(
         "agent",
         model=DummyModelAdapter(),
+        context=Context(config=Config()),
         tool_gateway=gateway,
         mcp_manager=mcp_manager,  # type: ignore[arg-type]
     )
@@ -118,7 +122,12 @@ def test_dare_agent_inspect_mcp_tools_delegates_to_manager() -> None:
 @pytest.mark.asyncio
 async def test_dare_agent_reload_mcp_requires_mcp_manager() -> None:
     gateway = ToolManager(load_entrypoints=False)
-    agent = DareAgent("agent", model=DummyModelAdapter(), tool_gateway=gateway)
+    agent = DareAgent(
+        "agent",
+        model=DummyModelAdapter(),
+        context=Context(config=Config()),
+        tool_gateway=gateway,
+    )
 
     with pytest.raises(RuntimeError, match="MCP manager is not configured"):
         await agent.reload_mcp()
@@ -130,6 +139,7 @@ async def test_dare_agent_reload_mcp_requires_manageable_tool_gateway() -> None:
     agent = DareAgent(
         "agent",
         model=DummyModelAdapter(),
+        context=Context(config=Config()),
         tool_gateway=object(),  # type: ignore[arg-type]
         mcp_manager=mcp_manager,  # type: ignore[arg-type]
     )

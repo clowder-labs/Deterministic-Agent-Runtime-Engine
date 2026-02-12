@@ -5,12 +5,18 @@ from typing import Any
 import pytest
 
 from dare_framework.agent import BaseAgent
-from dare_framework.config.types import ComponentConfig, Config
+from dare_framework.config.types import Config
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import ModelInput, ModelResponse, Prompt
+from dare_framework.skill._internal.action_handler import SkillsActionHandler
+from dare_framework.skill.interfaces import ISkillStore
 from dare_framework.skill.types import Skill
+from dare_framework.tool.tool_gateway import ToolGateway
 from dare_framework.tool.tool_manager import ToolManager
+from dare_framework.transport import AgentChannel, ResourceAction, TransportEnvelope
+
+SKILL_TOOL_NAME = "skill"
 
 
 class DummyModelAdapter(IModelAdapter):
@@ -28,6 +34,39 @@ class DummyModelAdapter(IModelAdapter):
 
     async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
         return ModelResponse(content="ok")
+
+
+class DummyClientChannel:
+    def __init__(self) -> None:
+        self._sender = None
+
+    def attach_agent_envelope_sender(self, sender):
+        self._sender = sender
+
+    def agent_envelope_receiver(self):
+        async def receiver(_msg: TransportEnvelope) -> None:
+            return None
+
+        return receiver
+
+
+class InMemorySkillStore(ISkillStore):
+    def __init__(self, skills: list[Skill]) -> None:
+        self._skills = list(skills)
+
+    def list_skills(self) -> list[Skill]:
+        return list(self._skills)
+
+    def get_skill(self, skill_id: str) -> Skill | None:
+        for skill in self._skills:
+            if skill.id == skill_id:
+                return skill
+        return None
+
+    def select_for_task(self, query: str, limit: int = 5) -> list[Skill]:
+        lowered = query.lower()
+        hits = [skill for skill in self._skills if lowered in skill.id.lower() or lowered in skill.name.lower()]
+        return hits[:limit]
 
 
 def _base_prompt() -> Prompt:
@@ -49,26 +88,15 @@ def _manual_skill() -> Skill:
     )
 
 
-def _tool_names(agent: Any) -> set[str]:
+def _tool_names(agent: BaseAgent) -> set[str]:
     names: set[str] = set()
-    for tool_item in agent.context.list_tools():
-        if isinstance(tool_item, dict):
-            metadata = tool_item.get("metadata", {})
-            display_name = metadata.get("display_name")
-            if isinstance(display_name, str):
-                names.add(display_name)
+    for descriptor in agent.context.list_tools():
+        metadata = descriptor.metadata
+        if metadata is None:
             continue
-
-        # Compatibility: some code paths return CapabilityDescriptor objects.
-        metadata = getattr(tool_item, "metadata", {}) or {}
-        display_name = metadata.get("display_name") if isinstance(metadata, dict) else None
-        if isinstance(display_name, str):
+        display_name = metadata.get("display_name")
+        if isinstance(display_name, str) and display_name:
             names.add(display_name)
-            continue
-
-        descriptor_name = getattr(tool_item, "name", None)
-        if isinstance(descriptor_name, str):
-            names.add(descriptor_name)
     return names
 
 
@@ -84,7 +112,7 @@ async def test_builder_skill_tool_false_preserves_sys_skill_and_skips_search_too
     )
 
     tool_names = _tool_names(agent)
-    assert "skill" not in tool_names
+    assert SKILL_TOOL_NAME not in tool_names
 
     assembled = agent.context.assemble()
     assert assembled.sys_prompt is not None
@@ -104,7 +132,7 @@ async def test_builder_skill_tool_true_registers_search_tool_and_ignores_sys_ski
     )
 
     tool_names = _tool_names(agent)
-    assert "skill" in tool_names
+    assert SKILL_TOOL_NAME in tool_names
 
     assembled = agent.context.assemble()
     assert assembled.sys_prompt is not None
@@ -112,58 +140,30 @@ async def test_builder_skill_tool_true_registers_search_tool_and_ignores_sys_ski
 
 
 @pytest.mark.asyncio
-async def test_builder_auto_injects_default_workspace_tools() -> None:
+async def test_builder_reuses_resolved_skill_store_for_tool_and_action_handler() -> None:
+    store = InMemorySkillStore([_manual_skill()])
+    channel = AgentChannel.build(DummyClientChannel())
     agent = await (
-        BaseAgent.simple_chat_agent_builder("defaults-on")
+        BaseAgent.simple_chat_agent_builder("skill-shared")
         .with_model(DummyModelAdapter())
         .with_prompt(_base_prompt())
-        .with_skill_tool(False)
+        .with_config(Config(workspace_dir="/tmp", user_dir="/tmp"))
+        .with_skill_store(store)
+        .with_agent_channel(channel)
+        .with_skill_tool(True)
         .build()
     )
 
-    tool_names = _tool_names(agent)
-    assert {"read_file", "write_file", "search_code", "search_file", "run_command", "run_cmd"} <= tool_names
+    gateway = getattr(agent.context, "_tool_gateway", None)
+    assert isinstance(gateway, ToolGateway)
+    manager = getattr(gateway, "_tool_manager", None)
+    assert isinstance(manager, ToolManager)
+    skill_tools = [tool for tool in manager.list_tools() if tool.name == "skill"]
+    assert len(skill_tools) == 1
+    assert getattr(skill_tools[0], "_skill_store") is store
 
-
-@pytest.mark.asyncio
-async def test_builder_default_workspace_tools_respect_component_disable() -> None:
-    config = Config(
-        workspace_dir="/tmp",
-        user_dir="/tmp",
-        components={
-            ComponentType.TOOL.value: ComponentConfig(
-                disabled=["run_command", "run_cmd", "search_file"]
-            )
-        },
-    )
-
-    agent = await (
-        BaseAgent.simple_chat_agent_builder("defaults-filtered")
-        .with_model(DummyModelAdapter())
-        .with_prompt(_base_prompt())
-        .with_skill_tool(False)
-        .with_config(config)
-        .build()
-    )
-
-    tool_names = _tool_names(agent)
-    assert "run_command" not in tool_names
-    assert "run_cmd" not in tool_names
-    assert "search_file" not in tool_names
-    assert "read_file" in tool_names
-
-
-@pytest.mark.asyncio
-async def test_builder_with_custom_gateway_does_not_auto_inject_defaults() -> None:
-    agent = await (
-        BaseAgent.simple_chat_agent_builder("defaults-off")
-        .with_model(DummyModelAdapter())
-        .with_prompt(_base_prompt())
-        .with_skill_tool(False)
-        .with_tool_gateway(ToolManager(load_entrypoints=False))
-        .build()
-    )
-
-    tool_names = _tool_names(agent)
-    assert "read_file" not in tool_names
-    assert "write_file" not in tool_names
+    dispatcher = channel.get_action_handler_dispatcher()
+    assert dispatcher is not None
+    skills_handler = dispatcher._action_handlers.get(ResourceAction.SKILLS_LIST)  # type: ignore[attr-defined]
+    assert isinstance(skills_handler, SkillsActionHandler)
+    assert getattr(skills_handler, "_store") is store

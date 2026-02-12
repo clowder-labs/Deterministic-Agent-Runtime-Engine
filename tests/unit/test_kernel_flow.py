@@ -169,7 +169,8 @@ async def test_tool_requires_approval_triggers_checkpoint_events(tmp_path):
         def capability_kind(self) -> CapabilityKind:
             return CapabilityKind.TOOL
 
-        async def execute(self, input: dict[str, Any], context: RunContext) -> ToolResult:
+        async def execute(self, *, run_context: RunContext[Any], **params: Any) -> ToolResult[dict[str, Any]]:
+            _ = run_context, params
             return ToolResult(success=True, output={"status": "ok"}, evidence=[])
 
     event_log = LocalEventLog(path=str(tmp_path / "events.jsonl"))

@@ -9,9 +9,6 @@ from importlib import metadata as importlib_metadata
 from typing import Any, Callable, Iterable
 
 from dare_framework.config.types import Config
-from dare_framework.context import Context
-from dare_framework.plan.types import Envelope
-from dare_framework.tool import IToolGateway
 from dare_framework.tool.kernel import ITool, IToolManager, IToolProvider
 from dare_framework.tool.types import (
     CapabilityDescriptor,
@@ -19,9 +16,7 @@ from dare_framework.tool.types import (
     CapabilityMetadata,
     CapabilityType,
     ProviderStatus,
-    RunContext,
     ToolDefinition,
-    ToolResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,8 +34,8 @@ class _registry_entry:
     tool: ITool | None = None
 
 
-class ToolManager(IToolManager, IToolGateway):
-    """Owns the trusted capability registry and the tool invocation boundary."""
+class ToolManager(IToolManager):
+    """Owns the trusted capability registry and tool/provider lifecycle."""
 
     def __init__(
             self,
@@ -62,7 +57,6 @@ class ToolManager(IToolManager, IToolGateway):
         self._load_entrypoints = load_entrypoints
         self._entrypoints_loaded = False
         self._entrypoint_providers: dict[str, IToolProvider] = {}
-
         if load_entrypoints:
             self.load_entrypoint_providers()
 
@@ -173,7 +167,7 @@ class ToolManager(IToolManager, IToolGateway):
         self.load_entrypoint_providers()
         for provider in self._providers:
             self._sync_provider_tools(provider, provider.list_tools())
-        return await self.list_capabilities(include_disabled=True)
+        return self.list_capabilities(include_disabled=True)
 
     def load_tools(self, *, config: Config | None = None) -> list[ITool]:
         self.load_entrypoint_providers()
@@ -184,27 +178,19 @@ class ToolManager(IToolManager, IToolGateway):
             tools.append(entry.tool)
         return tools
 
-    def list_capabilities_sync(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
+    def get_tool(self, capability_id: str) -> ITool:
+        entry = self._registry.get(capability_id)
+        if entry is None or not entry.enabled or entry.tool is None:
+            raise KeyError(f"Unknown capability id: {capability_id}")
+        return entry.tool
+
+    def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
         descriptors: list[CapabilityDescriptor] = []
         for entry in self._registry.values():
             if not include_disabled and not entry.enabled:
                 continue
             descriptors.append(entry.descriptor)
         return descriptors
-
-    async def list_capabilities(self, *, include_disabled: bool = False) -> list[CapabilityDescriptor]:
-        return self.list_capabilities_sync(include_disabled=include_disabled)
-
-    def list_tool_defs(self) -> list[ToolDefinition]:
-        tool_defs: list[ToolDefinition] = []
-        for entry in self._registry.values():
-            if not entry.enabled:
-                continue
-            capability = entry.descriptor
-            if capability.type != CapabilityType.TOOL:
-                continue
-            tool_defs.append(_tool_definition(capability))
-        return tool_defs
 
     def list_tools(self) -> list[ITool]:
         """Return active tools for inspection or provider-style access."""
@@ -239,27 +225,6 @@ class ToolManager(IToolManager, IToolGateway):
             ProviderStatus.HEALTHY if self._registry else ProviderStatus.DEGRADED,
         )
         return results
-
-    async def invoke(
-            self,
-            capability_id: str,
-            params: dict[str, Any],
-            *,
-            envelope: Envelope,
-            context: Context | None = None
-    ) -> ToolResult:
-        if envelope.allowed_capability_ids and capability_id not in envelope.allowed_capability_ids:
-            raise PermissionError(f"Capability '{capability_id}' not allowed by envelope")
-        entry = self._registry.get(capability_id)
-        if entry is None or not entry.enabled or entry.tool is None:
-            raise KeyError(f"Unknown capability id: {capability_id}")
-        tool_context = None
-        if context is not None:
-            tool_context = RunContext(
-                deps=context,
-                config=getattr(context, "config", None),
-            )
-        return await entry.tool.execute(params, tool_context)
 
     def _sync_provider_tools(self, provider: IToolProvider, tools: list[ITool]) -> None:
         existing_ids = self._provider_capabilities.get(provider, set())

@@ -6,19 +6,13 @@ context-centric architecture.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from dare_framework.agent.base_agent import BaseAgent
-from dare_framework.config import Config
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
-from dare_framework.tool import IToolProvider
+from dare_framework.plan.types import RunResult, Task
+from dare_framework.tool import IToolGateway
 
-if TYPE_CHECKING:
-    from dare_framework.context import Budget
-    from dare_framework.memory import IShortTermMemory, ILongTermMemory
-    from dare_framework.knowledge import IKnowledge
-    from dare_framework.transport.kernel import AgentChannel
+from dare_framework.transport.kernel import AgentChannel
 
 
 class SimpleChatAgent(BaseAgent):
@@ -30,11 +24,12 @@ class SimpleChatAgent(BaseAgent):
     - Simple conversational flow without complex planning
 
     Example:
-        agent = SimpleChatAgent(
-            name="chat-agent",
-            model=model,
+        agent = await (
+            BaseAgent.simple_chat_agent_builder("chat-agent")
+            .with_model(model)
+            .build()
         )
-        result = await agent.run("Hello, how are you?")
+        result = await agent("Hello, how are you?")
     """
 
     def __init__(
@@ -42,12 +37,8 @@ class SimpleChatAgent(BaseAgent):
         name: str,
         *,
         model: IModelAdapter,
-        context: Context | None = None,
-        short_term_memory: IShortTermMemory | None = None,
-        long_term_memory: ILongTermMemory | None = None,
-        knowledge: IKnowledge | None = None,
-        tools: IToolProvider | None = None,
-        budget: Budget | None = None,
+        context: Context,
+        tool_gateway: IToolGateway,
         agent_channel: AgentChannel | None = None,
     ) -> None:
         """Initialize SimpleChatAgent.
@@ -55,40 +46,26 @@ class SimpleChatAgent(BaseAgent):
         Args:
             name: Agent name identifier.
             model: Model adapter for generating responses (required).
-            context: Pre-configured context (optional, will create default if not provided).
-            short_term_memory: Short-term memory implementation (optional).
-            long_term_memory: Long-term memory implementation (optional).
-            knowledge: Knowledge retrieval implementation (optional).
-            tools: Tool provider for listing tools (optional).
-            budget: Resource budget (optional).
+            context: Pre-configured context (required, provided by builder).
+            tool_gateway: Tool gateway used by Context for tool definitions.
             agent_channel: Optional transport channel for streaming outputs.
         """
         super().__init__(name, agent_channel=agent_channel)
         self._model = model
-
-        # Create or use provided context
-        if context is None:
-            from dare_framework.context import Budget
-            self._context = Context(
-                id=f"context_{name}",
-                short_term_memory=short_term_memory,
-                long_term_memory=long_term_memory,
-                knowledge=knowledge,
-                budget=budget or Budget(),
-                config=Config(),
-            )
-            # Set tool provider if provided
-            if tools is not None:
-                self._context._tool_gateway = tools
-        else:
-            self._context = context
+        self._context = context
+        self._context.set_tool_gateway(tool_gateway)
 
     @property
     def context(self) -> Context:
         """Agent context."""
         return self._context
 
-    async def _execute(self, task: str) -> str:
+    async def execute(
+        self,
+        task: str | Task,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> RunResult:
         """Execute task using simple chat strategy.
 
         Flow:
@@ -102,10 +79,12 @@ class SimpleChatAgent(BaseAgent):
             task: Task description to execute.
 
         Returns:
-            Model response content as string.
+            Normalized run result.
         """
+        _ = transport
+        task_description = task.description if isinstance(task, Task) else task
         # 1. Add user message to short-term memory
-        user_message = Message(role="user", content=task)
+        user_message = Message(role="user", content=task_description)
         self._context.stm_add(user_message)
 
         # 2. Assemble context for LLM call
@@ -147,8 +126,12 @@ class SimpleChatAgent(BaseAgent):
         # 7. Check budget
         self._context.budget_check()
 
-        # 8. Return model response content directly
-        return response.content
+        # 8. Return model response content
+        return RunResult(
+            success=True,
+            output=response.content,
+            output_text=response.content,
+        )
 
 
 __all__ = ["SimpleChatAgent"]

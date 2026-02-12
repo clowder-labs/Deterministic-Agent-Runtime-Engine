@@ -282,9 +282,12 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     mcp: dict[str, dict[str, Any]] = field(default_factory=dict)
     mcp_paths: list[str] = field(default_factory=list)
+    """Directories to scan for MCP config files (e.g. .dare/mcp)."""
+    skill_paths: list[str] = field(default_factory=list)
+    """Directories to scan for skills (SKILL.md). When non-empty, used by SkillStoreBuilder; else default .dare/skills."""
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
-    allowtools: list[str] = field(default_factory=list)
-    allowmcps: list[str] = field(default_factory=list)
+    allow_tools: list[str] = field(default_factory=list)
+    allow_mcps: list[str] = field(default_factory=list)
     components: dict[str, ComponentConfig] = field(default_factory=dict)
     knowledge: dict[str, Any] = field(default_factory=dict)
     """Knowledge backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
@@ -308,9 +311,15 @@ class Config:
             if isinstance(mcp_paths_raw, list)
             else []
         )
+        skill_paths_raw = data.get("skill_paths")
+        skill_paths = (
+            [str(p) for p in skill_paths_raw]
+            if isinstance(skill_paths_raw, list)
+            else []
+        )
         tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
-        allowtools = data.get("allowtools") if isinstance(data.get("allowtools"), list) else []
-        allowmcps = data.get("allowmcps") if isinstance(data.get("allowmcps"), list) else []
+        allow_tools = [str(item) for item in data.get("allow_tools", [])] if isinstance(data.get("allow_tools"), list) else []
+        allow_mcps = [str(item) for item in data.get("allow_mcps", [])] if isinstance(data.get("allow_mcps"), list) else []
         components_raw = data.get("components") if isinstance(data.get("components"), dict) else {}
         components = {
             key: ComponentConfig.from_dict(value)
@@ -346,9 +355,10 @@ class Config:
             llm=llm,
             mcp=mcp,
             mcp_paths=mcp_paths,
+            skill_paths=skill_paths,
             tools=tools,
-            allowtools=allowtools,
-            allowmcps=allowmcps,
+            allow_tools=allow_tools,
+            allow_mcps=allow_mcps,
             components=components,
             knowledge=knowledge,
             long_term_memory=long_term_memory,
@@ -394,9 +404,10 @@ class Config:
             "llm": self.llm.to_dict(),
             "mcp": dict(self.mcp),
             "mcp_paths": list(self.mcp_paths),
+            "skill_paths": list(self.skill_paths),
             "tools": dict(self.tools),
-            "allowtools": list(self.allowtools),
-            "allowmcps": list(self.allowmcps),
+            "allow_tools": list(self.allow_tools),
+            "allow_mcps": list(self.allow_mcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
             "knowledge": dict(self.knowledge),
             "long_term_memory": dict(self.long_term_memory),

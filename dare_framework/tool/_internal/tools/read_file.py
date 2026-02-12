@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.errors import ToolError
 from dare_framework.tool._internal.file_utils import (
     DEFAULT_MAX_BYTES,
@@ -38,29 +42,11 @@ class ReadFileTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path relative to workspace root"},
-                "encoding": {"type": "string", "default": "utf-8"},
-                "start_line": {"type": "integer", "minimum": 1},
-                "end_line": {"type": "integer", "minimum": 1},
-            },
-            "required": ["path"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "content": {"type": "string"},
-                "path": {"type": "string"},
-                "size_bytes": {"type": "integer"},
-                "line_count": {"type": "integer"},
-                "truncated": {"type": "boolean"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def risk_level(self) -> str:
@@ -90,9 +76,38 @@ class ReadFileTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        path: str,
+        encoding: str = "utf-8",
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> ToolResult[ReadFileOutput]:
+        """Read text content from a file path.
+
+        Args:
+            run_context: Runtime invocation context.
+            path: File path relative to workspace root.
+            encoding: Text encoding used for decoding file content.
+            start_line: Optional 1-indexed start line for partial reads.
+            end_line: Optional 1-indexed end line for partial reads.
+
+        Returns:
+            File content payload with metadata.
+        """
         try:
-            return _execute_read(input, context)
+            payload: dict[str, Any] = {
+                "path": path,
+                "encoding": encoding,
+            }
+            if start_line is not None:
+                payload["start_line"] = start_line
+            if end_line is not None:
+                payload["end_line"] = end_line
+            return _execute_read(payload, run_context)
         except ToolError as exc:
             return _error_result(exc)
 
@@ -203,3 +218,11 @@ def _error_result(error: ToolError) -> ToolResult:
         error=error.message,
         evidence=[],
     )
+
+
+class ReadFileOutput(TypedDict):
+    content: str
+    path: str
+    size_bytes: int
+    line_count: int
+    truncated: bool

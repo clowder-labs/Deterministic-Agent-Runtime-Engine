@@ -22,8 +22,8 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
         user_dir / ".dare" / "config.json",
         {
             "llm": {"model": "user-model", "proxy": {"use_system_proxy": True}},
-            "allowtools": ["tool_a"],
-            "allowmcps": ["user_mcp"],
+            "allow_tools": ["tool_a"],
+            "allow_mcps": ["user_mcp"],
             "mcp": {"user": {"endpoint": "http://user-mcp"}},
             "components": {"validator": {"disabled": ["legacy_validator"]}},
         },
@@ -35,7 +35,7 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
                 "model": "workspace-model",
                 "proxy": {"disabled": True, "http": "http://proxy:8080"},
             },
-            "allowmcps": ["workspace_mcp"],
+            "allow_mcps": ["workspace_mcp"],
             "tools": {"local_command": {"timeout": 12}},
             "components": {"hook": {"stdout": {"level": "info"}}},
         },
@@ -64,8 +64,8 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
     assert config.llm.proxy.disabled is True
     assert config.llm.proxy.use_system_proxy is False
     assert config.llm.proxy.http is None
-    assert config.allowtools == ["tool_a"]
-    assert config.allowmcps == ["workspace_mcp"]
+    assert config.allow_tools == ["tool_a"]
+    assert config.allow_mcps == ["workspace_mcp"]
     assert config.mcp["user"]["endpoint"] == "http://user-mcp"
     assert config.tools["local_command"]["timeout"] == 12
     assert config.is_component_enabled(DummyValidator("legacy_validator")) is False
@@ -108,8 +108,8 @@ def test_file_config_provider_loads_fixture_files() -> None:
     config = provider.current()
 
     assert config.llm.model == "workspace-fixture-model"
-    assert config.allowtools == ["fixture_tool"]
-    assert config.allowmcps == ["fixture_mcp_workspace"]
+    assert config.allow_tools == ["fixture_tool"]
+    assert config.allow_mcps == ["fixture_mcp_workspace"]
     assert config.mcp["fixture_user"]["endpoint"] == "http://fixture-user-mcp"
     assert config.tools["fixture_tool"]["timeout"] == 9
     class DummyHook:

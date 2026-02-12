@@ -1,167 +1,136 @@
-"""MCP tool provider integration."""
+"""MCP tool manager integration."""
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Sequence
 
 from dare_framework.mcp.kernel import IMCPClient
 from dare_framework.tool.kernel import ITool, IToolProvider
-from dare_framework.tool.types import (
-    CapabilityKind,
-    RiskLevelName,
-    RunContext,
-    ToolResult,
-    ToolType,
-)
 
 
-class MCPToolProvider(IToolProvider):
-    """Expose MCP client tools as framework ITool instances."""
+class McpToolManager(IToolProvider):
+    """Manage MCP clients and expose their tools as a provider."""
 
     def __init__(self, clients: Sequence[IMCPClient]) -> None:
-        self._clients = list(clients)
-        self._tools: dict[str, MCPTool] = {}
+        self._clients: dict[str, IMCPClient] = {client.name: client for client in clients}
+        self._tools_by_mcp: dict[str, dict[str, ITool]] = {name: {} for name in self._clients}
+        self._disabled_mcps: set[str] = set()
+        self._connected_mcps: set[str] = set()
 
     async def initialize(self) -> None:
-        """Connect clients and cache their tools."""
-        self._tools.clear()
-        for client in self._clients:
-            await client.connect()
-            for tool_def in await client.list_tools():
-                tool_name = _tool_field(tool_def, "name", "")
-                if not tool_name:
-                    continue
-                full_name = f"{client.name}:{tool_name}"
-                self._tools[full_name] = MCPTool(
-                    client=client,
-                    tool_def=tool_def,
-                    tool_name=tool_name,
-                    full_name=full_name,
-                )
+        """Connect enabled MCP clients and cache tools."""
+        for mcp_name in self._clients:
+            if mcp_name in self._disabled_mcps:
+                self._tools_by_mcp[mcp_name] = {}
+                continue
+            await self._refresh_mcp(mcp_name)
 
     async def close(self) -> None:
         """Disconnect all MCP clients."""
-        for client in self._clients:
-            await client.disconnect()
+        for mcp_name, client in self._clients.items():
+            if mcp_name in self._connected_mcps:
+                await client.disconnect()
+        self._connected_mcps.clear()
 
-    def list_tools(self) -> list[ITool]:
-        """Return the cached MCP tools."""
-        return list(self._tools.values())
+    async def reload(self, mcp_name: str | None = None) -> None:
+        """Reload all enabled MCPs, or a single MCP by name."""
+        if mcp_name is None:
+            for name in self._clients:
+                if name in self._disabled_mcps:
+                    continue
+                await self._refresh_mcp(name)
+            return
+        self._ensure_known_mcp(mcp_name)
+        if mcp_name in self._disabled_mcps:
+            self._tools_by_mcp[mcp_name] = {}
+            return
+        await self._refresh_mcp(mcp_name)
 
-    def get_tool(self, name: str) -> ITool | None:
-        """Return a cached tool by its full name."""
-        return self._tools.get(name)
+    async def set_mcp_enabled(self, mcp_name: str, *, enabled: bool) -> None:
+        """Enable or disable a specific MCP at runtime."""
+        self._ensure_known_mcp(mcp_name)
+        if enabled:
+            self._disabled_mcps.discard(mcp_name)
+            await self._refresh_mcp(mcp_name)
+            return
+        self._disabled_mcps.add(mcp_name)
+        self._tools_by_mcp[mcp_name] = {}
+        if mcp_name in self._connected_mcps:
+            await self._clients[mcp_name].disconnect()
+            self._connected_mcps.discard(mcp_name)
 
+    def list_mcp_names(self, *, include_disabled: bool = False) -> list[str]:
+        names = sorted(self._clients)
+        if include_disabled:
+            return names
+        return [name for name in names if name not in self._disabled_mcps]
 
-class MCPTool(ITool):
-    """Adapter that wraps a single MCP tool definition."""
+    def list_tools(self, mcp_name: str | None = None) -> list[ITool]:
+        """Return cached tools, optionally scoped to one MCP."""
+        if mcp_name is None:
+            tools: list[ITool] = []
+            seen: set[int] = set()
+            for name in self.list_mcp_names():
+                for tool in self._tools_by_mcp.get(name, {}).values():
+                    identity = id(tool)
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    tools.append(tool)
+            return tools
+        if mcp_name in self._disabled_mcps:
+            return []
+        if mcp_name not in self._clients:
+            return []
+        tools: list[ITool] = []
+        seen: set[int] = set()
+        for tool in self._tools_by_mcp.get(mcp_name, {}).values():
+            identity = id(tool)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            tools.append(tool)
+        return tools
 
-    def __init__(
-        self,
-        *,
-        client: IMCPClient,
-        tool_def: Any,
-        tool_name: str,
-        full_name: str,
-    ) -> None:
-        self._client = client
-        self._tool_def = tool_def
-        self._tool_name = tool_name
-        self._full_name = full_name
+    def get_tool(self, mcp_name: str, tool_name: str) -> ITool | None:
+        """Get one tool by `mcp_name + tool_name`."""
+        if mcp_name in self._disabled_mcps:
+            return None
+        tools = self._tools_by_mcp.get(mcp_name)
+        if not tools:
+            return None
+        normalized_name = self._normalize_tool_name(mcp_name, tool_name)
+        return tools.get(normalized_name)
 
-    @property
-    def name(self) -> str:
-        return self._full_name
+    async def _refresh_mcp(self, mcp_name: str) -> None:
+        client = self._clients[mcp_name]
+        if mcp_name not in self._connected_mcps:
+            await client.connect()
+            self._connected_mcps.add(mcp_name)
+        tools = await client.list_tools()
+        mapping: dict[str, ITool] = {}
+        for tool in tools:
+            if not tool.name:
+                continue
+            short_name = self._normalize_tool_name(mcp_name, tool.name)
+            mapping[short_name] = tool
+            mapping[tool.name] = tool
+        self._tools_by_mcp[mcp_name] = mapping
 
-    @property
-    def description(self) -> str:
-        return str(_tool_field(self._tool_def, "description", ""))
+    def _ensure_known_mcp(self, mcp_name: str) -> None:
+        if mcp_name not in self._clients:
+            raise KeyError(f"unknown mcp: {mcp_name}")
 
-    @property
-    def input_schema(self) -> dict[str, Any]:
-        # MCP servers commonly return camelCase `inputSchema`; keep snake_case for compatibility.
-        value = _tool_field(self._tool_def, "input_schema", {}, aliases=("inputSchema",))
-        return dict(value) if isinstance(value, dict) else {}
-
-    @property
-    def output_schema(self) -> dict[str, Any]:
-        value = _tool_field(self._tool_def, "output_schema", {}, aliases=("outputSchema",))
-        return dict(value) if isinstance(value, dict) else {}
-
-    @property
-    def tool_type(self) -> ToolType:
-        return ToolType.WORK_UNIT if self.is_work_unit else ToolType.ATOMIC
-
-    @property
-    def risk_level(self) -> RiskLevelName:
-        value = _tool_field(self._tool_def, "risk_level", "read_only")
-        return _normalize_risk_level(value)
-
-    @property
-    def requires_approval(self) -> bool:
-        return bool(_tool_field(self._tool_def, "requires_approval", False))
-
-    @property
-    def timeout_seconds(self) -> int:
-        value = _tool_field(self._tool_def, "timeout_seconds", 30)
-        if isinstance(value, bool):
-            return 30
-        try:
-            parsed = int(value)
-        except (OverflowError, TypeError, ValueError):
-            return 30
-        return parsed if parsed > 0 else 30
-
-    @property
-    def is_work_unit(self) -> bool:
-        return bool(_tool_field(self._tool_def, "is_work_unit", False))
-
-    @property
-    def capability_kind(self) -> CapabilityKind:
-        value = _tool_field(self._tool_def, "capability_kind", CapabilityKind.TOOL)
-        return _normalize_capability_kind(value)
-
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
-        return await self._client.call_tool(self._tool_name, input, context=context)
-
-
-def _tool_field(
-    tool_def: Any,
-    field: str,
-    default: Any,
-    *,
-    aliases: tuple[str, ...] = (),
-) -> Any:
-    if isinstance(tool_def, dict):
-        if field in tool_def:
-            return tool_def[field]
-        for alias in aliases:
-            if alias in tool_def:
-                return tool_def[alias]
-        return default
-    if hasattr(tool_def, field):
-        return getattr(tool_def, field)
-    for alias in aliases:
-        if hasattr(tool_def, alias):
-            return getattr(tool_def, alias)
-    return default
+    @staticmethod
+    def _normalize_tool_name(mcp_name: str, tool_name: str) -> str:
+        prefix = f"{mcp_name}:"
+        if tool_name.startswith(prefix):
+            return tool_name[len(prefix):]
+        return tool_name
 
 
-def _normalize_risk_level(value: Any) -> RiskLevelName:
-    if hasattr(value, "value"):
-        value = value.value
-    return str(value)
+# Backward compatibility: existing call sites still import MCPToolProvider.
+MCPToolProvider = McpToolManager
 
 
-def _normalize_capability_kind(value: Any) -> CapabilityKind:
-    if isinstance(value, CapabilityKind):
-        return value
-    if hasattr(value, "value"):
-        value = value.value
-    try:
-        return CapabilityKind(str(value))
-    except ValueError:
-        return CapabilityKind.TOOL
-
-
-__all__ = ["MCPTool", "MCPToolProvider"]
+__all__ = ["McpToolManager", "MCPToolProvider"]

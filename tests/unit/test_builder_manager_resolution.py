@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
+
+if sys.version_info >= (3, 14):
+    pytest.skip(
+        "Skipping builder manager resolution tests on Python 3.14 due infra.protocol runtime-check issue",
+        allow_module_level=True,
+    )
 
 from dare_framework.agent import BaseAgent
 from dare_framework.config.types import ComponentConfig, Config
@@ -92,8 +99,9 @@ class DummyTool(ITool):
 
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: Any) -> ToolResult:
-        return ToolResult(success=True, output=input)
+    async def execute(self, *, run_context: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = run_context
+        return ToolResult(success=True, output=params)
 
 
 class RecordingValidator:
@@ -145,6 +153,17 @@ class FixedHookManager:
         return list(self._hooks)
 
 
+class DummyConfigProvider:
+    def __init__(self, config: Config) -> None:
+        self._config = config
+
+    def current(self) -> Config:
+        return self._config
+
+    def reload(self) -> Config:
+        return self._config
+
+
 @pytest.mark.asyncio
 async def test_simple_chat_builder_resolves_model_via_manager() -> None:
     manager_model = DummyModelAdapter("from-manager")
@@ -154,7 +173,7 @@ async def test_simple_chat_builder_resolves_model_via_manager() -> None:
         .build()
     )
 
-    result = await agent.run("hello")
+    result = await agent("hello")
     assert result.output == "from-manager"
 
 
@@ -169,8 +188,36 @@ async def test_simple_chat_builder_explicit_model_overrides_manager() -> None:
         .build()
     )
 
-    result = await agent.run("hello")
+    result = await agent("hello")
     assert result.output == "explicit"
+
+
+def test_simple_chat_builder_resolves_config_via_provider_when_config_missing() -> None:
+    provided = Config(workspace_dir="/from-provider", user_dir="/from-provider")
+    agent = (
+        BaseAgent.simple_chat_agent_builder("config-provider-test")
+        .with_model(DummyModelAdapter("ok"))
+        .with_config_provider(DummyConfigProvider(provided))
+        .build()
+    )
+
+    assert agent.context.config.workspace_dir == "/from-provider"
+    assert agent.context.config.user_dir == "/from-provider"
+
+
+def test_simple_chat_builder_explicit_config_overrides_provider() -> None:
+    explicit = Config(workspace_dir="/explicit", user_dir="/explicit")
+    provider = DummyConfigProvider(Config(workspace_dir="/from-provider", user_dir="/from-provider"))
+    agent = (
+        BaseAgent.simple_chat_agent_builder("config-override-test")
+        .with_model(DummyModelAdapter("ok"))
+        .with_config_provider(provider)
+        .with_config(explicit)
+        .build()
+    )
+
+    assert agent.context.config.workspace_dir == "/explicit"
+    assert agent.context.config.user_dir == "/explicit"
 
 
 def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:

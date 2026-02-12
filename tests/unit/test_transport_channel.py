@@ -1,8 +1,13 @@
 import asyncio
+import inspect
 
 import pytest
 
-from dare_framework.transport import DefaultAgentChannel, TransportEnvelope, new_envelope_id
+from dare_framework.transport import AgentChannel, EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport.interaction.resource_action import ResourceAction
+from dare_framework.transport.interaction.control_handler import AgentControlHandler
+from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
+from dare_framework.transport.interaction.handlers import IActionHandler
 
 
 class DummyClientChannel:
@@ -21,17 +26,67 @@ def _envelope(payload: str = "ping") -> TransportEnvelope:
     return TransportEnvelope(id=new_envelope_id(), payload=payload)
 
 
-@pytest.mark.asyncio
-async def test_outbox_backpressure_blocks() -> None:
-    async def receiver(msg: TransportEnvelope) -> None:
+class FakeAgent:
+    def __init__(self) -> None:
+        self.agent_channel = None
+        self.interrupted = False
+
+    def interrupt(self) -> dict[str, bool]:
+        self.interrupted = True
+        return {"ok": True}
+
+    def pause(self):  # pragma: no cover - control mapping contract only
         return None
 
-    client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, max_outbox=1, max_inbox=1)
+    def retry(self):  # pragma: no cover - control mapping contract only
+        return None
 
-    await channel.send(_envelope("one"))
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(channel.send(_envelope("two")), timeout=0.1)
+    def reverse(self):  # pragma: no cover - control mapping contract only
+        return None
+
+
+class RecordActionHandler(IActionHandler):
+    def __init__(self, calls: list[str]) -> None:
+        self._calls = calls
+
+    def supports(self) -> set[ResourceAction]:
+        return {ResourceAction.TOOLS_LIST}
+
+    async def invoke(self, action: ResourceAction, **_params: object):
+        self._calls.append(action.value)
+        return {"ok": True}
+
+
+class SlowActionHandler(IActionHandler):
+    def supports(self) -> set[ResourceAction]:
+        return {ResourceAction.TOOLS_LIST}
+
+    async def invoke(self, _action: ResourceAction, **_params: object):
+        await asyncio.sleep(0.2)
+        return {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_outbox_backpressure_blocks_when_receiver_is_slow() -> None:
+    release = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        _ = msg
+        await release.wait()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client, max_outbox=1, max_inbox=1)
+    await channel.start()
+    try:
+        await channel.send(_envelope("one"))
+        # Yield once so pump can pick the first envelope and block in receiver().
+        await asyncio.sleep(0)
+        await channel.send(_envelope("two"))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(channel.send(_envelope("three")), timeout=0.1)
+    finally:
+        release.set()
+        await channel.stop()
 
 
 @pytest.mark.asyncio
@@ -40,7 +95,7 @@ async def test_inbox_backpressure_blocks_sender() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, max_outbox=1, max_inbox=1)
+    channel = AgentChannel.build(client, max_outbox=1, max_inbox=1)
 
     sender = client.sender
     assert sender is not None
@@ -55,7 +110,7 @@ async def test_start_stop_idempotent() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     await channel.start()
     first_task = channel._out_pump_task
@@ -67,36 +122,42 @@ async def test_start_stop_idempotent() -> None:
 
 @pytest.mark.asyncio
 async def test_stop_drops_outbox() -> None:
+    release = asyncio.Event()
+
     async def receiver(msg: TransportEnvelope) -> None:
-        return None
+        _ = msg
+        await release.wait()
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, max_outbox=10)
-
-    await channel.send(_envelope("one"))
-    await channel.send(_envelope("two"))
-    await channel.stop()
+    channel = AgentChannel.build(client, max_outbox=2)
+    await channel.start()
+    try:
+        await channel.send(_envelope("one"))
+        await asyncio.sleep(0)
+        await channel.send(_envelope("two"))
+    finally:
+        await channel.stop()
+        release.set()
 
     assert channel._outbox.empty()
 
 
 @pytest.mark.asyncio
-async def test_interrupt_cancels_running_task() -> None:
-    async def receiver(msg: TransportEnvelope) -> None:
-        return None
+async def test_send_before_start_drops_outgoing_envelope(caplog) -> None:
+    seen: list[TransportEnvelope] = []
 
-    async def long_task() -> None:
-        await asyncio.sleep(1)
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client, max_outbox=1)
 
-    task = asyncio.create_task(channel.run_interruptible(long_task()))
-    await asyncio.sleep(0)
-    channel.interrupt()
+    with caplog.at_level("WARNING", logger="dare.transport"):
+        await channel.send(_envelope("pre-start"))
 
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    assert channel._outbox.empty()
+    assert seen == []
+    assert any("dropping outgoing envelope" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -111,7 +172,7 @@ async def test_receiver_errors_are_swallowed() -> None:
         event.set()
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     await channel.start()
     await channel.send(_envelope("first"))
@@ -127,7 +188,7 @@ async def test_sender_errors_are_swallowed() -> None:
         return None
 
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client)
+    channel = AgentChannel.build(client)
 
     async def broken_enqueue(_: TransportEnvelope) -> None:
         raise RuntimeError("boom")
@@ -140,60 +201,186 @@ async def test_sender_errors_are_swallowed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_encoder_applied_on_send() -> None:
-    event = asyncio.Event()
-    seen: dict[str, str] = {}
-
-    async def receiver(msg: TransportEnvelope) -> None:
-        seen["payload"] = str(msg.payload)
-        event.set()
-
-    def encoder(msg: TransportEnvelope) -> TransportEnvelope:
-        return TransportEnvelope(
-            id=msg.id,
-            reply_to=msg.reply_to,
-            kind=msg.kind,
-            type=msg.type,
-            payload=f"{msg.payload}-encoded",
-            meta=msg.meta,
-            stream_id=msg.stream_id,
-            seq=msg.seq,
-        )
-
-    client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, encoder=encoder)
-
-    await channel.start()
-    await channel.send(_envelope("ping"))
-    await asyncio.wait_for(event.wait(), timeout=1.0)
-    await channel.stop()
-
-    assert seen["payload"] == "ping-encoded"
+async def test_agent_channel_build_signature_excludes_encoder_decoder() -> None:
+    params = inspect.signature(AgentChannel.build).parameters
+    assert "encoder" not in params
+    assert "decoder" not in params
 
 
 @pytest.mark.asyncio
-async def test_decoder_applied_on_poll() -> None:
+async def test_action_envelope_is_dispatched_by_channel() -> None:
     async def receiver(msg: TransportEnvelope) -> None:
         return None
 
-    def decoder(msg: TransportEnvelope) -> TransportEnvelope:
-        return TransportEnvelope(
-            id=msg.id,
-            reply_to=msg.reply_to,
-            kind=msg.kind,
-            type=msg.type,
-            payload=f"{msg.payload}-decoded",
-            meta=msg.meta,
-            stream_id=msg.stream_id,
-            seq=msg.seq,
-        )
-
     client = DummyClientChannel(receiver)
-    channel = DefaultAgentChannel.build(client, decoder=decoder)
+    channel = AgentChannel.build(client)
+    fake_agent = FakeAgent()
+    fake_agent.agent_channel = channel
+    calls: list[str] = []
+
+    dispatcher = ActionHandlerDispatcher()
+    dispatcher.register_action_handler(RecordActionHandler(calls))
+    channel.add_action_handler_dispatcher(dispatcher)
 
     sender = client.sender
     assert sender is not None
-    await sender(_envelope("ping"))
+    await sender(
+        TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.ACTION,
+            payload="tools:list",
+        )
+    )
 
-    msg = await asyncio.wait_for(channel.poll(), timeout=0.5)
-    assert msg.payload == "ping-decoded"
+    assert calls == ["tools:list"]
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(channel.poll(), timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_control_envelope_is_dispatched_by_channel() -> None:
+    async def receiver(msg: TransportEnvelope) -> None:
+        return None
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client)
+    fake_agent = FakeAgent()
+    channel.add_agent_control_handler(AgentControlHandler(fake_agent))
+
+    sender = client.sender
+    assert sender is not None
+    await sender(
+        TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.CONTROL,
+            payload="interrupt",
+        )
+    )
+
+    assert fake_agent.interrupted is True
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(channel.poll(), timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_invalid_control_payload_returns_structured_error() -> None:
+    seen: list[TransportEnvelope] = []
+    sent = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+        sent.set()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client)
+    channel.add_agent_control_handler(AgentControlHandler(FakeAgent()))
+    await channel.start()
+    try:
+        sender = client.sender
+        assert sender is not None
+        await sender(
+            TransportEnvelope(
+                id="req-control-1",
+                kind=EnvelopeKind.CONTROL,
+                payload={"bad": "payload"},
+            )
+        )
+        await asyncio.wait_for(sent.wait(), timeout=1.0)
+    finally:
+        await channel.stop()
+
+    assert len(seen) == 1
+    payload = seen[0].payload
+    assert isinstance(payload, dict)
+    assert payload.get("type") == "error"
+    assert payload.get("kind") == "control"
+    assert payload.get("ok") is False
+    assert payload.get("code") == "INVALID_CONTROL_PAYLOAD"
+    assert isinstance(payload.get("reason"), str)
+
+
+@pytest.mark.asyncio
+async def test_invalid_message_payload_returns_structured_error_and_is_not_enqueued() -> None:
+    seen: list[TransportEnvelope] = []
+    sent = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+        sent.set()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client)
+    await channel.start()
+    try:
+        sender = client.sender
+        assert sender is not None
+        await sender(
+            TransportEnvelope(
+                id="req-message-invalid",
+                kind=EnvelopeKind.MESSAGE,
+                payload={"invalid": "payload"},
+            )
+        )
+        await asyncio.wait_for(sent.wait(), timeout=1.0)
+    finally:
+        await channel.stop()
+
+    assert len(seen) == 1
+    payload = seen[0].payload
+    assert isinstance(payload, dict)
+    assert payload.get("type") == "error"
+    assert payload.get("kind") == "message"
+    assert payload.get("ok") is False
+    assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
+    assert isinstance(payload.get("reason"), str)
+
+
+@pytest.mark.asyncio
+async def test_action_timeout_returns_structured_error_and_channel_keeps_processing() -> None:
+    seen: list[TransportEnvelope] = []
+    sent = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+        sent.set()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client, action_timeout_seconds=0.05)
+    fake_agent = FakeAgent()
+    fake_agent.agent_channel = channel
+    dispatcher = ActionHandlerDispatcher()
+    dispatcher.register_action_handler(SlowActionHandler())
+    channel.add_action_handler_dispatcher(dispatcher)
+    channel.add_agent_control_handler(AgentControlHandler(fake_agent))
+
+    await channel.start()
+    try:
+        sender = client.sender
+        assert sender is not None
+        await sender(
+            TransportEnvelope(
+                id="req-action-timeout",
+                kind=EnvelopeKind.ACTION,
+                payload="tools:list",
+            )
+        )
+        await asyncio.wait_for(sent.wait(), timeout=1.0)
+        await sender(
+            TransportEnvelope(
+                id="req-message-after-timeout",
+                kind=EnvelopeKind.MESSAGE,
+                payload="hello-after-timeout",
+            )
+        )
+        msg = await asyncio.wait_for(channel.poll(), timeout=1.0)
+    finally:
+        await channel.stop()
+
+    assert msg.payload == "hello-after-timeout"
+    timeout_payload = seen[0].payload
+    assert isinstance(timeout_payload, dict)
+    assert timeout_payload.get("type") == "error"
+    assert timeout_payload.get("kind") == "action"
+    assert timeout_payload.get("ok") is False
+    assert timeout_payload.get("code") == "ACTION_TIMEOUT"
+    assert isinstance(timeout_payload.get("reason"), str)

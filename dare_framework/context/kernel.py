@@ -8,20 +8,22 @@ This domain defines the context-centric contract used as architecture evidence:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, TYPE_CHECKING
 
+from dare_framework.config.types import Config
 from dare_framework.context.types import AssembledContext, Budget, Message
+from dare_framework.model.types import Prompt
+from dare_framework.skill.types import Skill
+from dare_framework.tool.types import CapabilityDescriptor
 
 if TYPE_CHECKING:
-    from dare_framework.config.types import Config
-    from dare_framework.model.types import Prompt
-    from dare_framework.skill.types import Skill
-    from dare_framework.tool.types import CapabilityDescriptor
+    from dare_framework.tool.kernel import IToolGateway
 
 
-class IRetrievalContext(Protocol):
+class IRetrievalContext(ABC):
     """Unified retrieval interface implemented by memory/knowledge."""
 
+    @abstractmethod
     def get(self, query: str = "", **kwargs: Any) -> list[Message]: ...
 
 
@@ -87,6 +89,13 @@ class IContext(ABC):
     def budget_remaining(self, resource: str) -> float: ...
 
     # Tool listing (for ModelInput.tools)
+
+    @property
+    @abstractmethod
+    def tool_gateway(self) -> IToolGateway | None: ...
+
+    @abstractmethod
+    def set_tool_gateway(self, tool_gateway: IToolGateway | None) -> None: ...
 
     # Assembly (core)
 

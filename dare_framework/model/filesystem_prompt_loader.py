@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dare_framework.model import IPromptLoader
 from dare_framework.model.types import Prompt
 
 
-class FileSystemPromptLoader:
+class FileSystemPromptLoader(IPromptLoader):
     """Loads prompt manifests from a JSON file path."""
 
     def __init__(self, manifest_path: str | Path) -> None:

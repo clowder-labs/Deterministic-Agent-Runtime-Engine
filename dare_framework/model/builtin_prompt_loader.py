@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dare_framework.model import IPromptLoader
 from dare_framework.model.types import Prompt
 
 
@@ -75,7 +76,7 @@ If the codebase has tests or build commands:
     ]
 
 
-class BuiltInPromptLoader:
+class BuiltInPromptLoader(IPromptLoader):
     """Loads built-in prompts shipped with the framework."""
 
     def __init__(self, prompts: list[Prompt] | None = None) -> None:

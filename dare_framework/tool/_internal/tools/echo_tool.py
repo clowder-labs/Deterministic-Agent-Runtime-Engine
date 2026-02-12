@@ -5,9 +5,13 @@ A tool that echoes back the input message.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,
@@ -33,25 +37,11 @@ class EchoTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "The message to echo back.",
-                },
-            },
-            "required": ["message"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "echo": {"type": "string"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def tool_type(self) -> ToolType:
@@ -77,21 +67,31 @@ class EchoTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        message: str,
+    ) -> ToolResult[EchoOutput]:
         """Execute the echo tool.
-        
+
         Args:
-            input: Input parameters containing 'message'.
-            context: Run context.
-            
+            run_context: Runtime invocation context.
+            message: The message to echo back.
+
         Returns:
-            ToolResult with echoed message.
+            Echo payload containing the same message.
         """
-        message = input.get("message", "")
+        _ = run_context
         return ToolResult(
             success=True,
             output={"echo": message},
         )
+
+
+class EchoOutput(TypedDict):
+    echo: str
 
 
 __all__ = ["EchoTool"]

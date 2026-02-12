@@ -64,16 +64,34 @@ MCP server 定义在 `.dare/mcp/local_math.json`：
 ## CLI 命令
 
 - `/mode plan`：计划预览模式（先生成计划，等待 `/approve`）
-- `/mode execute`：直接执行模式
+- `/mode execute`：直接执行模式（跳过 CLI 计划预览，直接调用 DareAgent）
 - `/approve`：执行待审批计划
 - `/reject`：取消待审批计划
 - `/status`：查看当前状态
+- `/approvals list`：查看待审批请求与当前审批规则
+- `/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]`：批准请求并可写入规则
+- `/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]`：拒绝请求并可写入规则
+- `/approvals revoke <rule_id>`：撤销审批规则
 - `/mcp list`：查看 MCP 与本地工具列表
 - `/mcp inspect [tool_name]`：打印当前暴露给模型的 MCP tool schema（可选指定单个工具）
 - `/mcp reload [paths...]`：运行时重载 MCP（默认读取最新 config，也可临时传路径）
 - `/mcp unload`：卸载当前 MCP provider
 - `/help`：帮助
 - `/quit`：退出
+
+说明：交互模式下（`dare>` 手输命令）执行任务会后台运行，可在运行过程中继续输入 `/status` 与 `/approvals ...` 完成审批操作。
+
+### 审批操作建议流程（交互模式）
+
+1. 执行一个可能触发高风险工具的任务（例如会调用 `run_command`）。
+2. 使用 `/approvals list` 获取待审批 `request_id`。
+3. 使用以下命令做决策并继续运行：
+   - `/approvals grant <request_id> scope=workspace matcher=exact_params`
+   - `/approvals deny <request_id> scope=once matcher=exact_params`
+4. 再次 `/approvals list` 查看规则和 pending 状态。
+5. 需要撤销规则时使用 `/approvals revoke <rule_id>`。
+
+提示：`--demo/--script` 适合固定流程演示；运行中实时审批建议使用交互模式（`dare>`）。
 
 ## 动态注册 MCP 怎么做
 

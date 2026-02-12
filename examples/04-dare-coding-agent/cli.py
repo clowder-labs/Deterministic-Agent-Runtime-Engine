@@ -336,7 +336,7 @@ def _format_result_output(output: Any) -> str | None:
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
     try:
-        result = await agent.run(Task(description=task_text))
+        result = await agent(Task(description=task_text))
     except Exception as exc:
         display.error(f"execution error: {exc}")
         return

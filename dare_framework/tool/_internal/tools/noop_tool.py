@@ -5,9 +5,13 @@ A no-operation tool that always succeeds without any side effects.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,
@@ -33,20 +37,11 @@ class NoopTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": True,
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "status": {"type": "string"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def tool_type(self) -> ToolType:
@@ -72,20 +67,29 @@ class NoopTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+    ) -> ToolResult[NoopOutput]:
         """Execute the noop tool.
-        
+
         Args:
-            input: Input parameters (ignored).
-            context: Run context.
-            
+            run_context: Runtime invocation context.
+
         Returns:
-            ToolResult indicating success.
+            Success payload for no-op completion.
         """
+        _ = run_context
         return ToolResult(
             success=True,
             output={"status": "noop completed"},
         )
+
+
+class NoopOutput(TypedDict):
+    status: str
 
 
 __all__ = ["NoopTool"]

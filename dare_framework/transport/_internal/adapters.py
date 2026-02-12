@@ -6,8 +6,9 @@ import asyncio
 import json
 from typing import Any, Callable
 
+from dare_framework.transport.interaction.controls import AgentControl
 from dare_framework.transport.kernel import ClientChannel
-from dare_framework.transport.types import Receiver, Sender, TransportEnvelope, new_envelope_id
+from dare_framework.transport.types import EnvelopeKind, Receiver, Sender, TransportEnvelope, new_envelope_id
 
 
 class StdioClientChannel(ClientChannel):
@@ -30,8 +31,24 @@ class StdioClientChannel(ClientChannel):
     def agent_envelope_receiver(self) -> Receiver:
         async def recv(msg: TransportEnvelope) -> None:
             payload = msg.payload
-            if isinstance(payload, dict) and "output" in payload:
-                output = payload.get("output")
+            if isinstance(payload, dict):
+                payload_type = payload.get("type")
+                if payload_type == "result":
+                    kind = payload.get("kind")
+                    resp = payload.get("resp")
+                    if kind == "message":
+                        if isinstance(resp, dict) and "output" in resp:
+                            output = resp.get("output")
+                        else:
+                            output = payload.get("output")
+                    else:
+                        output = resp if resp is not None else payload
+                elif payload_type == "error":
+                    output = payload.get("reason") or payload.get("error")
+                elif payload_type == "hook":
+                    output = payload.get("event")
+                else:
+                    output = payload
             else:
                 output = payload
             print(f"\nAssistant: {output}\n", flush=True)
@@ -49,19 +66,28 @@ class StdioClientChannel(ClientChannel):
             if not line:
                 continue
             if line in self._quit_commands:
-                await self._sender(
-                    TransportEnvelope(
-                        id=new_envelope_id(),
-                        kind="control",
-                        type="stop",
-                    )
-                )
-                break
+                # Quit is a client/host lifecycle operation. Do not send it as a transport control message.
+                self._stopped = True
+                return
+            kind = EnvelopeKind.MESSAGE
+            payload: Any = line
+            if line.startswith("/"):
+                token = line.lstrip("/").strip()
+                if not token:
+                    payload = "actions:list"
+                    kind = EnvelopeKind.ACTION
+                else:
+                    payload = token
+                control = AgentControl.value_of(str(payload))
+                if control is not None:
+                    kind = EnvelopeKind.CONTROL
+                elif payload != "actions:list":
+                    kind = EnvelopeKind.ACTION
             await self._sender(
                 TransportEnvelope(
                     id=new_envelope_id(),
-                    type="prompt",
-                    payload=line,
+                    kind=kind,
+                    payload=payload,
                 )
             )
 
@@ -127,7 +153,6 @@ class DirectClientChannel(ClientChannel):
                 id=new_envelope_id(),
                 reply_to=req.reply_to,
                 kind=req.kind,
-                type=req.type,
                 payload=req.payload,
                 meta=req.meta,
                 stream_id=req.stream_id,
@@ -148,7 +173,6 @@ def _default_serialize(msg: TransportEnvelope) -> str:
         "id": msg.id,
         "reply_to": msg.reply_to,
         "kind": msg.kind,
-        "type": msg.type,
         "payload": msg.payload,
         "meta": msg.meta,
         "stream_id": msg.stream_id,
@@ -163,12 +187,15 @@ def _default_deserialize(raw: Any) -> TransportEnvelope:
     elif isinstance(raw, dict):
         data = raw
     else:
-        data = {"payload": raw}
+        raise ValueError("websocket envelope must be a JSON object with explicit kind")
+    if not isinstance(data, dict):
+        raise ValueError("websocket envelope must be a JSON object with explicit kind")
+    if "kind" not in data or data.get("kind") in (None, ""):
+        raise ValueError("websocket envelope requires explicit kind")
     return TransportEnvelope(
         id=str(data.get("id") or new_envelope_id()),
         reply_to=data.get("reply_to"),
-        kind=data.get("kind") or "data",
-        type=data.get("type") or "message",
+        kind=data.get("kind"),
         payload=data.get("payload"),
         meta=data.get("meta") or {},
         stream_id=data.get("stream_id"),

@@ -5,16 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from dare_framework.config.types import Config
-from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
+from dare_framework.model.interfaces import IPromptStore
 from dare_framework.model.builtin_prompt_loader import BuiltInPromptLoader
-from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
 from dare_framework.model.filesystem_prompt_loader import FileSystemPromptLoader
 from dare_framework.model.layered_prompt_store import LayeredPromptStore
-
-
-def create_default_model_adapter_manager(config: Config | None = None) -> IModelAdapterManager:
-    """Create the default model adapter manager."""
-    return DefaultModelAdapterManager(config=config)
 
 
 def create_default_prompt_store(config: Config) -> IPromptStore:
@@ -33,4 +27,4 @@ def create_default_prompt_store(config: Config) -> IPromptStore:
     return LayeredPromptStore(loaders)
 
 
-__all__ = ["create_default_model_adapter_manager", "create_default_prompt_store"]
+__all__ = ["create_default_prompt_store"]

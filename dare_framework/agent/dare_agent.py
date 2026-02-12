@@ -13,22 +13,16 @@ when not provided, the agent degrades gracefully to a ReAct-style loop.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-import hashlib
-import json
 import logging
-from numbers import Real
 import time
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
-from dare_framework.agent._internal.output_normalizer import normalize_run_output
 from dare_framework.agent.base_agent import BaseAgent
-from dare_framework.agent.interfaces import IAgentOrchestration
-from dare_framework.config import Config
-from dare_framework.context import AssembledContext, Context, Message
+from dare_framework.context import AssembledContext, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
 from dare_framework.hook.types import HookPhase
 from dare_framework.model import IModelAdapter, ModelInput
@@ -47,16 +41,17 @@ from dare_framework.plan.types import (
     DonePredicate,
     Envelope,
     Milestone,
-    MilestoneSummary,
     RunResult,
-    SessionSummary,
     Task,
     ToolLoopRequest,
     ValidatedPlan,
     VerifyResult,
 )
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalDecision,
+    ApprovalEvaluationStatus,
+)
 from dare_framework.tool.types import CapabilityKind
-from dare_framework.transport.types import TransportEnvelope, new_envelope_id
 
 
 @dataclass
@@ -69,17 +64,16 @@ class MilestoneResult:
 
 
 if TYPE_CHECKING:
-    from dare_framework.config.kernel import IConfigProvider
-    from dare_framework.context import Budget
+    from dare_framework.config.types import Config
     from dare_framework.context.kernel import IContext
     from dare_framework.event.kernel import IEventLog
     from dare_framework.hook.kernel import IHook
     from dare_framework.mcp.manager import MCPManager
     from dare_framework.observability.kernel import ITelemetryProvider
-    from dare_framework.memory import ILongTermMemory, IShortTermMemory
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
     from dare_framework.tool.interfaces import IExecutionControl
     from dare_framework.tool.kernel import IToolGateway, IToolManager, IToolProvider
+    from dare_framework.tool._internal.control.approval_manager import ToolApprovalManager
     from dare_framework.tool.types import ToolDefinition
     from dare_framework.transport.kernel import AgentChannel
 
@@ -92,29 +86,19 @@ class DareAgent(BaseAgent):
     degradation when optional components are not provided.
 
     Architecture:
-        - Implements IAgentOrchestration.run_task() as the core entry point
-        - Overrides BaseAgent.run() to delegate to run_task()
-        - Preserves _execute() for BaseAgent compatibility
+        - Implements IAgentOrchestration.execute() as the core entry point
 
-    Modes:
-        - **Full Five-Layer**: planner provided → Session→Milestone→Plan→Execute→Tool
-        - **ReAct Mode**: no planner, has tools → Execute→Tool loop directly
-        - **Simple Mode**: no planner, no tools → Single model generation
+    Mode:
+        - **Five-Layer Only**: Session→Milestone→Plan→Execute→Tool
 
     Example:
         # Full five-layer mode
-        agent = DareAgent(
-            name="full-agent",
-            model=model,
-            planner=planner,
-            validator=validator,
-        )
-
-        # ReAct mode (no planner/validator)
-        agent = DareAgent(
-            name="react-agent",
-            model=model,
-            tool_gateway=gateway,
+        agent = await (
+            BaseAgent.dare_agent_builder("full-agent")
+            .with_model(model)
+            .with_planner(planner)
+            .add_validators(validator)
+            .build()
         )
     """
 
@@ -123,14 +107,12 @@ class DareAgent(BaseAgent):
         name: str,
         *,
         model: IModelAdapter,
-        context: IContext | None = None,
-        # Memory components (optional)
-        short_term_memory: IShortTermMemory | None = None,
-        long_term_memory: ILongTermMemory | None = None,
-        # Tool components (optional)
-        tool_gateway: IToolGateway | None = None,
+        context: IContext,
+        # Tool components
+        tool_gateway: IToolGateway,
         mcp_manager: MCPManager | None = None,
         execution_control: IExecutionControl | None = None,
+        approval_manager: ToolApprovalManager | None = None,
         # Plan components (optional - enables full five-layer mode)
         planner: IPlanner | None = None,
         validator: IValidator | None = None,
@@ -144,8 +126,6 @@ class DareAgent(BaseAgent):
         step_executor: IStepExecutor | None = None,
         evidence_collector: IEvidenceCollector | None = None,
         # Configuration
-        budget: Budget | None = None,
-        config_provider: IConfigProvider | None = None,
         execution_mode: str = "model_driven",  # "model_driven" or "step_driven"
         max_milestone_attempts: int = 3,
         max_plan_attempts: int = 3,
@@ -158,20 +138,16 @@ class DareAgent(BaseAgent):
         Args:
             name: Agent name identifier.
             model: Model adapter for generating responses (required).
-            context: Pre-configured context (optional).
-            short_term_memory: Short-term memory (optional).
-            long_term_memory: Long-term memory (optional).
-            tools: Tool provider for listing tools (optional).
-            tool_gateway: Tool gateway for invoking tools (optional).
+            context: Pre-configured context (required, provided by builder).
+            tool_gateway: Tool gateway for invoking tools (required, provided by builder).
             execution_control: Execution control for HITL (optional).
+            approval_manager: Tool approval manager for persisted approval memory (optional).
             planner: Plan generator (optional, enables full five-layer).
             validator: Plan/milestone validator (optional).
             remediator: Failure remediator (optional).
             event_log: Event log for audit (optional).
             hooks: Hook implementations invoked at lifecycle phases (optional).
             telemetry: Telemetry provider for traces/metrics/logs (optional).
-            budget: Resource budget (optional).
-            config_provider: Optional config provider for config-aware session metadata.
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
             max_tool_iterations: Max tool call iterations per execute loop.
@@ -183,25 +159,14 @@ class DareAgent(BaseAgent):
         super().__init__(name, agent_channel=agent_channel)
         self._model = model
         self._logger = logging.getLogger("dare.agent")
-
-        # Create or use provided context
-        if context is None:
-            from dare_framework.context import Budget as BudgetClass
-
-            self._context = Context(
-                id=f"context_{name}",
-                short_term_memory=short_term_memory,
-                long_term_memory=long_term_memory,
-                budget=budget or BudgetClass(),
-                config=Config(),
-            )
-        else:
-            self._context = context
+        self._context = context
+        self._context.set_tool_gateway(tool_gateway)
 
         # Tool components
         self._tool_gateway = tool_gateway
         self._mcp_manager = mcp_manager
         self._exec_ctl = execution_control
+        self._approval_manager = approval_manager
 
         # Plan components (optional)
         self._planner = planner
@@ -233,7 +198,6 @@ class DareAgent(BaseAgent):
         self._max_plan_attempts = max_plan_attempts
         self._max_tool_iterations = max_tool_iterations
         self._verbose = verbose
-        self._config_provider = config_provider
 
 
         # Runtime state (set during execution)
@@ -251,26 +215,8 @@ class DareAgent(BaseAgent):
         return self._planner is not None
 
     @property
-    def is_react_mode(self) -> bool:
-        """Check if agent should run in ReAct mode.
-
-        ReAct mode: No planner, but has tool_gateway.
-        Skips Session/Milestone loops, runs Execute+Tool directly.
-        """
-        return self._planner is None and self._tool_gateway is not None
-
-    @property
-    def is_simple_mode(self) -> bool:
-        """Check if agent should run in simple chat mode.
-
-        Simple mode: No planner and no tool_gateway.
-        Just model generation, no tools.
-        """
-        return self._planner is None and self._tool_gateway is None
-
-    @property
     def supports_mcp_management(self) -> bool:
-        """Whether agent can perform runtime MCP management operations."""
+        """Whether runtime MCP management APIs are available on this agent."""
         try:
             self._require_tool_manager()
             self._require_mcp_manager()
@@ -284,33 +230,36 @@ class DareAgent(BaseAgent):
         config: Config | None = None,
         paths: list[str | Path] | None = None,
     ) -> IToolProvider:
-        """Reload MCP provider set and refresh tool registry."""
+        """Reload MCP providers and refresh registry state."""
         manager = self._require_mcp_manager()
         tool_manager = self._require_tool_manager()
         return await manager.reload(tool_manager, config=config, paths=paths)
 
     async def unload_mcp(self) -> bool:
-        """Unload active MCP provider from the tool registry."""
+        """Unload active MCP providers from the registry."""
         manager = self._require_mcp_manager()
         tool_manager = self._require_tool_manager()
         return await manager.unload(tool_manager)
 
     def inspect_mcp_tools(self, *, tool_name: str | None = None) -> list[ToolDefinition]:
-        """Return MCP tool definitions currently exposed to the model."""
+        """Inspect currently exposed MCP tool definitions."""
         manager = self._require_mcp_manager()
         tool_manager = self._require_tool_manager()
         return manager.list_mcp_tool_defs(tool_manager, tool_name=tool_name)
 
     def list_tool_defs(self) -> list[ToolDefinition]:
-        """Return all current tool definitions from the runtime registry."""
+        """List all tool definitions currently visible to the model."""
         return self._require_tool_manager().list_tool_defs()
 
     def _require_tool_manager(self) -> IToolManager:
         from dare_framework.tool.kernel import IToolManager
 
-        if not isinstance(self._tool_gateway, IToolManager):
-            raise RuntimeError("Tool gateway does not support provider management.")
-        return self._tool_gateway
+        if isinstance(self._tool_gateway, IToolManager):
+            return self._tool_gateway
+        candidate = getattr(self._tool_gateway, "_tool_manager", None)
+        if isinstance(candidate, IToolManager):
+            return candidate
+        raise RuntimeError("Tool gateway does not support provider management.")
 
     def _require_mcp_manager(self) -> MCPManager:
         if self._mcp_manager is None:
@@ -318,127 +267,18 @@ class DareAgent(BaseAgent):
         return self._mcp_manager
 
     def _log(self, message: str) -> None:
-        """Print message if verbose mode is enabled."""
+        """Write debug messages when verbose mode is enabled."""
         if self._verbose:
-            print(f"[DareAgent] {message}")
+            self._logger.debug("[DareAgent] %s", message)
 
-    # =========================================================================
-    # IAgentOrchestration Implementation
-    # =========================================================================
-
-    async def run_task(
-        self,
-        task: Task,
-        deps: Any | None = None,
-        *,
-        transport: AgentChannel | None = None,
-    ) -> RunResult:
-        """Execute a task with automatic mode selection.
-
-        This is the primary entry point implementing IAgentOrchestration.
-        Mode is automatically selected based on component configuration:
-
-        - **Full Five-Layer**: planner is provided → Session→Milestone→Plan→Execute→Tool
-        - **ReAct Mode**: no planner, has tools → Execute→Tool loop directly
-        - **Simple Mode**: no planner, no tools → Single model generation
-
-        Args:
-            task: Task to execute.
-            deps: Optional dependencies (unused, for interface compatibility).
-            transport: Optional transport channel for streaming outputs.
-
-        Returns:
-            RunResult for single-task execution.
-        """
-        previous = self._active_transport
-        self._active_transport = transport
-        try:
-            start_time = time.perf_counter()
-            # Task is frozen; create a new instance with task_id if missing
-            if task.task_id is None:
-                task = replace(task, task_id=uuid4().hex[:8])
-            self._session_state = SessionState(task_id=task.task_id)
-            self._token_usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
-            if self.is_full_five_layer_mode or task.milestones:
-                execution_mode = "full_five_layer"
-            elif self.is_react_mode:
-                execution_mode = "react"
-            else:
-                execution_mode = "simple"
-            await self._emit_hook(
-                HookPhase.BEFORE_RUN,
-                {
-                    "task_id": self._session_state.task_id,
-                    "session_id": self._session_state.run_id,
-                    "agent_name": self.name,
-                    "execution_mode": execution_mode,
-                },
-            )
-            result: RunResult | None = None
-            error: Exception | None = None
-
-            try:
-                # Full five-layer mode: has planner or task has explicit milestones
-                if self.is_full_five_layer_mode or task.milestones:
-                    result = await self._run_session_loop(task)
-                # ReAct mode: no planner but has tools
-                elif self.is_react_mode:
-                    result = await self._run_react_loop(task)
-                # Simple mode: no planner, no tools → just model generation
-                else:
-                    result = await self._run_simple_loop(task)
-                return result
-            except Exception as exc:
-                error = exc
-                raise
-            finally:
-                duration_ms = (time.perf_counter() - start_time) * 1000.0
-                errors: list[str] = []
-                if result is not None and result.errors:
-                    errors.extend([str(item) for item in result.errors])
-                if error is not None:
-                    errors.append(str(error))
-                token_usage = {
-                    "input_tokens": self._token_usage.get("input_tokens", 0),
-                    "output_tokens": self._token_usage.get("output_tokens", 0),
-                    "total_tokens": self._token_usage.get("input_tokens", 0)
-                    + self._token_usage.get("output_tokens", 0),
-                    "cached_tokens": self._token_usage.get("cached_tokens", 0),
-                }
-                payload = {
-                    "success": result.success if result is not None else False,
-                    "token_usage": token_usage,
-                    "errors": errors,
-                    "duration_ms": duration_ms,
-                    "budget_stats": self._budget_stats(),
-                }
-                await self._emit_hook(HookPhase.AFTER_RUN, payload)
-        finally:
-            self._active_transport = previous
-
-    # =========================================================================
-    # IAgent.run() Override
-    # =========================================================================
-
-    async def run(
+    async def execute(
         self,
         task: str | Task,
-        deps: Any | None = None,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
-        """Run a task and return a structured RunResult.
-
-        Overrides BaseAgent.run() to delegate to run_task().
-
-        Args:
-            task: Task description string or Task object.
-            deps: Optional dependencies.
-            transport: Optional transport channel for streaming outputs.
-
-        Returns:
-            RunResult with execution outcome.
-        """
+        """Execute a task with automatic mode selection."""
+        _ = transport
         if isinstance(task, Task):
             task_obj = task
         else:
@@ -446,147 +286,51 @@ class DareAgent(BaseAgent):
                 description=task,
                 task_id=uuid4().hex[:8],
             )
-        result = await self.run_task(task_obj, deps, transport=transport)
-        normalized_output_text = result.output_text
-        if normalized_output_text is None:
-            normalized_output_text = normalize_run_output(result.output)
-        result = replace(result, output_text=normalized_output_text)
-        await self._send_transport_result(result, task=task_obj.description, transport=transport)
-        return result
-
-    # =========================================================================
-    # BaseAgent Compatibility
-    # =========================================================================
-
-    async def _execute(self, task: str) -> str:
-        """Execute task - BaseAgent compatibility layer.
-
-        This method is preserved for compatibility with BaseAgent.
-        Internally delegates to run_task() and converts result to string.
-        """
-        result = await self.run(task)
-        if result.output_text:
-            return result.output_text
-        if result.output is not None:
-            return str(result.output)
-        if result.errors:
-            return f"Error: {'; '.join(result.errors)}"
-        return ""
-
-    # =========================================================================
-    # ReAct Loop (Degraded Mode - No Session/Milestone)
-    # =========================================================================
-
-    async def _run_react_loop(self, task: Task) -> RunResult:
-        """Run ReAct-style loop - direct Execute+Tool without Session/Milestone.
-
-        This is the degraded mode when no planner is configured but tools are
-        available. Skips Session and Milestone loops, runs Execute→Tool directly.
-        """
-        await self._log_event("react.start", {
-            "task_description": task.description[:100],
-        })
-
-        # Add user message to STM
-        user_message = Message(role="user", content=task.description)
-        self._context.stm_add(user_message)
-
-        # Run execute loop directly (no plan, no milestone)
-        execute_result = await self._run_execute_loop(None)
-
-        await self._log_event("react.complete", {
-            "success": execute_result.get("success", False),
-        })
-
-        return RunResult(
-            success=execute_result.get("success", False),
-            output=execute_result.get("outputs", [])[-1] if execute_result.get("outputs") else None,
-            errors=execute_result.get("errors", []),
-        )
-
-    # =========================================================================
-    # Simple Loop (Degraded Mode - No Tools)
-    # =========================================================================
-
-    async def _run_simple_loop(self, task: Task) -> RunResult:
-        """Run simple loop - single model generation without tools.
-
-        This is the most degraded mode when neither planner nor tools are
-        configured. Just generates a single model response.
-        """
-        await self._log_event("simple.start", {
-            "task_description": task.description[:100],
-        })
-        execute_start = time.perf_counter()
-        await self._emit_hook(HookPhase.BEFORE_EXECUTE, {"mode": "simple"})
-
-        # Add user message to STM
-        user_message = Message(role="user", content=task.description)
-        self._context.stm_add(user_message)
-
-        # Budget check
-        self._context.budget_check()
-
-        # Assemble context
-        await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
-        assembled = self._context.assemble()
-        assembled_messages = self._assemble_messages(assembled)
+        start_time = time.perf_counter()
+        if task_obj.task_id is None:
+            task_obj = replace(task_obj, task_id=uuid4().hex[:8])
+        self._session_state = SessionState(task_id=task_obj.task_id)
+        self._token_usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
+        execution_mode = "five_layer"
         await self._emit_hook(
-            HookPhase.AFTER_CONTEXT_ASSEMBLE,
+            HookPhase.BEFORE_RUN,
             {
-                **self._context_stats(assembled_messages, len(assembled.tools)),
-                "budget_stats": self._budget_stats(),
+                "task_id": self._session_state.task_id,
+                "session_id": self._session_state.run_id,
+                "agent_name": self.name,
+                "execution_mode": execution_mode,
             },
         )
-
-        # Create model input
-        model_input = ModelInput(
-            messages=assembled_messages,
-            tools=[],  # No tools in simple mode
-            metadata=assembled.metadata,
-        )
-
-        # Generate model response
-        for idx, m in enumerate(model_input.messages):
-            print(f"\n--- [{idx}] {m.role} ---\n{m.content}\n", flush=True)
-        await self._emit_hook(HookPhase.BEFORE_MODEL, {
-            "model_name": getattr(self._model, "name", None),
-        })
-        model_start = time.perf_counter()
-        response = await self._model.generate(model_input)
-        model_latency_ms = (time.perf_counter() - model_start) * 1000.0
-
-        # Add response to STM
-        assistant_message = Message(role="assistant", content=response.content)
-        self._context.stm_add(assistant_message)
-
-        # Record token usage
-        if response.usage:
-            self._record_token_usage(response.usage)
-            total_tokens = self._total_tokens_from_usage(response.usage)
-            if total_tokens:
-                self._context.budget_use("tokens", total_tokens)
-
-        await self._emit_hook(HookPhase.AFTER_MODEL, {
-            "model_usage": response.usage or {},
-            "duration_ms": model_latency_ms,
-            "budget_stats": self._budget_stats(),
-        })
-
-        await self._log_event("simple.complete", {
-            "success": True,
-        })
-        await self._emit_hook(HookPhase.AFTER_EXECUTE, {
-            "success": True,
-            "duration_ms": (time.perf_counter() - execute_start) * 1000.0,
-            "budget_stats": self._budget_stats(),
-        })
-
-        return RunResult(
-            success=True,
-            output={"content": response.content},
-            errors=[],
-        )
+        result: RunResult | None = None
+        error: Exception | None = None
+        try:
+            result = await self._run_session_loop(task_obj)
+            return self._with_normalized_output_text(result)
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            errors: list[str] = []
+            if result is not None and result.errors:
+                errors.extend([str(item) for item in result.errors])
+            if error is not None:
+                errors.append(str(error))
+            token_usage = {
+                "input_tokens": self._token_usage.get("input_tokens", 0),
+                "output_tokens": self._token_usage.get("output_tokens", 0),
+                "total_tokens": self._token_usage.get("input_tokens", 0)
+                + self._token_usage.get("output_tokens", 0),
+                "cached_tokens": self._token_usage.get("cached_tokens", 0),
+            }
+            payload = {
+                "success": result.success if result is not None else False,
+                "token_usage": token_usage,
+                "errors": errors,
+                "duration_ms": duration_ms,
+                "budget_stats": self._budget_stats(),
+            }
+            await self._emit_hook(HookPhase.AFTER_RUN, payload)
 
     # =========================================================================
     # Session Loop (Layer 1)
@@ -605,25 +349,11 @@ class DareAgent(BaseAgent):
             "run_id": self._session_state.run_id,
         })
 
-        config_hash = self._current_config_hash()
-
         # Log session start
-        session_start_payload = {
+        await self._log_event("session.start", {
             "task_id": self._session_state.task_id,
             "run_id": self._session_state.run_id,
-        }
-        if config_hash:
-            session_start_payload["config_hash"] = config_hash
-        await self._log_event("session.start", session_start_payload)
-
-        # Inject prior run summary before user input to preserve continuity.
-        if task.previous_session_summary is not None:
-            self._context.stm_add(
-                Message(
-                    role="system",
-                    content=self._format_previous_session_summary(task.previous_session_summary),
-                )
-            )
+        })
 
         # Add user message to STM
         user_message = Message(role="user", content=task.description)
@@ -636,7 +366,7 @@ class DareAgent(BaseAgent):
             await self._log_event("session.milestones_predefined", {
                 "count": len(milestones),
             })
-        elif self._planner is not None and hasattr(self._planner, "decompose"):
+        elif self._planner is not None:
             # Decompose task into milestones using planner
             self._log("Decomposing task into milestones...")
             decomposition = await self._planner.decompose(task, self._context)
@@ -646,8 +376,7 @@ class DareAgent(BaseAgent):
                 "reasoning": decomposition.reasoning,
             })
         else:
-            # Fall back to default milestone derivation for planner implementations
-            # that only implement plan() (legacy tests/mocks).
+            # Fall back to single milestone
             milestones = task.to_milestones()
             await self._log_event("session.milestones_default", {
                 "count": len(milestones),
@@ -661,12 +390,11 @@ class DareAgent(BaseAgent):
 
         # Run milestone loop for each milestone
         milestone_results = []
-        milestone_summaries: list[MilestoneSummary] = []
         errors: list[str] = []
 
         for idx, milestone in enumerate(milestones):
             self._session_state.current_milestone_idx = idx
-            print(f"[DEBUG] Starting milestone {idx + 1}/{len(milestones)}: {milestone.milestone_id}", flush=True)
+            self._log(f"Starting milestone {idx + 1}/{len(milestones)}: {milestone.milestone_id}")
 
             # Check budget before each milestone
             # TODO(@mahaichuan-qq): Confirm exception type for budget_check()
@@ -679,10 +407,7 @@ class DareAgent(BaseAgent):
 
             result = await self._run_milestone_loop(milestone)
             milestone_results.append(result)
-            print(f"[DEBUG] Milestone {idx + 1} result: success={result.success}", flush=True)
-            milestone_summaries.append(
-                self._build_milestone_summary(milestone, result, self._session_state.current_milestone_state)
-            )
+            self._log(f"Milestone {idx + 1} result: success={result.success}")
 
             if not result.success:
                 errors.extend(result.errors or ["milestone failed"])
@@ -708,26 +433,10 @@ class DareAgent(BaseAgent):
             if last_result.outputs:
                 output = last_result.outputs[-1]
 
-        session_end = time.perf_counter()
-        session_summary = SessionSummary(
-            session_id=self._session_state.run_id,
-            task_id=self._session_state.task_id,
-            success=success,
-            started_at=session_start,
-            ended_at=session_end,
-            duration_ms=(session_end - session_start) * 1000.0,
-            milestones=milestone_summaries,
-            final_output=output,
-            errors=list(errors),
-            metadata={"config_hash": config_hash} if config_hash else {},
-        )
-
         return RunResult(
             success=success,
             output=output,
             errors=errors,
-            session_id=self._session_state.run_id,
-            session_summary=session_summary,
         )
 
     # =========================================================================
@@ -748,9 +457,9 @@ class DareAgent(BaseAgent):
         milestone_state = self._session_state.current_milestone_state
 
         for attempt in range(self._max_milestone_attempts):
-            print(f"[DEBUG] Milestone attempt {attempt + 1}/{self._max_milestone_attempts}", flush=True)
             if milestone_state is not None:
                 milestone_state.attempts = attempt + 1
+            self._log(f"Milestone attempt {attempt + 1}/{self._max_milestone_attempts}")
             # Budget check
             self._context.budget_check()
 
@@ -758,17 +467,17 @@ class DareAgent(BaseAgent):
             snapshot_id = None
             if self._sandbox is not None:
                 snapshot_id = self._sandbox.create_snapshot(self._context)
-                print(f"[DEBUG] Created STM snapshot: {snapshot_id}", flush=True)
+                self._log(f"Created STM snapshot: {snapshot_id}")
 
             # Run plan loop (if planner available)
-            print("[DEBUG] Running plan loop...", flush=True)
+            self._log("Running plan loop...")
             validated_plan = await self._run_plan_loop(milestone)
-            print(f"[DEBUG] Plan loop done, validated_plan={validated_plan is not None}", flush=True)
+            self._log(f"Plan loop done, validated_plan={validated_plan is not None}")
 
             # Run execute loop
-            print("[DEBUG] Running execute loop...", flush=True)
+            self._log("Running execute loop...")
             execute_result = await self._run_execute_loop(validated_plan)
-            print(f"[DEBUG] Execute loop done, result keys={list(execute_result.keys())}", flush=True)
+            self._log(f"Execute loop done, result keys={list(execute_result.keys())}")
 
             # Handle plan tool encountered
             if execute_result.get("encountered_plan_tool", False):
@@ -847,10 +556,10 @@ class DareAgent(BaseAgent):
     async def _run_plan_loop(self, milestone: Milestone) -> ValidatedPlan | None:
         """Run the plan loop - plan generation and validation.
 
-        Returns None if no planner is configured (ReAct mode).
+        Returns None if no planner is configured.
         """
         if self._planner is None:
-            return None  # Skip to execute loop (ReAct mode)
+            return None  # Skip planning, continue with execute loop
 
         # Budget check
         self._context.budget_check()
@@ -991,8 +700,7 @@ class DareAgent(BaseAgent):
 
             # Generate model response
             self._log(f"Execute iteration {iteration + 1}/{self._max_tool_iterations}")
-            for idx, m in enumerate(model_input.messages):
-                print(f"\n--- [{idx}] {m.role} ---\n{m.content}\n", flush=True)
+            self._log_model_messages(model_input.messages, stage=f"execute:{iteration + 1}")
             await self._emit_hook(HookPhase.BEFORE_MODEL, {
                 "iteration": iteration + 1,
                 "model_name": getattr(self._model, "name", None),
@@ -1052,7 +760,7 @@ class DareAgent(BaseAgent):
 
             for tool_call in response.tool_calls:
                 name = tool_call.get("name") or ""
-                capability_id = tool_call.get("capability_id") or name or "unknown_tool"
+                capability_id = tool_call.get("capability_id") or name
                 tool_call_id = tool_call.get("id") or f"{capability_id}_{iteration + 1}_{uuid4().hex[:6]}"
                 descriptor = capability_index.get(capability_id) or capability_index.get(name)
 
@@ -1165,23 +873,57 @@ class DareAgent(BaseAgent):
         # Budget check
         self._context.budget_check()
 
-        # Check if tool gateway is available
-        if self._tool_gateway is None:
-            return {
-                "success": False,
-                "error": "no tool gateway configured",
-            }
-
         done_predicate = request.envelope.done_predicate
         max_calls = self._tool_loop_max_calls(request.envelope)
         attempts = 0
         risk_level = self._risk_level_value(descriptor)
         requires_approval = self._requires_approval(descriptor)
+        session_id = self._session_state.run_id if self._session_state is not None else None
 
         while True:
             attempts += 1
             self._context.budget_check()
             self._context.budget_use("tool_calls", 1)
+
+            if requires_approval:
+                allowed, approval_error = await self._resolve_tool_approval(
+                    capability_id=request.capability_id,
+                    params=request.params,
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+                if not allowed:
+                    await self._log_event(
+                        "tool.error",
+                        {
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "capability_id": request.capability_id,
+                            "error": approval_error,
+                            "attempt": attempts,
+                        },
+                    )
+                    await self._emit_hook(
+                        HookPhase.AFTER_TOOL,
+                        {
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "capability_id": request.capability_id,
+                            "attempt": attempts,
+                            "success": False,
+                            "error": approval_error,
+                            "approved": False,
+                            "evidence_collected": False,
+                            "duration_ms": 0.0,
+                            "budget_stats": self._budget_stats(),
+                        },
+                    )
+                    return {
+                        "success": False,
+                        "error": approval_error,
+                        "output": {},
+                    }
 
             tool_start = time.perf_counter()
             await self._emit_hook(
@@ -1205,8 +947,8 @@ class DareAgent(BaseAgent):
             try:
                 result = await self._tool_gateway.invoke(
                     request.capability_id,
-                    request.params,
                     envelope=request.envelope,
+                    **request.params,
                 )
 
                 await self._log_event("tool.result", {
@@ -1304,6 +1046,87 @@ class DareAgent(BaseAgent):
                     "output": {},
                 }
 
+    async def _resolve_tool_approval(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> tuple[bool, str | None]:
+        if self._approval_manager is None:
+            return False, "tool requires approval but no approval manager is configured"
+
+        evaluation = await self._approval_manager.evaluate(
+            capability_id=capability_id,
+            params=params,
+            session_id=session_id,
+            reason=f"Tool {capability_id} requires approval",
+        )
+        if evaluation.status == ApprovalEvaluationStatus.ALLOW:
+            await self._log_event(
+                "tool.approval",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": capability_id,
+                    "status": "allow",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            return True, None
+
+        if evaluation.status == ApprovalEvaluationStatus.DENY:
+            await self._log_event(
+                "tool.approval",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": capability_id,
+                    "status": "deny",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            return False, "tool invocation denied by approval rule"
+
+        if evaluation.request is None:
+            return False, "tool invocation requires approval"
+
+        request_id = evaluation.request.request_id
+        await self._log_event(
+            "exec.waiting_human",
+            {
+                "checkpoint_id": request_id,
+                "reason": evaluation.request.reason,
+                "mode": "approval_memory_wait",
+            },
+        )
+        decision = await self._approval_manager.wait_for_resolution(request_id)
+        await self._log_event(
+            "exec.resume",
+            {
+                "checkpoint_id": request_id,
+                "decision": decision.value,
+            },
+        )
+        await self._log_event(
+            "tool.approval",
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": capability_id,
+                "status": decision.value,
+                "source": "pending_request",
+                "request_id": request_id,
+            },
+        )
+        if decision == ApprovalDecision.ALLOW:
+            return True, None
+        return False, "tool invocation denied by human approval"
+
     # =========================================================================
     # Verify
     # =========================================================================
@@ -1364,10 +1187,8 @@ class DareAgent(BaseAgent):
 
     async def _capability_index(self) -> dict[str, Any]:
         """Build a capability index from the trusted tool registry."""
-        if self._tool_gateway is None:
-            return {}
         try:
-            capabilities = await self._tool_gateway.list_capabilities()
+            capabilities = self._tool_gateway.list_capabilities()
         except Exception:
             return {}
         index: dict[str, Any] = {}
@@ -1510,10 +1331,24 @@ class DareAgent(BaseAgent):
             "context_tools_count": tools_count,
         }
 
+    def _log_model_messages(self, messages: list[Message], *, stage: str) -> None:
+        """Emit message trace in verbose mode without writing to stdout."""
+        if not self._verbose:
+            return
+        for idx, message in enumerate(messages):
+            self._logger.debug(
+                "[DareAgent][%s][%s] role=%s content=%s",
+                stage,
+                idx,
+                message.role,
+                message.content,
+            )
+
     async def _emit_hook(self, phase: HookPhase, payload: dict[str, Any]) -> None:
         """Emit a hook payload via the extension point (best-effort)."""
         enriched = dict(payload)
         enriched.setdefault("phase", phase.value)
+        enriched.setdefault("context_id", self._context.id)
         if self._session_state:
             enriched.setdefault("task_id", self._session_state.task_id)
             enriched.setdefault("run_id", self._session_state.run_id)
@@ -1523,25 +1358,6 @@ class DareAgent(BaseAgent):
                 await self._extension_point.emit(phase, enriched)
             except Exception:
                 pass
-        await self._emit_transport_hook(phase, enriched)
-
-    async def _emit_transport_hook(self, phase: HookPhase, payload: dict[str, Any]) -> None:
-        channel = self._active_transport
-        if channel is None:
-            return
-        envelope = TransportEnvelope(
-            id=new_envelope_id(),
-            kind="data",
-            type="hook",
-            payload={
-                "phase": phase.value,
-                "payload": payload,
-            },
-        )
-        try:
-            await channel.send(envelope)
-        except Exception:
-            self._logger.exception("agent transport hook send failed")
 
     def _record_token_usage(self, usage: dict[str, Any] | None) -> None:
         if not usage:
@@ -1573,93 +1389,23 @@ class DareAgent(BaseAgent):
         except (TypeError, ValueError):
             return 0
 
-    def _build_milestone_summary(
-        self,
-        milestone: Milestone,
-        result: MilestoneResult,
-        state: MilestoneState | None,
-    ) -> MilestoneSummary:
-        attempts = state.attempts if state is not None else 0
-        evidence_count = len(state.evidence_collected) if state is not None else 0
-        reflections_count = len(state.reflections) if state is not None else 0
-        return MilestoneSummary(
-            milestone_id=milestone.milestone_id,
-            description=milestone.description,
-            attempts=attempts,
-            success=result.success,
-            outputs=list(result.outputs),
-            errors=list(result.errors),
-            evidence_count=evidence_count,
-            reflections_count=reflections_count,
-        )
-
-    def _format_previous_session_summary(self, summary: SessionSummary) -> str:
-        payload = summary.to_dict()
-        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
-        return f"Previous session summary:\n{serialized}"
-
-    def _current_config_hash(self) -> str | None:
-        if self._config_provider is None:
-            return None
-        try:
-            config = self._config_provider.current()
-        except Exception:
-            return None
-        if config is None:
-            return None
-        if hasattr(config, "to_dict"):
-            payload = config.to_dict()
-        elif isinstance(config, dict):
-            payload = dict(config)
-        else:
-            payload = {"repr": repr(config)}
-        serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
-        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-    def _coerce_number(self, value: Any) -> float | int | None:
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return int(value)
-        if isinstance(value, Real):
-            return value
-        return None
-
-    def _safe_budget_remaining(self, resource: str) -> float | int | None:
-        getter = getattr(self._context, "budget_remaining", None)
-        if not callable(getter):
-            return None
-        try:
-            remaining = self._coerce_number(getter(resource))
-        except Exception:
-            return None
-        if remaining is None:
-            return None
-        if remaining == float("inf"):
-            return None
-        return remaining
-
     def _budget_stats(self) -> dict[str, Any]:
-        budget = getattr(self._context, "budget", None)
-        tokens_remaining = self._safe_budget_remaining("tokens")
-        tool_calls_remaining = self._safe_budget_remaining("tool_calls")
-        used_time_seconds = self._coerce_number(getattr(budget, "used_time_seconds", None))
-        max_time_seconds = self._coerce_number(getattr(budget, "max_time_seconds", None))
-        if max_time_seconds is None:
-            time_remaining_seconds = None
-        elif used_time_seconds is None:
-            time_remaining_seconds = max(0.0, float(max_time_seconds))
-        else:
-            time_remaining_seconds = max(0.0, float(max_time_seconds) - float(used_time_seconds))
+        budget = self._context.budget
+        tokens_remaining = self._context.budget_remaining("tokens")
+        tool_calls_remaining = self._context.budget_remaining("tool_calls")
         return {
-            "tokens_used": self._coerce_number(getattr(budget, "used_tokens", None)),
-            "tokens_limit": self._coerce_number(getattr(budget, "max_tokens", None)),
-            "cost_used": self._coerce_number(getattr(budget, "used_cost", None)),
-            "tokens_remaining": tokens_remaining,
-            "tool_calls_used": self._coerce_number(getattr(budget, "used_tool_calls", None)),
-            "tool_calls_remaining": tool_calls_remaining,
-            "time_used_seconds": used_time_seconds,
-            "time_remaining_seconds": time_remaining_seconds,
+            "tokens_used": budget.used_tokens,
+            "tokens_limit": budget.max_tokens,
+            "cost_used": budget.used_cost,
+            "tokens_remaining": None if tokens_remaining == float("inf") else tokens_remaining,
+            "tool_calls_used": budget.used_tool_calls,
+            "tool_calls_remaining": None
+            if tool_calls_remaining == float("inf")
+            else tool_calls_remaining,
+            "time_used_seconds": budget.used_time_seconds,
+            "time_remaining_seconds": None
+            if budget.max_time_seconds is None
+            else max(0.0, budget.max_time_seconds - budget.used_time_seconds),
         }
 
     async def _finalize_execute(self, start_time: float, result: dict[str, Any]) -> dict[str, Any]:

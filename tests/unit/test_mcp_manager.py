@@ -98,7 +98,7 @@ async def test_mcp_manager_load_provider_filters_allowmcps() -> None:
         return provider
 
     manager = MCPManager(
-        Config(workspace_dir="/workspace", user_dir="/user", allowmcps=["allowed"]),
+        Config(workspace_dir="/workspace", user_dir="/user", allow_mcps=["allowed"]),
         load_configs=_load_configs,
         create_clients=_create_clients,
         provider_factory=_provider_factory,

@@ -21,7 +21,7 @@
 
 - **Agent/Builder**: `Config` drives model/tool/hook/planner selection and prompt/skill defaults.
 - **Infra**: `ComponentType` + `IComponent` are used for enable/disable checks.
-- **MCP/Skill**: config fields such as `mcp_paths`, `allowmcps`, `skill_mode`, `skill_paths`.
+- **MCP/Skill**: config fields such as `mcp_paths`, `allow_mcps`, `skill_mode`, `skill_paths`.
 
 ## 4. Findings (Gaps / Overexposure / Mismatches)
 

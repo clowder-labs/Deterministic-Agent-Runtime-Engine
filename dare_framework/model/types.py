@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dare_framework.context.types import Message
-from dare_framework.tool import CapabilityDescriptor
+from dare_framework.tool.types import CapabilityDescriptor
 
 
 @dataclass(frozen=True)

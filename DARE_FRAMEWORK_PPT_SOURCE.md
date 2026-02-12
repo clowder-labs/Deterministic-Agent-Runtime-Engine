@@ -115,7 +115,7 @@ User Task (str | Task)
 
 **流程**：load_mcp_configs → create_mcp_clients → MCPToolkit.initialize() → list_tools() 返回 MCPTool 列表，工具名格式 `server:tool`（如 `local_math:add`）
 
-**过滤**：Config.allowmcps 可限制启用的 MCP 服务器列表。
+**过滤**：Config.allow_mcps 可限制启用的 MCP 服务器列表。
 
 ## 2.2 Skill（Agent Skills 格式）
 
@@ -421,7 +421,7 @@ build() [async]
     │
     ├─► _resolved_tools()
     │       explicit = self._tools
-    │       IF _mcp_toolkit: mcp_tools = list_tools()，按 config.allowmcps 过滤，与 explicit 去重合并
+    │       IF _mcp_toolkit: mcp_tools = list_tools()，按 config.allow_mcps 过滤，与 explicit 去重合并
     │       IF manager: manager_tools = manager.load_tools(config)，与 explicit/mcp 去重，按 config 过滤
     │       return [*explicit, *mcp_tools, *manager_tools]
     │
@@ -431,7 +431,7 @@ build() [async]
     │       IF _resolved_knowledge(): manager.register_tool(KnowledgeGetTool), KnowledgeAddTool
     │
     ├─► tool_gateway = _ensure_tool_gateway(tools)   // 即 manager
-    ├─► tool_provider = _ensure_tool_provider(manager, tools)   // 可能为 _ConfiguredToolProvider(allowtools 等)
+    ├─► tool_provider = _ensure_tool_provider(manager, tools)   // 可能为 _ConfiguredToolProvider(allow_tools 等)
     │
     ├─► _resolve_sys_prompt(model)
     │       prompt_id = override | config.default_prompt_id | "base.system"
@@ -456,7 +456,7 @@ build() [async]
 |------|------|
 | **输入** | 链式配置：with_model、add_tools、with_knowledge、with_planner、add_validators、with_remediator、with_event_log、with_config 等。 |
 | **输出** | IAgent 实例（DareAgent / ReactAgent / SimpleChatAgent）。 |
-| **工具解析顺序** | ① build() 若 config.mcp_paths 非空 → load_mcp_toolkit()；② _resolved_tools() = explicit + mcp_toolkit.list_tools()（按 allowmcps 过滤）+ manager.load_tools()；③ _register_tools_with_manager() 注册所有 tool，若有 knowledge 则注册 knowledge_get、knowledge_add；④ _ensure_tool_provider() 可能返回 _ConfiguredToolProvider（按 config.allowtools 等过滤）。 |
+| **工具解析顺序** | ① build() 若 config.mcp_paths 非空 → load_mcp_toolkit()；② _resolved_tools() = explicit + mcp_toolkit.list_tools()（按 allow_mcps 过滤）+ manager.load_tools()；③ _register_tools_with_manager() 注册所有 tool，若有 knowledge 则注册 knowledge_get、knowledge_add；④ _ensure_tool_provider() 可能返回 _ConfiguredToolProvider（按 config.allow_tools 等过滤）。 |
 | **上下文与 Prompt** | _resolve_sys_prompt(model) 使用 prompt_id override / config.default_prompt_id / "base.system"，从 LayeredPromptStore 取 Prompt；context._sys_prompt、context._tool_provider 注入。 |
 | **Skill 挂载** | _load_initial_skill_and_mount(context)：从 initial_skill_path 或 config.initial_skill_path 用 FileSystemSkillLoader 加载，取第一个 skill 调用 context.set_skill(skills[0])。 |
 | **与上下游** | 上游：Config、IModelAdapter、ITool、IKnowledge、IPlanner、IValidator、IRemediator、IEventLog、IHook。下游：Context、ToolManager、DareAgent/ReactAgent/SimpleChatAgent。 |
@@ -986,7 +986,7 @@ HookExtensionPoint.emit(phase, payload)
 
 | 项目 | 说明 |
 |------|------|
-| **字段** | mcp_paths, allowmcps, allowtools；workspace_dir, user_dir；default_prompt_id, initial_skill_path；knowledge: {type, storage, options}；components: {planner, validator, tool, ...}.disabled / .entries。 |
+| **字段** | mcp_paths, allow_mcps, allow_tools；workspace_dir, user_dir；default_prompt_id, initial_skill_path；knowledge: {type, storage, options}；components: {planner, validator, tool, ...}.disabled / .entries。 |
 | **用途** | Builder 与各 Manager 用 Config 解析 MCP 路径、允许的 MCP/工具、Prompt 默认 ID、Skill 初始路径、Knowledge 配置、组件启用/禁用。 |
 | **与上下游** | 上游：Builder with_config(config)；FileConfigProvider 等从文件加载。下游：_effective_config()、_manager_config() 供 _resolved_tools、_resolve_sys_prompt、create_knowledge、load_planner/validator 等使用。 |
 | **可扩展点** | 扩展 Config 字段；实现 IConfigProvider；components.entries 支持多实例配置。 |

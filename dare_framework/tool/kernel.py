@@ -10,7 +10,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal, Sequence
 
+from dare_framework.config.types import Config
 from dare_framework.infra.component import ComponentType, IComponent
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.types import (
     CapabilityDescriptor,
     CapabilityKind,
@@ -22,9 +27,8 @@ from dare_framework.tool.types import (
 )
 
 if TYPE_CHECKING:
-    from dare_framework.config.types import Config
-    from dare_framework.context import Context
     from dare_framework.plan.types import Envelope
+    from dare_framework.context import Context
 
 
 class IToolProvider(ABC):
@@ -57,16 +61,14 @@ class ITool(IComponent, ABC):
         ...
 
     @property
-    @abstractmethod
     def input_schema(self) -> dict[str, Any]:
-        """JSON schema for input validation."""
-        ...
+        """JSON schema inferred from execute signature and parameter docs."""
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
-    @abstractmethod
-    def output_schema(self) -> dict[str, Any]:
-        """JSON schema for output validation."""
-        ...
+    def output_schema(self) -> dict[str, Any] | None:
+        """JSON schema inferred from execute return annotation and docs."""
+        return infer_output_schema_from_execute(type(self).execute)
 
     @property
     @abstractmethod
@@ -105,7 +107,7 @@ class ITool(IComponent, ABC):
         ...
 
     @abstractmethod
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    async def execute(self, *, run_context: RunContext[Any], **params: Any) -> ToolResult[Any]:
         """Execute the tool and return a ToolResult."""
         ...
 
@@ -114,19 +116,20 @@ class IToolGateway(ABC):
     """System-call boundary and trusted capability registry facade."""
 
     @abstractmethod
-    async def list_capabilities(self) -> list[CapabilityDescriptor]: ...
+    def list_capabilities(self) -> list[CapabilityDescriptor]: ...
 
     @abstractmethod
     async def invoke(
             self,
             capability_id: str,
-            params: dict[str, Any],
             *,
             envelope: Envelope,
             context: Context | None = None,
+            **params: Any,
     ) -> ToolResult:
         """Invoke a registered tool capability."""
         ...
+
 
 class IToolManager(ABC):
     """Trusted tool registry and management interface."""
@@ -145,6 +148,10 @@ class IToolManager(ABC):
             version: str | None = None,
     ) -> CapabilityDescriptor:
         """Register a tool and return its capability descriptor."""
+        ...
+
+    @abstractmethod
+    def get_tool(self, capability_id: str) -> ITool:
         ...
 
     @abstractmethod
@@ -173,17 +180,12 @@ class IToolManager(ABC):
         ...
 
     @abstractmethod
-    async def list_capabilities(
+    def list_capabilities(
             self,
             *,
             include_disabled: bool = False,
     ) -> list[CapabilityDescriptor]:
         """List registered capabilities."""
-        ...
-
-    @abstractmethod
-    def list_tool_defs(self) -> list[ToolDefinition]:
-        """List tool definitions derived from the registry."""
         ...
 
     @abstractmethod

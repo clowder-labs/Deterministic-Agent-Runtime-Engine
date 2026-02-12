@@ -52,9 +52,23 @@ class SkillStoreBuilder:
         """Build and return the composed skill store."""
         loaders: list[ISkillLoader] = []
         if self._config is not None:
-            workspace_root = Path(self._config.workspace_dir).resolve() / DEFAULT_WORKSPACE_SKILL_DIR
-            user_root = Path(self._config.user_dir).resolve() / DEFAULT_USER_SKILL_DIR
-            loaders.append(FileSystemSkillLoader(workspace_root, user_root))
+            workspace_root = Path(self._config.workspace_dir).resolve()
+            user_root = Path(self._config.user_dir).resolve()
+            if getattr(self._config, "skill_paths", None):
+                resolved = []
+                for p in self._config.skill_paths:
+                    path = Path(p).expanduser()
+                    if not path.is_absolute():
+                        path = (workspace_root / path).resolve()
+                    resolved.append(path)
+                loaders.append(FileSystemSkillLoader(*resolved))
+            else:
+                loaders.append(
+                    FileSystemSkillLoader(
+                        workspace_root / DEFAULT_WORKSPACE_SKILL_DIR,
+                        user_root / DEFAULT_USER_SKILL_DIR,
+                    )
+                )
         loaders.extend(self._skill_loaders)
         return SkillStore(
             skill_loaders=loaders,

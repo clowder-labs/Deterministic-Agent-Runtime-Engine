@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from dare_framework.infra.component import ComponentType
 from dare_framework.knowledge.kernel import IKnowledge
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.types import (
     CapabilityKind,
     RiskLevelName,
@@ -50,41 +54,11 @@ class KnowledgeGetTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query (e.g. keyword or topic the user cares about).",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Maximum number of results (default 5).",
-                    "default": 5,
-                },
-            },
-            "required": ["query"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "messages": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "role": {"type": "string"},
-                            "content": {"type": "string"},
-                            "name": {"type": "string"},
-                            "metadata": {"type": "object"},
-                        },
-                    },
-                },
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def tool_type(self) -> ToolType:
@@ -110,14 +84,28 @@ class KnowledgeGetTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
-        query = input.get("query", "")
-        top_k = input.get("top_k", 5)
-        if not isinstance(top_k, int):
-            top_k = 5
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        query: str,
+        top_k: int = 5,
+    ) -> ToolResult[KnowledgeGetOutput]:
+        """Retrieve messages from knowledge by query.
+
+        Args:
+            run_context: Runtime invocation context.
+            query: Search query for retrieval.
+            top_k: Maximum number of results to return.
+
+        Returns:
+            Retrieved message payloads.
+        """
+        _ = run_context
         try:
             messages = self._knowledge.get(query, top_k=top_k)
-            out = [ _message_to_dict(m) for m in messages ]
+            out = [_message_to_dict(m) for m in messages]
             return ToolResult(success=True, output={"messages": out})
         except Exception as e:
             return ToolResult(success=False, output={}, error=str(e))
@@ -146,30 +134,11 @@ class KnowledgeAddTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "Text content to add to the knowledge base.",
-                },
-                "metadata": {
-                    "type": "object",
-                    "description": "Optional metadata (e.g. source, title).",
-                },
-            },
-            "required": ["content"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "added": {"type": "boolean"},
-                "message": {"type": "string", "description": "Human-readable result; 已添加后请勿重复调用."},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def tool_type(self) -> ToolType:
@@ -195,11 +164,26 @@ class KnowledgeAddTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
-        content = input.get("content", "")
-        metadata = input.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult[KnowledgeAddOutput]:
+        """Add content into the knowledge store.
+
+        Args:
+            run_context: Runtime invocation context.
+            content: Content text to persist.
+            metadata: Optional metadata for the stored content.
+
+        Returns:
+            Add operation status payload.
+        """
+        _ = run_context
+        metadata = metadata or {}
         try:
             self._knowledge.add(content, metadata=metadata)
             return ToolResult(
@@ -215,6 +199,22 @@ class KnowledgeAddTool(ITool):
                 output={"added": False, "message": f"添加失败: {e}"},
                 error=str(e),
             )
+
+
+class KnowledgeMessage(TypedDict):
+    role: str
+    content: str
+    name: str | None
+    metadata: dict[str, Any]
+
+
+class KnowledgeGetOutput(TypedDict):
+    messages: list[KnowledgeMessage]
+
+
+class KnowledgeAddOutput(TypedDict):
+    added: bool
+    message: str
 
 
 __all__ = ["KnowledgeGetTool", "KnowledgeAddTool"]

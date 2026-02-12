@@ -50,7 +50,7 @@ async def test_assembled_tools():
     print("\n🔍 Checking agent setup...")
     print(f"Agent._context type: {type(agent._context)}")
     print(f"Agent._context._tool_provider: {agent._context._tool_providers}")
-    print(f"Agent._tool_gateway: {agent._tool_gateway}")
+    print(f"Agent._tool_gateway: {agent._tool_manager}")
 
     # Add a test message
     agent._context.stm_add(Message(role="user", content="Test message"))

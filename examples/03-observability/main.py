@@ -103,7 +103,7 @@ async def main() -> None:
     )
     agent = await builder.build()
 
-    result = await agent.run("Summarize the DARE framework in one sentence.")
+    result = await agent("Summarize the DARE framework in one sentence.")
     print(f"\nAssistant: {result.output}\n")
     if not OTEL_AVAILABLE:
         print("OpenTelemetry SDK not available; telemetry disabled")

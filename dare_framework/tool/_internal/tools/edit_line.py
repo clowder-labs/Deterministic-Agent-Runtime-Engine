@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from dare_framework.tool.kernel import ITool
+from dare_framework.tool._internal.util.__tool_schema_util import (
+    infer_input_schema_from_execute,
+    infer_output_schema_from_execute,
+)
 from dare_framework.tool.errors import ToolError
 from dare_framework.tool._internal.file_utils import (
     DEFAULT_MAX_BYTES,
@@ -38,30 +42,11 @@ class EditLineTool(ITool):
 
     @property
     def input_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path relative to workspace root"},
-                "line_number": {"type": "integer", "minimum": 1, "default": 1},
-                "text": {"type": "string"},
-                "mode": {"type": "string", "enum": ["insert", "delete"], "default": "insert"},
-                "strict_match": {"type": "boolean", "default": True},
-            },
-            "required": ["path", "mode"],
-        }
+        return infer_input_schema_from_execute(type(self).execute)
 
     @property
     def output_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "mode": {"type": "string"},
-                "line_number": {"type": "integer"},
-                "before": {"type": "string"},
-                "after": {"type": "string"},
-            },
-        }
+        return infer_output_schema_from_execute(type(self).execute) or {}
 
     @property
     def risk_level(self) -> str:
@@ -91,9 +76,41 @@ class EditLineTool(ITool):
     def capability_kind(self) -> CapabilityKind:
         return CapabilityKind.TOOL
 
-    async def execute(self, input: dict[str, Any], context: RunContext[Any]) -> ToolResult:
+    # noinspection PyMethodOverriding
+    async def execute(
+        self,
+        *,
+        run_context: RunContext[Any],
+        path: str,
+        mode: Literal["insert", "delete"],
+        line_number: int = 1,
+        text: str = "",
+        strict_match: bool = True,
+    ) -> ToolResult[EditLineOutput]:
+        """Insert or delete a specific line.
+
+        Args:
+            run_context: Runtime invocation context.
+            path: File path relative to workspace root.
+            mode: Edit mode, either insert or delete.
+            line_number: 1-indexed target line number.
+            text: Text to insert, or expected line text for strict delete matching.
+            strict_match: Require exact text match when deleting with `text` provided.
+
+        Returns:
+            Edit operation metadata including before/after line values.
+        """
         try:
-            return _execute_edit(input, context)
+            return _execute_edit(
+                {
+                    "path": path,
+                    "mode": mode,
+                    "line_number": line_number,
+                    "text": text,
+                    "strict_match": strict_match,
+                },
+                run_context,
+            )
         except ToolError as exc:
             return _error_result(exc)
 
@@ -221,3 +238,11 @@ def _error_result(error: ToolError) -> ToolResult:
         error=error.message,
         evidence=[],
     )
+
+
+class EditLineOutput(TypedDict):
+    path: str
+    mode: Literal["insert", "delete"]
+    line_number: int
+    before: str
+    after: str

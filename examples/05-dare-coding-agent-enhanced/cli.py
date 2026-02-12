@@ -5,6 +5,8 @@ This CLI is demo-friendly and supports both interactive and scripted runs.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -26,7 +28,9 @@ from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.knowledge import create_knowledge
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
+from dare_framework.tool.action_handler import ApprovalsActionHandler
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
+from dare_framework.transport.interaction.resource_action import ResourceAction
 
 from validators.file_validator import FileExistsValidator
 
@@ -37,6 +41,7 @@ class CommandType(Enum):
     APPROVE = "approve"
     REJECT = "reject"
     STATUS = "status"
+    APPROVALS = "approvals"
     MCP = "mcp"
     HELP = "help"
 
@@ -66,9 +71,10 @@ class CLISessionState:
     status: SessionStatus = SessionStatus.IDLE
     pending_plan: Any | None = None
     pending_task_description: str | None = None
+    active_execution_task: asyncio.Task[Any] | None = None
+    active_execution_description: str | None = None
 
     def reset_task(self) -> None:
-        self.status = SessionStatus.IDLE
         self.pending_plan = None
         self.pending_task_description = None
 
@@ -97,6 +103,7 @@ def parse_command(user_input: str) -> Command | tuple[None, str]:
         "approve": CommandType.APPROVE,
         "reject": CommandType.REJECT,
         "status": CommandType.STATUS,
+        "approvals": CommandType.APPROVALS,
         "mcp": CommandType.MCP,
         "help": CommandType.HELP,
     }
@@ -325,7 +332,7 @@ def _format_result_output(output: Any) -> str | None:
 
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
-    result = await agent.run(Task(description=task_text))
+    result = await agent(Task(description=task_text))
     if result.success:
         display.ok("task completed")
         # Show model reply when no tool calls (e.g. 运势、问答类)
@@ -424,6 +431,156 @@ async def _handle_mcp_command(
     display.info("/mcp [list|reload|unload]")
 
 
+def _approvals_usage(display: CLIDisplay) -> None:
+    display.info("/approvals list")
+    display.info("/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]")
+    display.info("/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]")
+    display.info("/approvals revoke <rule_id>")
+
+
+def _resolve_approvals_handler(agent: Any) -> ApprovalsActionHandler | None:
+    approval_manager = getattr(agent, "_approval_manager", None)
+    if approval_manager is None:
+        return None
+    return ApprovalsActionHandler(approval_manager)
+
+
+def _parse_key_value_args(tokens: list[str]) -> tuple[list[str], dict[str, str]]:
+    positional: list[str] = []
+    options: dict[str, str] = {}
+    for token in tokens:
+        if "=" in token:
+            key, value = token.split("=", 1)
+            normalized = key.strip()
+            if normalized:
+                options[normalized] = value.strip()
+            continue
+        positional.append(token)
+    return positional, options
+
+
+def _build_approval_action_params(
+    *,
+    request_id: str,
+    trailing_args: list[str],
+) -> dict[str, Any]:
+    _positional, options = _parse_key_value_args(trailing_args)
+    params: dict[str, Any] = {"request_id": request_id}
+    for key in ("scope", "matcher", "matcher_value"):
+        if key in options and options[key]:
+            params[key] = options[key]
+    return params
+
+
+async def _handle_approvals_command(
+    args: list[str],
+    *,
+    agent: Any,
+    display: CLIDisplay,
+) -> None:
+    handler = _resolve_approvals_handler(agent)
+    if handler is None:
+        display.warn("approval manager unavailable on current agent")
+        return
+    if not args:
+        _approvals_usage(display)
+        return
+
+    subcommand = args[0].lower()
+    try:
+        if subcommand == "list":
+            result = await handler.invoke(ResourceAction.APPROVALS_LIST)
+            pending = result.get("pending", [])
+            rules = result.get("rules", [])
+            display.info(f"pending={len(pending)} rules={len(rules)}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+
+        if subcommand in {"grant", "deny"}:
+            if len(args) < 2:
+                display.warn(f"/approvals {subcommand} requires request_id")
+                _approvals_usage(display)
+                return
+            request_id = args[1]
+            action = (
+                ResourceAction.APPROVALS_GRANT
+                if subcommand == "grant"
+                else ResourceAction.APPROVALS_DENY
+            )
+            params = _build_approval_action_params(request_id=request_id, trailing_args=args[2:])
+            result = await handler.invoke(action, **params)
+            display.ok(f"{subcommand} applied: {request_id}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+
+        if subcommand == "revoke":
+            if len(args) < 2:
+                display.warn("/approvals revoke requires rule_id")
+                _approvals_usage(display)
+                return
+            rule_id = args[1]
+            result = await handler.invoke(
+                ResourceAction.APPROVALS_REVOKE,
+                rule_id=rule_id,
+            )
+            if result.get("removed"):
+                display.ok(f"revoked rule: {rule_id}")
+            else:
+                display.warn(f"rule not found: {rule_id}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+    except Exception as exc:  # noqa: BLE001
+        display.error(f"approvals command failed: {exc}")
+        return
+
+    display.warn(f"unknown approvals command: {subcommand}")
+    _approvals_usage(display)
+
+
+def _is_execution_running(state: CLISessionState) -> bool:
+    task = state.active_execution_task
+    return task is not None and not task.done()
+
+
+async def _finalize_background_execution_if_done(state: CLISessionState, display: CLIDisplay) -> None:
+    task = state.active_execution_task
+    if task is None or not task.done():
+        return
+
+    try:
+        await task
+    except asyncio.CancelledError:
+        display.warn("execution cancelled")
+    except Exception as exc:  # noqa: BLE001
+        display.error(f"execution failed: {exc}")
+    finally:
+        state.active_execution_task = None
+        state.active_execution_description = None
+        if state.status == SessionStatus.RUNNING:
+            state.status = SessionStatus.IDLE
+
+
+def _clear_pending_plan(state: CLISessionState) -> None:
+    state.pending_plan = None
+    state.pending_task_description = None
+
+
+async def _start_background_execution(
+    *,
+    state: CLISessionState,
+    agent: Any,
+    task_text: str,
+    display: CLIDisplay,
+) -> None:
+    if _is_execution_running(state):
+        display.warn("another execution is running; use /status first")
+        return
+    state.status = SessionStatus.RUNNING
+    state.active_execution_description = task_text
+    state.active_execution_task = asyncio.create_task(run_task(agent, task_text, display))
+    display.info("execution started in background; you can use /status and /approvals while it runs")
+
+
 async def run_cli_loop(
     lines: Iterable[str],
     *,
@@ -432,6 +589,7 @@ async def run_cli_loop(
     display: CLIDisplay,
     mcp_state: MCPRuntimeState | None = None,
     state: CLISessionState | None = None,
+    background_execute: bool = False,
 ) -> tuple[CLISessionState, bool]:
     """Run CLI loop over input lines. Returns (state, quit_requested)."""
     if state is None:
@@ -440,21 +598,37 @@ async def run_cli_loop(
     quit_requested = False
 
     for raw in lines:
+        await _finalize_background_execution_if_done(state, display)
         command_or_task = parse_command(raw)
         if isinstance(command_or_task, Command):
             cmd = command_or_task
             if cmd.type == CommandType.QUIT:
+                if _is_execution_running(state):
+                    display.warn("cancelling running execution")
+                    assert state.active_execution_task is not None
+                    state.active_execution_task.cancel()
+                    await _finalize_background_execution_if_done(state, display)
                 display.info("bye")
                 quit_requested = True
                 break
             if cmd.type == CommandType.HELP:
                 display.info(
                     "/mode [plan|execute], /approve, /reject, /status, "
-                    "/mcp [list|reload|unload], /quit"
+                    "/approvals [list|grant|deny|revoke], /mcp [list|reload|unload], /quit"
                 )
                 continue
             if cmd.type == CommandType.STATUS:
-                display.info(f"status={state.status.value}, mode={state.mode.value}")
+                running = _is_execution_running(state)
+                display.info(f"status={state.status.value}, mode={state.mode.value}, running={running}")
+                if running and state.active_execution_description:
+                    display.info(f"active_task={state.active_execution_description}")
+                continue
+            if cmd.type == CommandType.APPROVALS:
+                await _handle_approvals_command(
+                    cmd.args,
+                    agent=agent,
+                    display=display,
+                )
                 continue
             if cmd.type == CommandType.MCP:
                 await _handle_mcp_command(
@@ -482,12 +656,24 @@ async def run_cli_loop(
                 if state.pending_task_description is None:
                     display.warn("no pending plan")
                     continue
-                state.status = SessionStatus.RUNNING
-                await run_task(agent, state.pending_task_description, display)
-                state.reset_task()
+                task_text = state.pending_task_description
+                _clear_pending_plan(state)
+                if background_execute:
+                    await _start_background_execution(
+                        state=state,
+                        agent=agent,
+                        task_text=task_text,
+                        display=display,
+                    )
+                else:
+                    state.status = SessionStatus.RUNNING
+                    await run_task(agent, task_text, display)
+                    state.status = SessionStatus.IDLE
                 continue
             if cmd.type == CommandType.REJECT:
-                state.reset_task()
+                _clear_pending_plan(state)
+                if not _is_execution_running(state):
+                    state.status = SessionStatus.IDLE
                 display.info("plan rejected")
                 continue
             continue
@@ -502,10 +688,19 @@ async def run_cli_loop(
             state.status = SessionStatus.AWAITING_APPROVAL
             display.info("type /approve to execute or /reject to cancel")
         else:
-            state.status = SessionStatus.RUNNING
-            await run_task(agent, task_text, display)
-            state.reset_task()
+            if background_execute:
+                await _start_background_execution(
+                    state=state,
+                    agent=agent,
+                    task_text=task_text,
+                    display=display,
+                )
+            else:
+                state.status = SessionStatus.RUNNING
+                await run_task(agent, task_text, display)
+                state.status = SessionStatus.IDLE
 
+    await _finalize_background_execution_if_done(state, display)
     return (state, quit_requested)
 
 
@@ -615,6 +810,7 @@ async def main(argv: list[str] | None = None) -> None:
             display=display,
             mcp_state=mcp_state,
             state=cli_state,
+            background_execute=True,
         )
         if quit_requested:
             break

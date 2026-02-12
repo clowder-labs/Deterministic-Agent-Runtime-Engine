@@ -26,17 +26,17 @@ The ConfigProvider SHALL return a single effective Config object that represents
 - **WHEN** a component requests configuration
 - **THEN** it receives values from the effective Config object produced by the ConfigProvider
 
-### Requirement: allowtools and allowmcps Override Semantics
-The allowtools and allowmcps settings SHALL be treated as normal configuration keys and follow the same layer override order (system < user < project). They MUST NOT be merged across layers unless explicitly specified by the effective layer.
+### Requirement: allow_tools and allow_mcps Override Semantics
+The allow_tools and allow_mcps settings SHALL be treated as normal configuration keys and follow the same layer override order (system < user < project). They MUST NOT be merged across layers unless explicitly specified by the effective layer.
 
-#### Scenario: Project allowtools overrides lower layers
-- **GIVEN** allowtools is defined in system and user layers
-- **AND** allowtools is defined in the project layer
+#### Scenario: Project allow_tools overrides lower layers
+- **GIVEN** allow_tools is defined in system and user layers
+- **AND** allow_tools is defined in the project layer
 - **WHEN** the effective configuration is computed
-- **THEN** the project allowtools value replaces the lower-layer values
+- **THEN** the project allow_tools value replaces the lower-layer values
 
 ### Requirement: Config Model Structure
-The Config model SHALL include at least the following top-level fields: llm, mcp, tools, allowtools, allowmcps, and components. The llm field MUST support connectivity configuration such as endpoint, api_key, and model. The mcp and tools fields MUST support component-scoped configuration objects keyed by component name. The components field MUST support enable/disable flags and per-component configuration for entry point components by type and name.
+The Config model SHALL include at least the following top-level fields: llm, mcp, tools, allow_tools, allow_mcps, and components. The llm field MUST support connectivity configuration such as endpoint, api_key, and model. The mcp and tools fields MUST support component-scoped configuration objects keyed by component name. The components field MUST support enable/disable flags and per-component configuration for entry point components by type and name.
 
 #### Scenario: LLM connectivity fields available
 - **WHEN** the effective Config is produced

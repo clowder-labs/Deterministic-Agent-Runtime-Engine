@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from dare_framework.config.types import Config
+from dare_framework.tool.kernel import IToolGateway
+from dare_framework.tool.types import CapabilityDescriptor
+
 if TYPE_CHECKING:
-    from dare_framework.config.types import Config
     from dare_framework.model.types import Prompt
     from dare_framework.skill.types import Skill
-    from dare_framework.tool.kernel import IToolGateway
-    from dare_framework.tool.types import CapabilityDescriptor
 
 from dare_framework.context.kernel import IContext, IRetrievalContext, IAssembleContext
 from dare_framework.context.types import AssembledContext, Budget, Message
@@ -86,6 +87,10 @@ class Context(IContext):
         return self._config
 
     @property
+    def tool_gateway(self) -> IToolGateway | None:
+        return self._tool_gateway
+
+    @property
     def sys_prompt(self) -> Prompt | None:
         return self._sys_prompt
 
@@ -156,19 +161,13 @@ class Context(IContext):
 
     # ========== Tool Methods ==========
 
+    def set_tool_gateway(self, tool_gateway: IToolGateway | None) -> None:
+        self._tool_gateway = tool_gateway
+
     def list_tools(self) -> list[CapabilityDescriptor]:
         """Get tool list from a ToolManager or provider."""
         if self._tool_gateway is not None:
-            list_capabilities_sync = getattr(self._tool_gateway, "list_capabilities_sync", None)
-            if callable(list_capabilities_sync):
-                return list_capabilities_sync()
-
-            # Backward compatibility for legacy sync gateways.
-            list_capabilities = getattr(self._tool_gateway, "list_capabilities", None)
-            if callable(list_capabilities):
-                capabilities = list_capabilities()
-                if not hasattr(capabilities, "__await__"):
-                    return capabilities
+            return self._tool_gateway.list_capabilities()
         return []
 
     # ========== Assembly Methods (Core) ==========

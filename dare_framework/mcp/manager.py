@@ -76,8 +76,12 @@ class MCPManager:
             user_dir=self._config.user_dir,
         )
 
-        if self._config.allowmcps:
-            allowed = set(self._config.allowmcps)
+        allowed_mcps = getattr(self._config, "allow_mcps", None)
+        if allowed_mcps is None:
+            # Backward compatibility for legacy config field name.
+            allowed_mcps = getattr(self._config, "allowmcps", None)
+        if allowed_mcps:
+            allowed = set(allowed_mcps)
             mcp_configs = [item for item in mcp_configs if getattr(item, "name", None) in allowed]
 
         clients = await self._create_clients(mcp_configs, connect=True, skip_errors=True)
