@@ -79,9 +79,8 @@ class ReadFileTool(ITool):
     # noinspection PyMethodOverriding
     async def execute(
         self,
-        *,
-        run_context: RunContext[Any],
-        path: str,
+        run_context: RunContext[Any] | dict[str, Any],
+        path: str | RunContext[Any],
         encoding: str = "utf-8",
         start_line: int | None = None,
         end_line: int | None = None,
@@ -98,6 +97,17 @@ class ReadFileTool(ITool):
         Returns:
             File content payload with metadata.
         """
+        normalized = _normalize_execute_args(
+            run_context=run_context,
+            path=path,
+            encoding=encoding,
+            start_line=start_line,
+            end_line=end_line,
+        )
+        if isinstance(normalized, ToolResult):
+            return normalized
+        run_context, path, encoding, start_line, end_line = normalized
+
         try:
             payload: dict[str, Any] = {
                 "path": path,
@@ -110,6 +120,40 @@ class ReadFileTool(ITool):
             return _execute_read(payload, run_context)
         except ToolError as exc:
             return _error_result(exc)
+
+
+def _normalize_execute_args(
+    *,
+    run_context: RunContext[Any] | dict[str, Any],
+    path: str | RunContext[Any],
+    encoding: str,
+    start_line: int | None,
+    end_line: int | None,
+) -> tuple[RunContext[Any], str, str, int | None, int | None] | ToolResult:
+    """Support both keyword invocation and legacy input/context invocation."""
+
+    if isinstance(run_context, dict):
+        if not isinstance(path, RunContext):
+            return ToolResult(
+                success=False,
+                output={"code": "INVALID_CONTEXT"},
+                error="run context is required",
+                evidence=[],
+            )
+        input_payload = run_context
+        parsed_path = input_payload.get("path")
+        parsed_encoding = input_payload.get("encoding", encoding)
+        parsed_start = input_payload.get("start_line", start_line)
+        parsed_end = input_payload.get("end_line", end_line)
+        return path, str(parsed_path) if parsed_path is not None else "", parsed_encoding, parsed_start, parsed_end
+    if isinstance(path, RunContext):
+        return ToolResult(
+            success=False,
+            output={"code": "INVALID_PATH"},
+            error="path is required",
+            evidence=[],
+        )
+    return run_context, path, encoding, start_line, end_line
 
 
 def _execute_read(input: dict[str, Any], context: RunContext[Any]) -> ToolResult:

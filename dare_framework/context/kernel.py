@@ -12,11 +12,11 @@ from typing import Any, TYPE_CHECKING
 
 from dare_framework.config.types import Config
 from dare_framework.context.types import AssembledContext, Budget, Message
-from dare_framework.model.types import Prompt
 from dare_framework.skill.types import Skill
 from dare_framework.tool.types import CapabilityDescriptor
 
 if TYPE_CHECKING:
+    from dare_framework.model.types import Prompt
     from dare_framework.tool.kernel import IToolGateway
 
 
