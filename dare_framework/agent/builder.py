@@ -63,6 +63,7 @@ from dare_framework.skill import Skill, ISkillLoader, ISkillStore, SkillStoreBui
 from dare_framework.skill._internal.action_handler import SkillsActionHandler
 from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
 from dare_framework.tool import ToolResult, CapabilityDescriptor
+from dare_framework.tool._internal.tools.ask_user import AskUserTool, IUserInputHandler
 from dare_framework.tool.action_handler import ApprovalsActionHandler, ToolsActionHandler
 from dare_framework.tool._internal.control.approval_manager import ToolApprovalManager
 from dare_framework.tool.interfaces import IExecutionControl
@@ -123,6 +124,9 @@ class _BaseAgentBuilder(Generic[TAgent]):
 
         # Optional transport channel (agent-facing).
         self._agent_channel: AgentChannel | None = None
+
+        # User input handler for the built-in ask_user tool.
+        self._user_input_handler: IUserInputHandler | None = None
 
         self._sys_skill: Skill | None = None
         self._enable_skill_tool: bool = True
@@ -240,6 +244,15 @@ class _BaseAgentBuilder(Generic[TAgent]):
         """Optionally mount a plan provider (e.g. plan_v2.Planner). Its tools are registered;
         for ReactAgent, the same provider is exposed as agent.plan_provider (e.g. to read .state)."""
         self._plan_provider = plan_provider
+        return self
+
+    def with_user_input_handler(self: TBuilder, handler: IUserInputHandler) -> TBuilder:
+        """Inject a custom user-input handler for the built-in ``ask_user`` tool.
+
+        If not called, the default ``CLIUserInputHandler`` (stdin/stdout) is
+        used.  Pass a custom implementation for web UIs, Slack bots, etc.
+        """
+        self._user_input_handler = handler
         return self
 
     def with_agent_channel(self: TBuilder, channel: AgentChannel) -> TBuilder:
@@ -481,6 +494,10 @@ class _BaseAgentBuilder(Generic[TAgent]):
         if knowledge is not None:
             explicit.append(KnowledgeGetTool(knowledge))
             explicit.append(KnowledgeAddTool(knowledge))
+        # Built-in ask_user tool — always available so the LLM can request user input.
+        ask_user_tool = AskUserTool(handler=self._user_input_handler)
+        if ask_user_tool.name not in explicit_names:
+            explicit.append(ask_user_tool)
         return explicit
 
     def _build_context(

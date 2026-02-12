@@ -9,6 +9,9 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
+    "AskUserTool",
+    "CLIUserInputHandler",
+    "IUserInputHandler",
     "Checkpoint",
     "DefaultExecutionControl",
     "FileExecutionControl",
@@ -24,6 +27,9 @@ __all__ = [
 ]
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "AskUserTool": ("dare_framework.tool._internal.tools.ask_user", "AskUserTool"),
+    "CLIUserInputHandler": ("dare_framework.tool._internal.tools.ask_user", "CLIUserInputHandler"),
+    "IUserInputHandler": ("dare_framework.tool._internal.tools.ask_user", "IUserInputHandler"),
     "Checkpoint": (
         "dare_framework.tool._internal.control.default_execution_control",
         "Checkpoint",

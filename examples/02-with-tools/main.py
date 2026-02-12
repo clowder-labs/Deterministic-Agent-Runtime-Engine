@@ -2,6 +2,12 @@
 
 This example shows how to add tools to an agent for file operations.
 The agent uses ReAct mode: reason → act → observe loop (ReactAgent executes tool_calls).
+
+Built-in tools:
+- ask_user is automatically registered for every agent. When the LLM needs
+  user clarification, a decision, or approval, it calls ask_user with
+  structured questions. By default a CLI handler (stdin/stdout) is used.
+  To use a custom UI, call .with_user_input_handler(your_handler) on the builder.
 """
 
 from __future__ import annotations
@@ -10,6 +16,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -20,7 +27,40 @@ from dare_framework.agent import BaseAgent
 from dare_framework.config import Config
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
+from dare_framework.tool._internal.tools.ask_user import IUserInputHandler
 from dare_framework.transport import AgentChannel, StdioClientChannel, TransportEnvelope
+
+
+# ---------------------------------------------------------------------------
+# (Optional) Custom user-input handler example
+# Replace CLIUserInputHandler when building a web UI, Slack bot, etc.
+# ---------------------------------------------------------------------------
+
+class CustomUserInputHandler(IUserInputHandler):
+    """Example custom handler — adapt for any UI."""
+
+    async def handle(self, questions: list[dict[str, Any]]) -> dict[str, str]:
+        answers: dict[str, str] = {}
+        for q in questions:
+            question_text = q.get("question", "")
+            options = q.get("options", [])
+
+            print(f"\n>>> {q.get('header', '')}: {question_text}")
+            for i, opt in enumerate(options, 1):
+                print(f"    [{i}] {opt['label']}: {opt.get('description', '')}")
+
+            loop = asyncio.get_running_loop()
+            raw = await loop.run_in_executor(
+                None, lambda: input("  → ").strip()
+            )
+
+            try:
+                idx = int(raw) - 1
+                answers[question_text] = options[idx]["label"]
+            except (ValueError, IndexError):
+                answers[question_text] = raw
+
+        return answers
 
 
 async def main() -> None:
@@ -70,6 +110,9 @@ async def main() -> None:
     channel = AgentChannel.build(client_channel, decoder=decoder)
 
     # Build agent with tools (ReactAgent executes tool_calls in a ReAct loop)
+    # Note: ask_user tool is built-in — no need to add it explicitly.
+    # To use a custom handler, uncomment the line below:
+    #   .with_user_input_handler(CustomUserInputHandler())
     agent = (
         BaseAgent.react_agent_builder("tool-agent")
         .with_model(model_adapter)
@@ -81,6 +124,7 @@ async def main() -> None:
 
     print(f"Tool agent ready (model: {model_name})")
     print(f"Workspace: {workspace}")
+    print("The agent can ask you questions when it needs your input.")
     print("Type your request, or /quit to exit.\n")
 
     await agent.start()

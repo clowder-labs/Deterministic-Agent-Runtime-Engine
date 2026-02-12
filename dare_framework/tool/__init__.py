@@ -50,11 +50,24 @@ __all__ = [
     "IToolProvider",
     # Supported defaults
     "ToolManager",
+    # Built-in ask_user
+    "AskUserTool",
+    "CLIUserInputHandler",
+    "IUserInputHandler",
 ]
 
 
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "ToolManager": ("dare_framework.tool.tool_manager", "ToolManager"),
+    "AskUserTool": ("dare_framework.tool._internal.tools.ask_user", "AskUserTool"),
+    "CLIUserInputHandler": ("dare_framework.tool._internal.tools.ask_user", "CLIUserInputHandler"),
+    "IUserInputHandler": ("dare_framework.tool._internal.tools.ask_user", "IUserInputHandler"),
+}
+
+
 def __getattr__(name: str) -> Any:
-    if name == "ToolManager":
-        from dare_framework.tool.tool_manager import ToolManager as _ToolManager
-        return _ToolManager
+    if name in _LAZY_ATTRS:
+        module_name, attr_name = _LAZY_ATTRS[name]
+        module = __import__(module_name, fromlist=[attr_name])
+        return getattr(module, attr_name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,5 +1,10 @@
 """Built-in tool implementations for the tool domain."""
 
+from dare_framework.tool._internal.tools.ask_user import (
+    AskUserTool,
+    CLIUserInputHandler,
+    IUserInputHandler,
+)
 from dare_framework.tool._internal.tools.echo_tool import EchoTool
 from dare_framework.tool._internal.tools.noop_tool import NoopTool
 from dare_framework.tool._internal.tools.read_code import ReadCodeTool
@@ -13,6 +18,9 @@ from dare_framework.tool._internal.tools.write_file import WriteFileTool
 from dare_framework.tool._internal.tools.edit_line import EditLineTool
 
 __all__ = [
+    "AskUserTool",
+    "CLIUserInputHandler",
+    "IUserInputHandler",
     "EchoTool",
     "NoopTool",
     "ReadCodeTool",
