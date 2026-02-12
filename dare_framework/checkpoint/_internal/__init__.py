@@ -1,1 +1,1 @@
-# Checkpoint internal implementations
+"""Checkpoint internal implementations."""

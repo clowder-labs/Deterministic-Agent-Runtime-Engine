@@ -452,6 +452,17 @@ class ObservabilityHook(IHook):
             metrics.model_invocations,
             attributes={"loop_type": "model"},
         )
+        total = float(metrics.total_duration)
+        if total > 0:
+            overhead = max(total - float(metrics.model_duration) - float(metrics.tool_duration), 0.0)
+            ratio = overhead / total
+        else:
+            ratio = 0.0
+        self._telemetry.record_metric(
+            "hook.overhead_ratio",
+            ratio,
+            attributes={"phase": "run"},
+        )
 
 
 __all__ = ["ObservabilityHook"]

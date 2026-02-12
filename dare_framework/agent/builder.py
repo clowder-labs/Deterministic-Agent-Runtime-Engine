@@ -670,21 +670,46 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
                 remediator = candidate
 
         explicit_hooks = list(self._hooks)
-        resolved_hooks = list(explicit_hooks)
-
+        config_hooks: list[IHook] = []
         manager = self._hook_manager
         if manager is not None:
             discovered = manager.load_hooks(config=self._manager_config())
-            resolved_hooks.extend(
-                [hook for hook in discovered if self._config is None or self._config.is_component_enabled(hook)]
-            )
+            config_hooks = [hook for hook in discovered if config.is_component_enabled(hook)]
 
-        hooks = resolved_hooks or None
+        system_hooks: list[IHook] = []
         if agent_channel is not None:
-            if hooks is None:
-                hooks = []
-            if not any(hook.name == "agent_event_transport" for hook in hooks):
-                hooks.append(AgentEventTransportHook(agent_channel))
+            existing = {hook.name for hook in [*config_hooks, *explicit_hooks]}
+            if "agent_event_transport" not in existing:
+                system_hooks.append(AgentEventTransportHook(agent_channel))
+
+        source_rank = {"system": 0, "config": 1, "code": 2}
+        ordered_candidates: list[tuple[int, int, int, IHook]] = []
+        registration_order = 0
+        for source, hooks_group in (
+            ("system", system_hooks),
+            ("config", config_hooks),
+            ("code", explicit_hooks),
+        ):
+            for hook in hooks_group:
+                registration_order += 1
+                ordered_candidates.append(
+                    (
+                        source_rank[source],
+                        config.hooks.priority_for(hook.name),
+                        registration_order,
+                        hook,
+                    )
+                )
+
+        hooks = []
+        seen_names: set[str] = set()
+        for _, _, _, hook in sorted(ordered_candidates, key=lambda item: (item[0], item[1], item[2])):
+            if hook.name in seen_names:
+                continue
+            seen_names.add(hook.name)
+            hooks.append(hook)
+        if not hooks:
+            hooks = None
 
         telemetry = self._telemetry
         return DareAgent(

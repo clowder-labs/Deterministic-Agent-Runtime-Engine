@@ -79,10 +79,9 @@ class WriteFileTool(ITool):
     # noinspection PyMethodOverriding
     async def execute(
         self,
-        *,
-        run_context: RunContext[Any],
-        path: str,
-        content: str,
+        run_context: RunContext[Any] | dict[str, Any],
+        path: str | RunContext[Any],
+        content: str | None = None,
         create_dirs: bool = True,
     ) -> ToolResult[WriteFileOutput]:
         """Write text content into a workspace file.
@@ -96,6 +95,16 @@ class WriteFileTool(ITool):
         Returns:
             Write result metadata including bytes written and creation state.
         """
+        normalized = _normalize_execute_args(
+            run_context=run_context,
+            path=path,
+            content=content,
+            create_dirs=create_dirs,
+        )
+        if isinstance(normalized, ToolResult):
+            return normalized
+        run_context, path, content, create_dirs = normalized
+
         try:
             return _execute_write(
                 {"path": path, "content": content, "create_dirs": create_dirs},
@@ -103,6 +112,38 @@ class WriteFileTool(ITool):
             )
         except ToolError as exc:
             return _error_result(exc)
+
+
+def _normalize_execute_args(
+    *,
+    run_context: RunContext[Any] | dict[str, Any],
+    path: str | RunContext[Any],
+    content: str | None,
+    create_dirs: bool,
+) -> tuple[RunContext[Any], str, str | None, bool] | ToolResult:
+    """Support both keyword invocation and legacy input/context invocation."""
+
+    if isinstance(run_context, dict):
+        if not isinstance(path, RunContext):
+            return ToolResult(
+                success=False,
+                output={"code": "INVALID_CONTEXT"},
+                error="run context is required",
+                evidence=[],
+            )
+        input_payload = run_context
+        parsed_path = input_payload.get("path")
+        parsed_content = input_payload.get("content", content)
+        parsed_create_dirs = input_payload.get("create_dirs", create_dirs)
+        return path, str(parsed_path) if parsed_path is not None else "", parsed_content, bool(parsed_create_dirs)
+    if isinstance(path, RunContext):
+        return ToolResult(
+            success=False,
+            output={"code": "INVALID_PATH"},
+            error="path is required",
+            evidence=[],
+        )
+    return run_context, path, content, create_dirs
 
 
 def _execute_write(input: dict[str, Any], context: RunContext[Any]) -> ToolResult:

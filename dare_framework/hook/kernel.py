@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
-from dare_framework.hook.types import HookPhase
+from dare_framework.hook.types import HookPhase, HookResult
 from dare_framework.infra.component import ComponentType, IComponent
 
 HookFn = Callable[[dict[str, Any]], Any]
+HookOutcome = HookResult | dict[str, Any] | None
 
 
 @runtime_checkable
@@ -25,7 +26,7 @@ class IHook(IComponent, Protocol):
     def component_type(self) -> Literal[ComponentType.HOOK]:
         ...
 
-    async def invoke(self, phase: HookPhase, *args: Any, **kwargs: Any) -> Any:
+    async def invoke(self, phase: HookPhase, *args: Any, **kwargs: Any) -> HookOutcome:
         """[Component] Invoke the hook for a given phase.
 
         The payload is intentionally unconstrained (phase-specific) so runtimes
@@ -37,7 +38,7 @@ class IHook(IComponent, Protocol):
 class IExtensionPoint(Protocol):
     def register_hook(self, phase: HookPhase, hook: HookFn) -> None: ...
 
-    async def emit(self, phase: HookPhase, payload: dict[str, Any]) -> None: ...
+    async def emit(self, phase: HookPhase, payload: dict[str, Any]) -> HookResult: ...
 
 
-__all__ = ["IExtensionPoint", "IHook", "HookFn"]
+__all__ = ["HookFn", "HookOutcome", "IExtensionPoint", "IHook"]

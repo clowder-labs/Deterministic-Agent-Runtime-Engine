@@ -1,1 +1,1 @@
-# Checkpoint contributors
+"""Checkpoint contributor implementations."""

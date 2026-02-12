@@ -3,6 +3,16 @@
 from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IExtensionPoint, IHook, HookFn
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
-from dare_framework.hook.types import HookPhase
+from dare_framework.hook.types import HookDecision, HookEnvelope, HookPhase, HookResult
 
-__all__ = ["HookFn", "HookPhase", "IExtensionPoint", "IHook", "IHookManager", "HookExtensionPoint"]
+__all__ = [
+    "HookDecision",
+    "HookEnvelope",
+    "HookFn",
+    "HookPhase",
+    "HookResult",
+    "IExtensionPoint",
+    "IHook",
+    "IHookManager",
+    "HookExtensionPoint",
+]

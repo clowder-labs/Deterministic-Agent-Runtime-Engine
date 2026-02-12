@@ -268,6 +268,52 @@ class ObservabilityConfig:
         return payload
 
 
+@dataclass(frozen=True)
+class HooksConfig:
+    """Governance configuration for runtime hook orchestration."""
+
+    version: int = 1
+    defaults: dict[str, Any] = field(default_factory=dict)
+    entries: list[dict[str, Any]] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> HooksConfig:
+        version_raw = data.get("version", 1)
+        try:
+            version = int(version_raw)
+        except (TypeError, ValueError):
+            version = 1
+        defaults_raw = data.get("defaults")
+        defaults = dict(defaults_raw) if isinstance(defaults_raw, dict) else {}
+        entries_raw = data.get("entries")
+        entries = [dict(item) for item in entries_raw if isinstance(item, dict)] if isinstance(entries_raw, list) else []
+        return cls(version=version, defaults=defaults, entries=entries)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "defaults": dict(self.defaults),
+            "entries": [dict(item) for item in self.entries],
+        }
+
+    def priority_for(self, hook_name: str, *, default: int = 100) -> int:
+        """Resolve configured hook priority by hook name."""
+
+        for entry in self.entries:
+            if str(entry.get("name", "")) != hook_name:
+                continue
+            raw = entry.get("priority", self.defaults.get("priority", default))
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return default
+        raw_default = self.defaults.get("priority", default)
+        try:
+            return int(raw_default)
+        except (TypeError, ValueError):
+            return default
+
+
 def _component_key(component_type: ComponentType | str) -> str:
     """Normalize component type values for lookup."""
     if isinstance(component_type, ComponentType):
@@ -289,6 +335,7 @@ class Config:
     allow_tools: list[str] = field(default_factory=list)
     allow_mcps: list[str] = field(default_factory=list)
     components: dict[str, ComponentConfig] = field(default_factory=dict)
+    hooks: HooksConfig = field(default_factory=HooksConfig)
     knowledge: dict[str, Any] = field(default_factory=dict)
     """Knowledge backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
     long_term_memory: dict[str, Any] = field(default_factory=dict)
@@ -326,6 +373,8 @@ class Config:
             for key, value in components_raw.items()
             if isinstance(value, dict)
         }
+        hooks_raw = data.get("hooks")
+        hooks = HooksConfig.from_dict(hooks_raw) if isinstance(hooks_raw, dict) else HooksConfig()
         knowledge = data.get("knowledge") if isinstance(data.get("knowledge"), dict) else {}
         long_term_memory = data.get("long_term_memory") if isinstance(data.get("long_term_memory"), dict) else {}
         prompt_store_path_pattern = data.get("prompt_store_path_pattern")
@@ -360,6 +409,7 @@ class Config:
             allow_tools=allow_tools,
             allow_mcps=allow_mcps,
             components=components,
+            hooks=hooks,
             knowledge=knowledge,
             long_term_memory=long_term_memory,
             workspace_dir=workspace_dir,
@@ -409,6 +459,7 @@ class Config:
             "allow_tools": list(self.allow_tools),
             "allow_mcps": list(self.allow_mcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
+            "hooks": self.hooks.to_dict(),
             "knowledge": dict(self.knowledge),
             "long_term_memory": dict(self.long_term_memory),
             "workspace_dir": self.workspace_dir,
@@ -421,6 +472,7 @@ __all__ = [
     "ProxyConfig",
     "LLMConfig",
     "ComponentConfig",
+    "HooksConfig",
     "RedactionConfig",
     "ObservabilityConfig",
     "Config",

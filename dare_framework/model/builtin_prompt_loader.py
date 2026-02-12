@@ -20,6 +20,16 @@ def _default_prompts() -> list[Prompt]:
 - Never give time estimates. Focus on what needs to be done, not how long it takes.
 - Use markdown for formatting. Keep responses scannable with headers, bullets, and code blocks where appropriate.
 
+## Runtime Environment
+
+- Current working directory: {{cwd}}
+- System: {{system}}
+- Shell: {{shell}}
+- python: {{python}}
+- node: {{node}}
+- bash: {{bash}}
+- git: {{git}}
+
 # Task Management
 
 For non-trivial tasks, break them into logical steps and track progress:

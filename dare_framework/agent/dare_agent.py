@@ -24,7 +24,7 @@ from dare_framework.agent._internal.orchestration import MilestoneState, Session
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import AssembledContext, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
-from dare_framework.hook.types import HookPhase
+from dare_framework.hook.types import HookDecision, HookPhase, HookResult
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.observability._internal.event_trace_bridge import make_trace_aware
 from dare_framework.observability._internal.otel_provider import (
@@ -677,13 +677,16 @@ class DareAgent(BaseAgent):
         self._context.budget_check()
 
         # Assemble context for execution
-        await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
+        before_context_dispatch = await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
         assembled = self._context.assemble()
-        assembled_messages = self._assemble_messages(assembled)
+        assembled_messages, assembled_tools, assembled_metadata = self._apply_context_patch(
+            assembled,
+            before_context_dispatch,
+        )
         await self._emit_hook(
             HookPhase.AFTER_CONTEXT_ASSEMBLE,
             {
-                **self._context_stats(assembled_messages, len(assembled.tools)),
+                **self._context_stats(assembled_messages, len(assembled_tools)),
                 "budget_stats": self._budget_stats(),
             },
         )
@@ -691,8 +694,8 @@ class DareAgent(BaseAgent):
         # Create prompt
         model_input = ModelInput(
             messages=assembled_messages,
-            tools=assembled.tools,
-            metadata=assembled.metadata,
+            tools=assembled_tools,
+            metadata=assembled_metadata,
         )
 
         outputs: list[Any] = []
@@ -709,10 +712,23 @@ class DareAgent(BaseAgent):
             # Generate model response
             self._log(f"Execute iteration {iteration + 1}/{self._max_tool_iterations}")
             self._log_model_messages(model_input.messages, stage=f"execute:{iteration + 1}")
-            await self._emit_hook(HookPhase.BEFORE_MODEL, {
+            before_model_dispatch = await self._emit_hook(HookPhase.BEFORE_MODEL, {
                 "iteration": iteration + 1,
                 "model_name": getattr(self._model, "name", None),
+                "model_input": model_input,
             })
+            if before_model_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+                policy_error = (
+                    "model invocation requires hook approval"
+                    if before_model_dispatch.decision is HookDecision.ASK
+                    else "model invocation denied by hook policy"
+                )
+                errors.append(policy_error)
+                return await self._finalize_execute(
+                    execute_start,
+                    {"success": False, "outputs": outputs, "errors": errors},
+                )
+            model_input = self._apply_model_input_patch(model_input, before_model_dispatch)
             model_start = time.perf_counter()
             response = await self._model.generate(model_input)
             model_latency_ms = (time.perf_counter() - model_start) * 1000.0
@@ -841,20 +857,23 @@ class DareAgent(BaseAgent):
                     errors.append(result_error or "tool failed")
 
             # Reassemble context with new messages for next iteration
-            await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
+            before_context_dispatch = await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
             assembled = self._context.assemble()
-            assembled_messages = self._assemble_messages(assembled)
+            assembled_messages, assembled_tools, assembled_metadata = self._apply_context_patch(
+                assembled,
+                before_context_dispatch,
+            )
             await self._emit_hook(
                 HookPhase.AFTER_CONTEXT_ASSEMBLE,
                 {
-                    **self._context_stats(assembled_messages, len(assembled.tools)),
+                    **self._context_stats(assembled_messages, len(assembled_tools)),
                     "budget_stats": self._budget_stats(),
                 },
             )
             model_input = ModelInput(
                 messages=assembled_messages,
-                tools=assembled.tools,
-                metadata=assembled.metadata,
+                tools=assembled_tools,
+                metadata=assembled_metadata,
             )
 
         # Max iterations reached
@@ -934,7 +953,7 @@ class DareAgent(BaseAgent):
                     }
 
             tool_start = time.perf_counter()
-            await self._emit_hook(
+            before_tool_dispatch = await self._emit_hook(
                 HookPhase.BEFORE_TOOL,
                 {
                     "tool_name": tool_name,
@@ -945,6 +964,32 @@ class DareAgent(BaseAgent):
                     "requires_approval": requires_approval,
                 },
             )
+            if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+                policy_error = (
+                    "tool invocation requires hook approval"
+                    if before_tool_dispatch.decision is HookDecision.ASK
+                    else "tool invocation denied by hook policy"
+                )
+                await self._emit_hook(
+                    HookPhase.AFTER_TOOL,
+                    {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "capability_id": request.capability_id,
+                        "attempt": attempts,
+                        "success": False,
+                        "error": policy_error,
+                        "approved": True,
+                        "evidence_collected": False,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                        "budget_stats": self._budget_stats(),
+                    },
+                )
+                return {
+                    "success": False,
+                    "error": policy_error,
+                    "output": {},
+                }
             await self._log_event("tool.invoke", {
                 "tool_name": tool_name,
                 "tool_call_id": tool_call_id,
@@ -1168,7 +1213,17 @@ class DareAgent(BaseAgent):
         milestone_id = None
         if self._session_state and self._session_state.current_milestone_state:
             milestone_id = self._session_state.current_milestone_state.milestone.milestone_id
-        await self._emit_hook(HookPhase.BEFORE_VERIFY, {"milestone_id": milestone_id})
+        before_verify_dispatch = await self._emit_hook(HookPhase.BEFORE_VERIFY, {"milestone_id": milestone_id})
+        if before_verify_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+            policy_error = (
+                "milestone verification requires hook approval"
+                if before_verify_dispatch.decision is HookDecision.ASK
+                else "milestone verification denied by hook policy"
+            )
+            return VerifyResult(
+                success=False,
+                errors=[policy_error],
+            )
 
         # TODO: Need to convert execute_result to proper type
         # For now, create a minimal RunResult
@@ -1352,6 +1407,45 @@ class DareAgent(BaseAgent):
             "context_tools_count": tools_count,
         }
 
+    def _apply_context_patch(
+        self,
+        assembled: AssembledContext,
+        dispatch: HookResult,
+    ) -> tuple[list[Message], list[Any], dict[str, Any]]:
+        messages = self._assemble_messages(assembled)
+        tools: list[Any] = list(assembled.tools)
+        metadata: dict[str, Any] = dict(assembled.metadata)
+        patch = dispatch.patch if isinstance(dispatch.patch, dict) else None
+        if patch is None:
+            return messages, tools, metadata
+        context_patch = patch.get("context_patch")
+        if not isinstance(context_patch, dict):
+            return messages, tools, metadata
+        if isinstance(context_patch.get("messages"), list):
+            messages = list(context_patch["messages"])
+        if isinstance(context_patch.get("tools"), list):
+            tools = list(context_patch["tools"])
+        if isinstance(context_patch.get("metadata"), dict):
+            metadata.update(context_patch["metadata"])
+        return messages, tools, metadata
+
+    def _apply_model_input_patch(self, model_input: ModelInput, dispatch: HookResult) -> ModelInput:
+        patch = dispatch.patch if isinstance(dispatch.patch, dict) else None
+        if patch is None:
+            return model_input
+        patched = patch.get("model_input")
+        if isinstance(patched, ModelInput):
+            return patched
+        if isinstance(patched, dict):
+            messages = patched.get("messages", model_input.messages)
+            tools = patched.get("tools", model_input.tools)
+            metadata = dict(model_input.metadata)
+            if isinstance(patched.get("metadata"), dict):
+                metadata.update(patched["metadata"])
+            if isinstance(messages, list) and isinstance(tools, list):
+                return ModelInput(messages=messages, tools=tools, metadata=metadata)
+        return model_input
+
     def _log_model_messages(self, messages: list[Message], *, stage: str) -> None:
         """Emit message trace in verbose mode without writing to stdout."""
         if not self._verbose:
@@ -1365,8 +1459,8 @@ class DareAgent(BaseAgent):
                 message.content,
             )
 
-    async def _emit_hook(self, phase: HookPhase, payload: dict[str, Any]) -> None:
-        """Emit a hook payload via the extension point (best-effort)."""
+    async def _emit_hook(self, phase: HookPhase, payload: dict[str, Any]) -> HookResult:
+        """Emit a hook payload via the extension point and return governance decision."""
         enriched = dict(payload)
         enriched.setdefault("phase", phase.value)
         enriched.setdefault("context_id", self._context.id)
@@ -1376,9 +1470,10 @@ class DareAgent(BaseAgent):
             enriched.setdefault("session_id", self._session_state.run_id)
         if self._extension_point is not None:
             try:
-                await self._extension_point.emit(phase, enriched)
+                return await self._extension_point.emit(phase, enriched)
             except Exception:
-                pass
+                return HookResult(decision=HookDecision.ALLOW)
+        return HookResult(decision=HookDecision.ALLOW)
 
     async def _emit_approval_pending_message(
         self,

@@ -11,7 +11,12 @@ from dare_framework.tool._internal.util.__tool_schema_util import (
     infer_input_schema_from_execute,
     infer_output_schema_from_execute,
 )
-from dare_framework.tool._internal.file_utils import resolve_workspace_roots
+from dare_framework.tool._internal.file_utils import (
+    DEFAULT_MAX_BYTES,
+    coerce_int,
+    get_tool_config,
+    resolve_workspace_roots,
+)
 from dare_framework.infra.ids import generate_id
 from dare_framework.tool.types import (
     CapabilityKind,
@@ -75,9 +80,8 @@ class RunCommandTool(ITool):
     # noinspection PyMethodOverriding
     async def execute(
         self,
-        *,
-        run_context: RunContext[Any],
-        command: str,
+        run_context: RunContext[Any] | dict[str, Any],
+        command: str | RunContext[Any],
         cwd: str | None = None,
         timeout_seconds: int | None = None,
     ) -> ToolResult[RunCommandOutput]:
@@ -92,15 +96,32 @@ class RunCommandTool(ITool):
         Returns:
             Command execution output including stdout, stderr, and exit code.
         """
+        normalized = _normalize_execute_args(
+            run_context=run_context,
+            command=command,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+        )
+        if isinstance(normalized, ToolResult):
+            return normalized
+        run_context, command, cwd, timeout_seconds = normalized
+
         if not isinstance(command, str) or not command.strip():
-            return _error_result("command is required")
+            return _error_result("command is required", code="INVALID_COMMAND")
 
         roots = resolve_workspace_roots(run_context)
         resolved_cwd = _resolve_cwd(cwd, roots)
-        if resolved_cwd is None or not _is_allowed_path(resolved_cwd, roots):
-            return _error_result("working directory is not within workspace roots")
+        if (
+            resolved_cwd is None
+            or not _is_allowed_path(resolved_cwd, roots)
+            or not resolved_cwd.exists()
+            or not resolved_cwd.is_dir()
+        ):
+            return _error_result("working directory is not within workspace roots", code="INVALID_CWD")
 
         timeout = _parse_timeout(timeout_seconds, self.timeout_seconds)
+        tool_config = get_tool_config(run_context, self.name)
+        max_output_bytes = coerce_int(tool_config.get("max_output_bytes"), DEFAULT_MAX_BYTES)
 
         proc: asyncio.subprocess.Process | None = None
         try:
@@ -115,16 +136,27 @@ class RunCommandTool(ITool):
             if proc and proc.returncode is None:
                 proc.kill()
                 await proc.communicate()
-            return _error_result("command timed out")
+            return _error_result("command timed out", code="COMMAND_TIMEOUT")
         except Exception as exc:  # noqa: BLE001
-            return _error_result(str(exc))
+            return _error_result(str(exc), code="COMMAND_EXEC_FAILED")
+
+        stdout_text, stdout_truncated = _truncate_text(
+            stdout.decode("utf-8", errors="replace"),
+            max_output_bytes,
+        )
+        stderr_text, stderr_truncated = _truncate_text(
+            stderr.decode("utf-8", errors="replace"),
+            max_output_bytes,
+        )
 
         return ToolResult(
             success=proc.returncode == 0,
             output={
-                "stdout": stdout.decode("utf-8", errors="replace"),
-                "stderr": stderr.decode("utf-8", errors="replace"),
+                "stdout": stdout_text,
+                "stderr": stderr_text,
                 "exit_code": proc.returncode,
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
             },
             error=None if proc.returncode == 0 else "command failed",
             evidence=[
@@ -135,6 +167,31 @@ class RunCommandTool(ITool):
                 )
             ],
         )
+
+
+def _normalize_execute_args(
+    *,
+    run_context: RunContext[Any] | dict[str, Any],
+    command: str | RunContext[Any],
+    cwd: str | None,
+    timeout_seconds: int | None,
+) -> (
+    tuple[RunContext[Any], str, str | None, int | None]
+    | ToolResult
+):
+    """Support both v4 keyword style and legacy positional input/context style."""
+
+    if isinstance(run_context, dict):
+        if not isinstance(command, RunContext):
+            return _error_result("run context is required", code="INVALID_CONTEXT")
+        input_payload = run_context
+        parsed_command = input_payload.get("command")
+        parsed_cwd = input_payload.get("cwd", cwd)
+        parsed_timeout = input_payload.get("timeout_seconds", timeout_seconds)
+        return command, parsed_command, parsed_cwd, parsed_timeout
+    if isinstance(command, RunContext):
+        return _error_result("command is required", code="INVALID_COMMAND")
+    return run_context, command, cwd, timeout_seconds
 
 
 def _resolve_cwd(cwd: Any, roots: list[Path]) -> Path | None:
@@ -165,11 +222,25 @@ def _parse_timeout(value: Any, fallback: int) -> int:
         return fallback
 
 
-def _error_result(message: str) -> ToolResult:
-    return ToolResult(success=False, output={}, error=message, evidence=[])
+def _truncate_text(value: str, max_bytes: int) -> tuple[str, bool]:
+    raw = value.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return value, False
+    clipped = raw[:max_bytes]
+    text = clipped.decode("utf-8", errors="ignore")
+    # Guard against edge-case decoder behavior around boundary bytes.
+    while len(text.encode("utf-8")) > max_bytes:
+        text = text[:-1]
+    return text, True
+
+
+def _error_result(message: str, *, code: str) -> ToolResult:
+    return ToolResult(success=False, output={"code": code}, error=message, evidence=[])
 
 
 class RunCommandOutput(TypedDict):
     stdout: str
     stderr: str
     exit_code: int
+    stdout_truncated: bool
+    stderr_truncated: bool
