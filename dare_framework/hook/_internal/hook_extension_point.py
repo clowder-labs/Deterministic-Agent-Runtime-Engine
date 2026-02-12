@@ -30,6 +30,7 @@ class HookExtensionPoint(IExtensionPoint):
         timeout_ms: int = 200,
         retries: int = 0,
         idempotent: bool = False,
+        enforce: bool = True,
     ) -> None:
         self._hooks = list(hooks) if hooks is not None else []
         self._callbacks: dict[HookPhase, list[HookFn]] = {}
@@ -38,6 +39,7 @@ class HookExtensionPoint(IExtensionPoint):
         self._timeout_ms = timeout_ms
         self._retries = retries
         self._idempotent = idempotent
+        self._enforce = enforce
 
     def register_hook(self, phase: HookPhase, hook: HookFn) -> None:
         self._callbacks.setdefault(phase, []).append(hook)
@@ -90,6 +92,11 @@ class HookExtensionPoint(IExtensionPoint):
         )
         if patch_result.error_code:
             errors.append(f"{patch_result.error_code}:{patch_result.message or ''}")
+            if not self._enforce:
+                return HookResult(
+                    decision=HookDecision.ALLOW,
+                    message=f"shadow mode: {'; '.join(errors)}",
+                )
             return HookResult(decision=HookDecision.BLOCK, message="; ".join(errors))
 
         try:
@@ -98,6 +105,15 @@ class HookExtensionPoint(IExtensionPoint):
             decision = HookDecision.ALLOW
 
         message = "; ".join(errors) if errors else winner.get("message")
+        if not self._enforce and decision is not HookDecision.ALLOW:
+            shadow_message = f"shadow mode observed decision={decision.value}"
+            if message:
+                shadow_message = f"{shadow_message}; {message}"
+            return HookResult(
+                decision=HookDecision.ALLOW,
+                patch=patch_result.patch,
+                message=shadow_message,
+            )
         return HookResult(decision=decision, patch=patch_result.patch, message=message)
 
     def _normalize_runner_result(self, run_result: Any) -> dict[str, Any]:
