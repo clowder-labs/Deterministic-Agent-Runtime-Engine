@@ -138,6 +138,10 @@ def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
     serialized: list[dict[str, Any]] = []
     for msg in messages:
         payload: dict[str, Any] = {"role": msg.role, "content": msg.content}
+        if msg.role == "assistant":
+            tool_calls = _normalize_tool_calls_for_openrouter(getattr(msg, "metadata", {}).get("tool_calls", []))
+            if tool_calls:
+                payload["tool_calls"] = tool_calls
         if msg.role == "tool" and msg.name:
             payload["tool_call_id"] = msg.name
         elif msg.name:
@@ -146,6 +150,37 @@ def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
     return serialized
 
 
+def _normalize_tool_calls_for_openrouter(tool_calls: Any) -> list[dict[str, Any]]:
+    if not isinstance(tool_calls, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            continue
+        name = call.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+
+        raw_args = call.get("arguments", call.get("args", {}))
+        if isinstance(raw_args, str):
+            args_json = raw_args
+        else:
+            safe_args = raw_args if isinstance(raw_args, dict) else {}
+            args_json = json.dumps(safe_args, ensure_ascii=False)
+
+        normalized_call: dict[str, Any] = {
+            "type": "function",
+            "function": {
+                "name": name,
+                "arguments": args_json,
+            },
+        }
+        call_id = call.get("id") or call.get("tool_call_id")
+        if isinstance(call_id, str) and call_id.strip():
+            normalized_call["id"] = call_id
+        normalized.append(normalized_call)
+    return normalized
 
 
 def _extract_tool_calls(message: Any) -> list[dict[str, Any]]:

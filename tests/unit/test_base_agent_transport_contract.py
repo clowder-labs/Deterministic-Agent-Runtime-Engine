@@ -142,6 +142,49 @@ class _RecordingSendChannel:
         return object()
 
 
+class _SingleMessageChannel:
+    def __init__(self, payload: Any) -> None:
+        self._payload = payload
+        self._polled = False
+        self._sent: list[TransportEnvelope] = []
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def poll(self) -> TransportEnvelope:
+        if self._polled:
+            await asyncio.sleep(10)
+            return TransportEnvelope(id="idle", kind=EnvelopeKind.MESSAGE, payload="")
+        self._polled = True
+        return TransportEnvelope(id="m1", kind=EnvelopeKind.MESSAGE, payload=self._payload)
+
+    async def send(self, msg: TransportEnvelope) -> None:
+        self._sent.append(msg)
+
+    def add_action_handler_dispatcher(self, dispatcher: Any) -> None:
+        _ = dispatcher
+
+    def add_agent_control_handler(self, handler: Any) -> None:
+        _ = handler
+
+    def get_action_handler_dispatcher(self) -> Any:
+        return object()
+
+    def get_agent_control_handler(self) -> Any:
+        return object()
+
+
+class _ErroringAgent(BaseAgent):
+    async def execute(self, task: str | Any, *, transport: Any = None) -> RunResult:
+        _ = task
+        _ = transport
+        self._status = AgentStatus.STOPPED
+        raise RuntimeError("simulated model timeout")
+
+
 @pytest.mark.asyncio
 async def test_public_surface_uses_call_not_run() -> None:
     agent = _CaptureAgent("capture-agent")
@@ -201,3 +244,22 @@ async def test_transport_loop_returns_structured_error_for_invalid_message_paylo
     payload = error_payloads[0]
     assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
     assert payload.get("kind") == "message"
+
+
+@pytest.mark.asyncio
+async def test_transport_loop_returns_structured_error_when_execute_raises() -> None:
+    channel = _SingleMessageChannel("hello")
+    agent = _ErroringAgent("erroring-agent", agent_channel=channel)
+    agent._status = AgentStatus.RUNNING
+
+    await agent._run_transport_loop()
+
+    error_payloads = [
+        envelope.payload
+        for envelope in channel._sent
+        if isinstance(envelope.payload, dict) and envelope.payload.get("type") == "error"
+    ]
+    assert len(error_payloads) == 1
+    payload = error_payloads[0]
+    assert payload.get("code") == "AGENT_EXECUTION_FAILED"
+    assert "simulated model timeout" in str(payload.get("reason"))

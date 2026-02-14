@@ -35,6 +35,45 @@ class _SequenceModel:
         return response
 
 
+class _EmptyFinalModel:
+    def __init__(self) -> None:
+        self._responses = [
+            ModelResponse(
+                content="calling tool",
+                tool_calls=[
+                    {
+                        "id": "tc_1",
+                        "name": "tool:echo",
+                        "arguments": {"value": "ping"},
+                    }
+                ],
+            ),
+            ModelResponse(content="", tool_calls=[]),
+        ]
+        self._idx = 0
+
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        response = self._responses[self._idx]
+        self._idx += 1
+        return response
+
+
+class _RepeatingToolModel:
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        return ModelResponse(
+            content="still searching",
+            tool_calls=[
+                {
+                    "id": "tc_same",
+                    "name": "tool:echo",
+                    "arguments": {"value": "ping"},
+                }
+            ],
+        )
+
+
 class _RecordingGateway:
     def __init__(self, label: str) -> None:
         self.label = label
@@ -77,3 +116,43 @@ async def test_react_agent_prefers_injected_gateway_over_context_gateway() -> No
     assert result.success is True
     assert injected_gateway.invoke_calls == [("tool:echo", {"value": "ping"})]
     assert context_gateway.invoke_calls == []
+
+
+@pytest.mark.asyncio
+async def test_react_agent_returns_fallback_when_model_final_reply_is_empty() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+
+    agent = ReactAgent(
+        name="react-test-empty-final",
+        model=_EmptyFinalModel(),
+        context=context,
+        tool_gateway=gateway,
+    )
+
+    result = await agent("test")
+
+    assert result.success is True
+    assert isinstance(result.output_text, str)
+    assert result.output_text.strip() != ""
+    assert "模型未返回可显示的文本回复" in result.output_text
+
+
+@pytest.mark.asyncio
+async def test_react_agent_stops_repeated_identical_tool_loop() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+
+    agent = ReactAgent(
+        name="react-test-loop-guard",
+        model=_RepeatingToolModel(),
+        context=context,
+        tool_gateway=gateway,
+        max_tool_rounds=10,
+    )
+
+    result = await agent("test")
+
+    assert result.success is True
+    assert "连续重复调用相同工具" in str(result.output_text)
+    assert len(gateway.invoke_calls) == 2

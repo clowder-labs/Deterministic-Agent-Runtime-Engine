@@ -203,7 +203,15 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
                     except asyncio.CancelledError:
                         # Cancelled (typically via interrupt) is expected.
                         pass
-                    except Exception:
+                    except Exception as exc:
+                        reason = str(exc).strip() or exc.__class__.__name__
+                        await _send_transport_error(
+                            channel=channel,
+                            envelope_id=envelope.id,
+                            target="prompt",
+                            code="AGENT_EXECUTION_FAILED",
+                            reason=reason,
+                        )
                         self._logger.exception("agent interaction handler failed")
                     finally:
                         self._in_flight_task = None

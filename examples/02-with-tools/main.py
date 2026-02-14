@@ -28,7 +28,7 @@ from dare_framework.config import Config
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.tool._internal.tools import ReadFileTool, SearchCodeTool, WriteFileTool
 from dare_framework.tool._internal.tools.ask_user import IUserInputHandler
-from dare_framework.transport import AgentChannel, StdioClientChannel, TransportEnvelope
+from dare_framework.transport import AgentChannel, StdioClientChannel
 
 
 # ---------------------------------------------------------------------------
@@ -95,25 +95,13 @@ async def main() -> None:
     )
 
     client_channel = StdioClientChannel()
-
-    def decoder(envelope: TransportEnvelope) -> TransportEnvelope:
-        return TransportEnvelope(
-            id=envelope.id,
-            reply_to=envelope.reply_to,
-            kind=envelope.kind,
-            payload=f"Workspace: {workspace}\n\n{envelope.payload}",
-            meta=envelope.meta,
-            stream_id=envelope.stream_id,
-            seq=envelope.seq,
-        )
-
-    channel = AgentChannel.build(client_channel, decoder=decoder)
+    channel = AgentChannel.build(client_channel)
 
     # Build agent with tools (ReactAgent executes tool_calls in a ReAct loop)
     # Note: ask_user tool is built-in — no need to add it explicitly.
     # To use a custom handler, uncomment the line below:
     #   .with_user_input_handler(CustomUserInputHandler())
-    agent = (
+    agent = await (
         BaseAgent.react_agent_builder("tool-agent")
         .with_model(model_adapter)
         .with_config(agent_config)

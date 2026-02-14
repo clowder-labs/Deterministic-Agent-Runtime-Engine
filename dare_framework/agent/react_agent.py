@@ -7,6 +7,7 @@ to context, and calls the model again until the model returns a final text respo
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
@@ -68,6 +69,9 @@ class ReactAgent(BaseAgent):
 
         gateway = self._tool_gateway
 
+        last_tool_signature: tuple[str, ...] | None = None
+        repeated_tool_rounds = 0
+
         for round_idx in range(self._max_tool_rounds):
             print(f"[{self.name}] Round {round_idx + 1}/{self._max_tool_rounds}: 调用模型中...", flush=True)
             assembled = self._context.assemble()
@@ -110,13 +114,28 @@ class ReactAgent(BaseAgent):
             self._context.budget_check()
 
             if not response.tool_calls:
-                assistant_message = Message(role="assistant", content=response.content or "")
+                final_text = (response.content or "").strip()
+                if not final_text:
+                    final_text = "模型未返回可显示的文本回复。请重试，或明确要求先调用 ask_user 再继续。"
+                assistant_message = Message(role="assistant", content=final_text)
                 self._context.stm_add(assistant_message)
                 return RunResult(
                     success=True,
-                    output=response.content or "",
-                    output_text=response.content or "",
+                    output=final_text,
+                    output_text=final_text,
                 )
+
+            current_signature = _tool_calls_signature(response.tool_calls)
+            if current_signature and current_signature == last_tool_signature:
+                repeated_tool_rounds += 1
+            else:
+                repeated_tool_rounds = 1
+            last_tool_signature = current_signature
+
+            if repeated_tool_rounds >= 3:
+                loop_guard = "模型连续重复调用相同工具，已停止自动循环。请换一种描述，或明确要求先调用 ask_user 再继续。"
+                self._context.stm_add(Message(role="assistant", content=loop_guard))
+                return RunResult(success=True, output=loop_guard, output_text=loop_guard)
 
             assistant_msg = Message(
                 role="assistant",
@@ -129,13 +148,7 @@ class ReactAgent(BaseAgent):
             for tool_call in response.tool_calls:
                 name = tool_call.get("name", "")
                 tool_call_id = tool_call.get("id", "")
-                args = tool_call.get("arguments", {})
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args) if args.strip() else {}
-                    except json.JSONDecodeError:
-                        args = {}
-                params = args if isinstance(args, dict) else {}
+                params = _normalize_tool_args(tool_call.get("arguments", {}))
                 task_preview = (params.get("task") or "")[:80] if isinstance(params.get("task"), str) else ""
                 print(f"[{self.name}] 执行工具: {name}" + (f" (task: {task_preview}...)" if task_preview else ""), flush=True)
 
@@ -156,12 +169,36 @@ class ReactAgent(BaseAgent):
                 tool_msg = Message(role="tool", name=tool_call_id or name, content=tool_content)
                 self._context.stm_add(tool_msg)
 
-        final_message = "(Reached max tool rounds without final reply.)"
+        final_message = "模型在工具循环中未收敛（达到最大轮次）。请缩小范围，或明确要求先调用 ask_user 再继续。"
         return RunResult(
             success=True,
             output=final_message,
             output_text=final_message,
         )
+
+
+def _normalize_tool_args(raw_args: Any) -> dict[str, Any]:
+    if isinstance(raw_args, str):
+        try:
+            decoded = json.loads(raw_args) if raw_args.strip() else {}
+        except json.JSONDecodeError:
+            decoded = {}
+        return decoded if isinstance(decoded, dict) else {}
+    if isinstance(raw_args, dict):
+        return raw_args
+    return {}
+
+
+def _tool_calls_signature(tool_calls: list[dict[str, Any]]) -> tuple[str, ...]:
+    signature: list[str] = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        name = str(tool_call.get("name", ""))
+        args = _normalize_tool_args(tool_call.get("arguments", {}))
+        args_key = json.dumps(args, ensure_ascii=False, sort_keys=True)
+        signature.append(f"{name}:{args_key}")
+    return tuple(signature)
 
 
 __all__ = ["ReactAgent"]
