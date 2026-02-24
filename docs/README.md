@@ -67,6 +67,8 @@
 |---|---|---|
 | `dare_framework/` | 框架实现主目录（目标收敛到单一架构；详见权威设计） | ✅ 实现入口 |
 | `Project_Architecture_and_Priorities.md` | 以“实现视角”梳理现状与优先级（阅读入口指向权威设计） | ✅ 实现视角 |
+| `todos/README.md` | TODO 目录维护规则与生命周期说明 | ✅ 全局规划 |
+| `todos/project_overall_todos.md` | 项目总体 TODO 清单（跨模块路线图） | ✅ 全局规划 |
 
 ### 3️⃣ 附录与工程实践
 
