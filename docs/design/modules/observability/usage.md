@@ -46,3 +46,31 @@ agent = (
   will no-op without failing the runtime.
 - Content capture is disabled by default. Use `capture_content: true` only in
   trusted local environments.
+
+## Local JSONL capture for examples
+
+For local debugging you can capture every model input/output pair as JSONL:
+
+```bash
+export DARE_LLM_IO_CAPTURE=1
+# optional: customize output directory (default: <workspace>/.dare/observability/llm_io)
+export DARE_LLM_IO_DIR=".dare/observability/llm_io"
+python examples/04-dare-coding-agent/main.py
+```
+
+When enabled, DareAgentBuilder auto-injects `llm_io_capture` hook and writes one
+record per model call to a local JSONL file. The file key is:
+- `<conversation_id>.llm_io.jsonl` when hook payload includes `conversation_id`
+- `<run_id>.llm_io.jsonl` otherwise
+
+Summarize the latest trace:
+
+```bash
+python scripts/llm_io_summary.py
+```
+
+Show per-call preview:
+
+```bash
+python scripts/llm_io_summary.py --show-calls
+```

@@ -208,6 +208,7 @@ class DareAgent(BaseAgent):
         # Runtime state (set during execution)
         self._session_state: SessionState | None = None
         self._active_transport: AgentChannel | None = None
+        self._conversation_id: str | None = None
         self._token_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
 
     @property
@@ -286,6 +287,7 @@ class DareAgent(BaseAgent):
         """Execute a task with automatic mode selection."""
         previous_transport = self._active_transport
         self._active_transport = transport
+        previous_conversation_id = self._conversation_id
         if isinstance(task, Task):
             task_obj = task
         else:
@@ -293,6 +295,7 @@ class DareAgent(BaseAgent):
                 description=task,
                 task_id=uuid4().hex[:8],
             )
+        self._conversation_id = self._extract_conversation_id(task_obj)
         start_time = time.perf_counter()
         if task_obj.task_id is None:
             task_obj = replace(task_obj, task_id=uuid4().hex[:8])
@@ -318,6 +321,7 @@ class DareAgent(BaseAgent):
             raise
         finally:
             self._active_transport = previous_transport
+            self._conversation_id = previous_conversation_id
             duration_ms = (time.perf_counter() - start_time) * 1000.0
             errors: list[str] = []
             if result is not None and result.errors:
@@ -751,10 +755,16 @@ class DareAgent(BaseAgent):
             })
             await self._emit_hook(HookPhase.AFTER_MODEL, {
                 "iteration": iteration + 1,
+                "model_name": getattr(self._model, "name", None),
                 "has_tool_calls": bool(response.tool_calls),
                 "model_usage": response.usage or {},
                 "duration_ms": model_latency_ms,
                 "budget_stats": self._budget_stats(),
+                "model_output": {
+                    "content": response.content,
+                    "tool_calls": response.tool_calls,
+                    "metadata": response.metadata,
+                },
             })
 
             # No tool calls: we're done
@@ -1464,6 +1474,8 @@ class DareAgent(BaseAgent):
         enriched = dict(payload)
         enriched.setdefault("phase", phase.value)
         enriched.setdefault("context_id", self._context.id)
+        if self._conversation_id:
+            enriched.setdefault("conversation_id", self._conversation_id)
         if self._session_state:
             enriched.setdefault("task_id", self._session_state.task_id)
             enriched.setdefault("run_id", self._session_state.run_id)
@@ -1583,6 +1595,11 @@ class DareAgent(BaseAgent):
     async def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         """Log an event to the event log (if configured)."""
         # Add session context
+        if self._conversation_id:
+            payload = {
+                "conversation_id": self._conversation_id,
+                **payload,
+            }
         if self._session_state:
             payload = {
                 "task_id": self._session_state.task_id,
@@ -1592,6 +1609,16 @@ class DareAgent(BaseAgent):
 
         if self._event_log is not None:
             await self._event_log.append(event_type, payload)
+
+    def _extract_conversation_id(self, task: Task) -> str | None:
+        metadata = task.metadata if isinstance(task.metadata, dict) else {}
+        for key in ("conversation_id", "session_id"):
+            candidate = metadata.get(key)
+            if isinstance(candidate, str):
+                normalized = candidate.strip()
+                if normalized:
+                    return normalized
+        return None
 
 
 def _format_tool_result(tool_result: dict[str, Any]) -> str:

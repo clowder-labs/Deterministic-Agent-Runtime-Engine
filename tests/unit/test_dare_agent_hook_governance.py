@@ -10,7 +10,7 @@ from dare_framework.context import Context, Message
 from dare_framework.hook.types import HookDecision, HookPhase, HookResult
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput, ModelResponse
-from dare_framework.plan.types import ToolLoopRequest
+from dare_framework.plan.types import Task, ToolLoopRequest
 from dare_framework.tool.types import ToolResult
 
 
@@ -134,3 +134,52 @@ async def test_before_context_assemble_patch_updates_model_metadata() -> None:
     assert result["success"] is True
     assert model.inputs
     assert model.inputs[0].metadata.get("governed") is True
+
+
+@pytest.mark.asyncio
+async def test_after_model_payload_contains_model_output() -> None:
+    observed_payloads: list[dict[str, Any]] = []
+
+    def resolver(phase: HookPhase, payload: dict[str, Any]) -> HookResult:
+        if phase is HookPhase.AFTER_MODEL:
+            observed_payloads.append(payload)
+        return HookResult(decision=HookDecision.ALLOW)
+
+    response = ModelResponse(
+        content="assistant response",
+        tool_calls=[{"id": "c1", "name": "read_file", "arguments": {"path": "README.md"}}],
+        usage={"prompt_tokens": 2, "completion_tokens": 4, "total_tokens": 6},
+    )
+    model = _RecordingModel(responses=[response])
+    tool_gateway = _RecordingToolGateway()
+    agent = _build_agent(model=model, tool_gateway=tool_gateway, hook=_PolicyHook(resolver))
+
+    result = await agent._run_execute_loop(None)  # noqa: SLF001 - intentional runtime-bridge unit test
+
+    assert result["success"] is True
+    assert observed_payloads
+    model_output = observed_payloads[0].get("model_output")
+    assert isinstance(model_output, dict)
+    assert model_output.get("content") == "assistant response"
+    assert model_output.get("tool_calls") == [
+        {"id": "c1", "name": "read_file", "arguments": {"path": "README.md"}}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_model_hook_payload_contains_conversation_id_from_task_metadata() -> None:
+    observed_payloads: list[dict[str, Any]] = []
+
+    def resolver(phase: HookPhase, payload: dict[str, Any]) -> HookResult:
+        if phase is HookPhase.BEFORE_MODEL:
+            observed_payloads.append(payload)
+        return HookResult(decision=HookDecision.ALLOW)
+
+    model = _RecordingModel(responses=[ModelResponse(content="ok", tool_calls=[])])
+    tool_gateway = _RecordingToolGateway()
+    agent = _build_agent(model=model, tool_gateway=tool_gateway, hook=_PolicyHook(resolver))
+
+    await agent(Task(description="hello", metadata={"conversation_id": "session-42"}))
+
+    assert observed_payloads
+    assert observed_payloads[0].get("conversation_id") == "session-42"

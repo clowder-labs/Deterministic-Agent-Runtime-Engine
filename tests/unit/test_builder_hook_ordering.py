@@ -112,3 +112,27 @@ def test_builder_orders_hooks_by_source_and_config_priority() -> None:
 
     hook_names = [hook.name for hook in getattr(agent, "_hooks", [])]
     assert hook_names == ["agent_event_transport", "config_a", "config_b", "code_hook"]
+
+
+def test_builder_auto_injects_llm_io_capture_hook_when_capture_enabled(tmp_path) -> None:
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(tmp_path),
+            "observability": {
+                "capture_content": True,
+            },
+        }
+    )
+    builder = BaseAgent.dare_agent_builder("capture-hooks")
+
+    agent = builder._build_impl(
+        config=config,
+        model=_Model(),
+        context=Context(config=config),
+        tool_gateway=_ToolGateway(),
+        approval_manager=None,
+        agent_channel=None,
+    )
+
+    hook_names = [hook.name for hook in getattr(agent, "_hooks", [])]
+    assert "llm_io_capture" in hook_names
