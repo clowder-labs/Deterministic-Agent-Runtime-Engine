@@ -121,3 +121,34 @@ Tool 定义对外输出为 OpenAI function-call 兼容结构，由 `ToolManager.
 
 - Impl gap: `IToolGateway.invoke()` returns `Any` in kernel; should return `ToolResult`.
 - Type cleanup: replace string annotations for `ITool`/`IToolProvider` in kernel with direct types.
+
+## 11. 对外接口汇总（Public Contract Snapshot）
+
+- `ITool.execute(run_context, **params) -> ToolResult`
+- `IToolGateway.invoke(capability_id, envelope, context=None, **params) -> ToolResult`
+- `IToolGateway.list_capabilities() -> list[CapabilityDescriptor]`
+- `IToolManager`
+  - `load_tools`, `register_tool`, `get_tool`, `unregister_tool`
+  - `register_provider`, `refresh`, `list_capabilities`, `get_capability`
+
+## 12. 核心字段汇总（Core Fields Snapshot）
+
+- `CapabilityDescriptor`
+  - `id`, `type`, `name`, `description`, `input_schema`, `output_schema`, `metadata`
+- `CapabilityMetadata`
+  - `risk_level`, `requires_approval`, `timeout_seconds`, `is_work_unit`, `capability_kind`
+- `RunContext`
+  - `deps`, `metadata`, `run_id`, `task_id`, `milestone_id`, `config`
+- `ToolResult`
+  - `success`, `output`, `error`, `evidence`
+
+## 13. 关键流程汇总（Flow Snapshot）
+
+```mermaid
+flowchart TD
+  A["ModelResponse.tool_calls"] --> B["ToolLoopRequest(capability_id, params, envelope)"]
+  B --> C["IToolGateway.invoke"]
+  C --> D["Tool implementation execute"]
+  D --> E["ToolResult(success/output/error/evidence)"]
+  E --> F["Context + Event + Hook update"]
+```

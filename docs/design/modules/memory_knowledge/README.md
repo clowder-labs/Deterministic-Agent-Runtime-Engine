@@ -1,50 +1,80 @@
 # Module: memory / knowledge
 
-> Status: aligned to `dare_framework/memory` + `dare_framework/knowledge` (2026-01-31). TODO indicates gaps vs desired architecture.
+> Status: detailed design aligned to `dare_framework/memory` + `dare_framework/knowledge` (2026-02-25).
 
 ## 1. 定位与职责
 
-- 提供统一检索接口 `IRetrievalContext` 的具体实现（STM/LTM/Knowledge）。
-- 作为 Context 的检索来源（短期/长期/知识库）。
+- 提供 `Context` 的三类检索来源：STM / LTM / Knowledge。
+- 统一 retrieval contract（`IRetrievalContext.get`），并支持知识写入与知识工具化。
 
-## 2. 关键概念与数据结构
+## 2. 依赖与边界
 
-- `IRetrievalContext`：统一检索接口（Context kernel）。
-- `IShortTermMemory`：短期记忆接口（可写）。
-- `ILongTermMemory`：长期记忆接口（持久化）。
-- `IKnowledge`：知识检索接口（RAG/GraphRAG 等）。
-- `IKnowledgeTool`：Knowledge 作为 Tool 暴露的组合接口。
+- memory kernel：`IShortTermMemory`, `ILongTermMemory`
+- knowledge kernel：`IKnowledge`
+- composed interface：`IKnowledgeTool`
+- factory：
+  - `create_long_term_memory(config, embedding_adapter)`
+  - `create_knowledge(config, embedding_adapter)`
+- 边界约束：
+  - memory/knowledge 负责“存取与检索”，不负责最终上下文融合排序。
 
-## 3. 当前实现
+## 3. 对外接口（Public Contract）
 
-- `InMemorySTM`：默认短期记忆实现（内存列表）。
-- LongTermMemory / Knowledge 提供默认实现（rawdata / vector，内部实现），通常通过 factory 创建：
-  - `create_long_term_memory(...)`
-  - `create_knowledge(...)`
+- `IShortTermMemory`
+  - `add(message)`
+  - `get(query="", **kwargs) -> list[Message]`
+  - `clear()`
+  - `compress(max_messages=None, **kwargs) -> int`
+- `ILongTermMemory`
+  - `get(query="", **kwargs) -> list[Message]`
+  - `persist(messages) -> None`
+- `IKnowledge`
+  - `get(query, **kwargs) -> list[Message]`
+  - `add(content, **kwargs) -> None`
+- 工具化接口
+  - `KnowledgeGetTool.execute(query, top_k=5)`
+  - `KnowledgeAddTool.execute(content, metadata=None)`
 
-## 4. 与其他模块的交互
+## 4. 关键字段（Core Fields）
 
-- **Context**：持有 STM/LTM/Knowledge 引用；`assemble()` 默认只取 STM。
-- **Tool**：Knowledge 可作为 Tool 暴露（`IKnowledgeTool`）。
-- **Model**：检索结果通过 Context 组装进入 ModelInput.messages。
+- `LongTermMemoryConfig`
+  - `type: "vector" | "rawdata"`
+  - `storage: "in_memory" | "sqlite" | "chromadb"`
+  - `options: dict[str, Any]`
+- `KnowledgeConfig`
+  - `type: "vector" | "rawdata"`
+  - `storage: "in_memory" | "sqlite" | "chromadb"`
+  - `options: dict[str, Any]`
 
-## 5. 约束与限制
+## 5. 关键流程（Runtime Flow）
 
-- 检索融合策略未标准化（默认 assemble 不合入 LTM/Knowledge）。
-- 默认实现依赖 embedding adapter（vector 类型时）。
+```mermaid
+flowchart TD
+  A["Context assemble"] --> B["STM.get"]
+  A --> C["LTM.get(query, top_k)"]
+  A --> D["Knowledge.get(query, top_k)"]
+  B --> E["Context merge + rank"]
+  C --> E
+  D --> E
 
-## 6. 扩展点
+  F["Tool: knowledge_add"] --> G["IKnowledge.add"]
+  H["Tool: knowledge_get"] --> I["IKnowledge.get"]
+  I --> E
+```
 
-- 自定义 STM/LTM/Knowledge 实现，注入 Context。
-- 自定义 `Context.assemble()` 以合并检索结果。
+## 6. 与其他模块的交互
 
-## 7. TODO / 未决问题
+- **Context**：持有 STM/LTM/Knowledge 引用并在 `assemble()` 调用。
+- **Embedding**：vector 类型后端依赖 embedding adapter。
+- **Tool**：Knowledge 可暴露为工具能力。
 
-- TODO: 提供默认 LTM/Knowledge 实现（或接入外部向量库）。
-- TODO: 统一检索融合策略（排序、去重、预算控制）。
-- TODO: 知识作为 Tool 的统一策略（权限、计费、审计）。
+## 7. 约束与限制
 
-## 8. Design Clarifications (2026-02-03)
+- 默认 `Context.assemble()` 仍以 STM 为主，LTM/Knowledge 融合策略待统一。
+- vector 路径对 embedding 适配器有强依赖。
 
-- Doc gap: design doc is combined, but code is split into separate `memory/` and `knowledge/` domains.
-- Impl gap: factories depend on embedding adapter; dependency should be documented and typed.
+## 8. TODO / 未决问题
+
+- TODO: 统一 retrieval 参数协议（`top_k/min_similarity/filters`）。
+- TODO: 明确 LTM/Knowledge 冲突消解和去重规则。
+- TODO: 完善知识写入权限、审计与成本计量。

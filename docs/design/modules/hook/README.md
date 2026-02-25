@@ -237,3 +237,32 @@ shadow rollout：
 
 - 形成分层 hook lane（control/observe）与正式策略包发布机制
 - 为 patch 引入更细粒度字段级策略与审计标签
+
+## 14. 对外接口汇总（Public Contract Snapshot）
+
+- `IHook.invoke(phase, *args, **kwargs) -> HookResult | dict | None`
+- `IExtensionPoint.register_hook(phase, hook)`
+- `IExtensionPoint.emit(phase, payload) -> HookResult`
+- `IHookManager.load_hooks(config=None) -> list[IHook]`
+
+## 15. 核心字段汇总（Core Fields Snapshot）
+
+- `HookPhase`: `BEFORE_*` / `AFTER_*` 生命周期枚举
+- `HookDecision`: `ALLOW`, `BLOCK`, `ASK`
+- `HookEnvelope`
+  - `hook_version`, `phase`, `invocation_id`, `context_id`, `timestamp_ms`, `payload`
+- `HookResult`
+  - `decision`, `patch`, `message`
+
+## 16. 关键流程汇总（Flow Snapshot）
+
+```mermaid
+flowchart TD
+  A["Agent emits phase payload"] --> B["HookExtensionPoint.emit"]
+  B --> C["hook selector + runner"]
+  C --> D["decision arbiter"]
+  D --> E{"decision"}
+  E -- ALLOW --> F["continue runtime"]
+  E -- BLOCK --> G["abort current path"]
+  E -- ASK --> H["approval bridge / deny fallback"]
+```

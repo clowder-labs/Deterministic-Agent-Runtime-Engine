@@ -1,43 +1,63 @@
 # Module: embedding
 
-> Status: aligned to `dare_framework/embedding` (2026-01-31). TODO indicates gaps vs desired architecture.
+> Status: detailed design aligned to `dare_framework/embedding` (2026-02-25).
 
 ## 1. 定位与职责
 
-- 提供文本向量化能力接口（embedding adapter）。
-- 供知识检索 / RAG / 语义匹配等模块使用。
+- 提供统一向量化接口，支撑 knowledge / memory 的向量检索路径。
+- 隔离第三方 embedding SDK，向上层暴露稳定 `IEmbeddingAdapter` 协议。
 
-## 2. 关键概念与数据结构
+## 2. 依赖与边界
 
-- `EmbeddingResult`：向量 + metadata。
-- `EmbeddingOptions`：embedding 参数（model/metadata）。
-- `IEmbeddingAdapter`：embedding 适配器接口。
+- 核心协议：`dare_framework/embedding/interfaces.py`
+- 数据类型：`dare_framework/embedding/types.py`
+- 默认实现：`OpenAIEmbeddingAdapter`（`langchain-openai`）
+- 边界约束：
+  - embedding 只负责“文本->向量”，不负责检索排序与召回融合。
+  - 适配器层不管理知识库存储生命周期。
 
-## 3. 当前实现
+## 3. 对外接口（Public Contract）
 
-- `OpenAIEmbeddingAdapter`（LangChain OpenAIEmbeddings）。
+- `IEmbeddingAdapter.embed(text, options=None) -> EmbeddingResult`
+- `IEmbeddingAdapter.embed_batch(texts, options=None) -> list[EmbeddingResult]`
 
-## 4. 与其他模块的交互
+默认实现补充：
+- `OpenAIEmbeddingAdapter(model, api_key, endpoint, http_client_options)`
+- 支持 OpenAI 兼容 endpoint。
 
-- **Knowledge**：知识检索可调用 embedding 生成向量（当前未接入）。
-- **Config**：embedding 尚未纳入 Config 管理（TODO）。
+## 4. 关键字段（Core Fields）
 
-## 5. 约束与限制
+- `EmbeddingOptions`
+  - `model: str | None`
+  - `metadata: dict[str, Any]`
+- `EmbeddingResult`
+  - `vector: list[float]`
+  - `metadata: dict[str, Any]`（可含 model/usage）
 
-- 依赖 `langchain-openai`，未提供 fallback。
-- 无 Manager / Factory 统一选择逻辑（TODO）。
+## 5. 关键流程（Runtime Flow）
 
-## 6. 扩展点
+```mermaid
+flowchart TD
+  A["Knowledge / Memory request embedding"] --> B["IEmbeddingAdapter.embed(_batch)"]
+  B --> C["Adapter ensure client"]
+  C --> D["OpenAI-compatible embedding API"]
+  D --> E["EmbeddingResult(vector, metadata)"]
+  E --> F["Vector store consume"]
+```
 
-- 实现新的 embedding adapter（本地模型/第三方 API）。
-- 增加 Manager/Factory 统一管理。
+## 6. 与其他模块的交互
 
-## 7. TODO / 未决问题
+- **Knowledge**：vector knowledge 写入/检索依赖 embedding。
+- **Memory**：vector LTM 构建依赖 embedding。
+- **Config**：目前 embedding 独立于 config domain，后续需统一。
 
-- TODO: 接入 Knowledge/RAG pipeline。
-- TODO: 统一配置与 adapter 选择策略。
+## 7. 约束与限制
 
-## 8. Design Clarifications (2026-02-03)
+- 依赖可选第三方包 `langchain-openai`。
+- 当前未定义 adapter manager / provider 统一选择逻辑。
 
-- Doc/Impl gap: embedding domain lacks a `kernel.py` despite kernel conventions elsewhere.
-- Type cleanup: reduce `Any` usage in adapter client construction.
+## 8. TODO / 未决问题
+
+- TODO: 增加 embedding domain 的 kernel 层统一入口（与其他域一致）。
+- TODO: 收敛 adapter client 构造中的 `Any`。
+- TODO: 增加本地 embedding 模型支持与 fallback 策略。

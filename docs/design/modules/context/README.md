@@ -279,3 +279,34 @@ flowchart TD
 - TODO: 给 LTM/Knowledge 定义统一去重 key 与冲突消解规则。
 - TODO: 明确知识写入权限、审计与成本计量策略。
 - TODO: 增加“召回质量 + 压缩损失”评估指标并接入观测。
+
+## 14. 对外接口汇总（Public Contract Snapshot）
+
+- `IRetrievalContext.get(query="", **kwargs) -> list[Message]`
+- `IContext`
+  - `stm_add(message)`, `stm_get()`, `stm_clear()`
+  - `budget_use(resource, amount)`, `budget_check()`, `budget_remaining(resource)`
+  - `list_tools() -> list[CapabilityDescriptor]`
+  - `assemble() -> AssembledContext`
+  - `compress(**options) -> None`
+  - `set_tool_gateway(tool_gateway)`
+
+## 15. 核心字段汇总（Core Fields Snapshot）
+
+- `Message`: `role`, `content`, `name`, `metadata`
+- `Budget`: `max_tokens/max_cost/max_time_seconds/max_tool_calls` + `used_*`
+- `AssembledContext`: `messages`, `sys_prompt`, `tools`, `metadata`
+- 推荐 metadata 最小审计字段：
+  - `context_id`
+  - `retrieval.query/ltm_count/knowledge_count`
+  - `compression.trigger/strategies_applied/before_token_estimate/after_token_estimate`
+
+## 16. 关键流程汇总（Flow Snapshot）
+
+```mermaid
+flowchart TD
+  A["Agent before model call"] --> B["Context budget_check"]
+  B --> C["Context compress (optional)"]
+  C --> D["Context assemble"]
+  D --> E["AssembledContext -> ModelInput"]
+```

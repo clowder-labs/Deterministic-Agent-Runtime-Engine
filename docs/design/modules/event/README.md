@@ -1,41 +1,64 @@
 # Module: event
 
-> Status: interface-only (2026-01-31). TODO indicates missing implementation and integration.
+> Status: interface-first detailed design aligned to `dare_framework/event` (2026-02-25).
 
 ## 1. 定位与职责
 
-- 提供 WORM 事件日志接口，支持审计、查询与重放。
-- 作为“事实来源”，支持任务复验与外部审计系统。
+- 提供 WORM（append-only）事件日志契约，支撑审计、追溯与重放。
+- 作为运行时事实来源，服务于 session 复验与外部合规系统。
 
-## 2. 关键概念与数据结构
+## 2. 依赖与边界
 
-- `Event`：事件记录（event_type/payload/timestamp/hash）。
-- `RuntimeSnapshot`：基于 event log 的重放快照。
+- 核心协议：`dare_framework/event/kernel.py` (`IEventLog`)
+- 核心类型：`dare_framework/event/types.py` (`Event`, `RuntimeSnapshot`)
+- 边界约束：
+  - event domain 只定义事件存储契约，不绑定具体存储后端。
+  - 与 legacy `dare_framework/events/*` 事件总线语义需区分（总线 != WORM 日志）。
 
-## 3. 关键接口
+## 3. 对外接口（Public Contract）
 
-- `IEventLog.append(...)`：追加事件。
-- `IEventLog.query(...)`：查询事件。
-- `IEventLog.replay(...)`：按 event_id 重放。
-- `IEventLog.verify_chain()`：哈希链校验。
+- `IEventLog.append(event_type, payload) -> str`
+- `IEventLog.query(filter=None, limit=100) -> Sequence[Event]`
+- `IEventLog.replay(from_event_id) -> RuntimeSnapshot`
+- `IEventLog.verify_chain() -> bool`
 
-## 4. 与其他模块的交互
+## 4. 关键字段（Core Fields）
 
-- **Agent**：DareAgent 可选记录 session/plan/tool/model 事件。
-- **HITL**：未来可记录 pause/wait/resume 事件链。
+- `Event`
+  - `event_type: str`
+  - `payload: dict[str, Any]`
+  - `event_id: str`
+  - `timestamp: datetime`
+  - `prev_hash: str | None`
+  - `event_hash: str | None`
+- `RuntimeSnapshot`
+  - `from_event_id: str`
+  - `events: Sequence[Event]`
 
-## 5. 现状与限制
+## 5. 关键流程（Runtime Flow）
 
-- 当前仅有接口与类型，缺少默认实现。
-- 另有 `dare_framework/events/*` 旧 event bus 实现（legacy），未与新架构对齐。
+```mermaid
+flowchart TD
+  A["Agent emits runtime fact"] --> B["IEventLog.append"]
+  B --> C["Persist Event + hash link"]
+  C --> D["IEventLog.query / replay"]
+  D --> E["Audit / recovery / analytics"]
+  C --> F["IEventLog.verify_chain"]
+```
 
-## 6. TODO / 未决问题
+## 6. 与其他模块的交互
 
-- TODO: 提供默认 EventLog 实现（持久化 + hash-chain）。
-- TODO: 统一 legacy event bus 与 WORM event log 的关系。
-- TODO: 定义稳定事件 taxonomy 与 payload schema。
+- **Agent**：记录 `session.*`、`milestone.*`、`tool.*`、`model.*` 事件。
+- **Observability**：`TraceAwareEventLog` 在 append 前注入 trace metadata。
+- **Hook**：Hook payload 可镜像进入 event log，形成审计闭环。
 
-## 7. Design Clarifications (2026-02-03)
+## 7. 约束与限制
 
-- Doc/Impl gap: `dare_framework/events/*` (legacy) coexists with `event` domain; needs migration policy.
-- Doc gap: event taxonomy/schema must be defined for cross-module payloads.
+- 当前仓库缺少默认持久化实现（接口优先）。
+- 事件 taxonomy 与 payload schema 仍需统一规范。
+
+## 8. TODO / 未决问题
+
+- TODO: 提供默认实现（例如 sqlite + hash-chain）。
+- TODO: 定义 legacy events -> event domain 的迁移策略。
+- TODO: 固化跨模块事件命名与字段协议。

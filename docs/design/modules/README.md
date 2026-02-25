@@ -1,9 +1,9 @@
 # Modules Design Index
 
-> Status: updated (2026-01-31).
+> Status: updated (2026-02-25).
 >
 > This directory holds per-module design documents aligned with `dare_framework/`.
-> TODO markers indicate gaps or ambiguity that need module owners to confirm.
+> Each module README now contains explicit: **Public Contract / Core Fields / Runtime Flow**.
 
 ## Modules
 - agent: `docs/design/modules/agent/README.md`
@@ -25,7 +25,10 @@
 - skill: `docs/design/modules/skill/README.md` (assessment: `docs/design/modules/skill/Assessment.md`)
 - mcp: `docs/design/modules/mcp/README.md` (assessment: `docs/design/modules/mcp/Assessment.md`)
 - embedding: `docs/design/modules/embedding/README.md`
-- transport (design-only): `docs/design/modules/transport/transport_mvp.md` (see also `docs/design/modules/transport/Transport_Domain_Design.md`)
+- transport: `docs/design/modules/transport/README.md`
+  - supplemental: `docs/design/modules/transport/transport_mvp.md`
+  - supplemental: `docs/design/modules/transport/Transport_Domain_Design.md`
+  - supplemental: `docs/design/modules/transport/InteractionStreaming.md`
 
 ## Related Docs
 - interface map: `docs/design/Interfaces.md`
