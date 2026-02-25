@@ -10,10 +10,11 @@ import asyncio
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
+from uuid import uuid4
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,7 +28,14 @@ from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.model import OpenRouterModelAdapter
 from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
+from dare_framework.tool.action_handler import ApprovalsActionHandler
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalMatcherKind,
+    ApprovalScope,
+    ToolApprovalManager,
+)
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
+from dare_framework.transport.interaction.resource_action import ResourceAction
 
 from validators.file_validator import FileExistsValidator
 
@@ -38,6 +46,7 @@ class CommandType(Enum):
     APPROVE = "approve"
     REJECT = "reject"
     STATUS = "status"
+    APPROVALS = "approvals"
     HELP = "help"
 
 
@@ -66,6 +75,7 @@ class CLISessionState:
     status: SessionStatus = SessionStatus.IDLE
     pending_plan: Any | None = None
     pending_task_description: str | None = None
+    conversation_id: str = field(default_factory=lambda: uuid4().hex)
 
     def reset_task(self) -> None:
         self.status = SessionStatus.IDLE
@@ -91,6 +101,7 @@ def parse_command(user_input: str) -> Command | tuple[None, str]:
         "approve": CommandType.APPROVE,
         "reject": CommandType.REJECT,
         "status": CommandType.STATUS,
+        "approvals": CommandType.APPROVALS,
         "help": CommandType.HELP,
     }
 
@@ -158,6 +169,19 @@ class CLIDisplay:
             has_tools = payload.get("has_tool_calls")
             self.info(f"model response (iter={iteration}, tool_calls={has_tools})")
             return
+        if event_type == "exec.waiting_human":
+            checkpoint_id = payload.get("checkpoint_id", "?")
+            reason = payload.get("reason")
+            self.warn(f"waiting for approval: request_id={checkpoint_id}")
+            if reason:
+                self.info(f"approval reason: {reason}")
+            self.info("approve now: y=once allow, a=allow+remember(workspace), n=deny")
+            return
+        if event_type == "tool.approval":
+            status = payload.get("status")
+            source = payload.get("source")
+            self.info(f"tool approval: status={status}, source={source}")
+            return
         if event_type == "tool.invoke":
             name = payload.get("capability_id")
             attempt = payload.get("attempt")
@@ -181,12 +205,22 @@ class CLIDisplay:
 
 
 class StreamingEventLog(IEventLog):
-    def __init__(self, on_event: callable) -> None:
+    def __init__(
+        self,
+        on_event: callable,
+        *,
+        approval_manager: ToolApprovalManager | None = None,
+        prompt_fn: callable | None = None,
+    ) -> None:
         self._on_event = on_event
+        self._approval_manager = approval_manager
+        self._prompt_fn = prompt_fn or input
         self._events: list[Event] = []
 
     async def append(self, event_type: str, payload: dict[str, Any]) -> str:
         self._on_event(event_type, payload)
+        if event_type == "exec.waiting_human":
+            await self._resolve_pending_approval(payload)
         event = Event(event_type=event_type, payload=payload)
         self._events.append(event)
         return event.event_id
@@ -202,12 +236,178 @@ class StreamingEventLog(IEventLog):
     async def verify_chain(self) -> bool:
         return True
 
+    async def _resolve_pending_approval(self, payload: dict[str, Any]) -> None:
+        if self._approval_manager is None:
+            return
+        request_id = payload.get("checkpoint_id")
+        if not isinstance(request_id, str) or not request_id:
+            return
+        choice = await self._prompt_approval_choice(request_id=request_id)
+        if choice == "allow_workspace":
+            await self._approval_manager.grant(
+                request_id,
+                scope=ApprovalScope.WORKSPACE,
+                matcher=ApprovalMatcherKind.EXACT_PARAMS,
+            )
+            return
+        if choice == "allow_once":
+            await self._approval_manager.grant(
+                request_id,
+                scope=ApprovalScope.ONCE,
+                matcher=ApprovalMatcherKind.EXACT_PARAMS,
+            )
+            return
+        await self._approval_manager.deny(
+            request_id,
+            scope=ApprovalScope.ONCE,
+            matcher=ApprovalMatcherKind.EXACT_PARAMS,
+        )
+
+    async def _prompt_approval_choice(self, *, request_id: str) -> str:
+        prompt = (
+            f"[APPROVAL] request_id={request_id} "
+            "(y=allow once / a=allow+remember workspace / n=deny): "
+        )
+        loop = asyncio.get_running_loop()
+        try:
+            raw = await loop.run_in_executor(None, self._prompt_fn, prompt)
+        except Exception:
+            return "deny"
+        value = str(raw or "").strip().lower()
+        if value in {"y", "yes", "allow"}:
+            return "allow_once"
+        if value in {"a", "always", "workspace"}:
+            return "allow_workspace"
+        return "deny"
+
 
 def _match_filter(event: Event, filter: dict[str, Any]) -> bool:
     for key, value in filter.items():
         if event.payload.get(key) != value:
             return False
     return True
+
+
+def _approvals_usage(display: CLIDisplay) -> None:
+    display.info("/approvals list")
+    display.info("/approvals poll [timeout_ms=30000]")
+    display.info("/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]")
+    display.info("/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]")
+    display.info("/approvals revoke <rule_id>")
+
+
+def _resolve_approvals_handler(agent: Any) -> ApprovalsActionHandler | None:
+    approval_manager = getattr(agent, "_approval_manager", None)
+    if approval_manager is None:
+        return None
+    return ApprovalsActionHandler(approval_manager)
+
+
+def _parse_key_value_args(tokens: list[str]) -> tuple[list[str], dict[str, str]]:
+    positional: list[str] = []
+    options: dict[str, str] = {}
+    for token in tokens:
+        if "=" in token:
+            key, value = token.split("=", 1)
+            normalized = key.strip()
+            if normalized:
+                options[normalized] = value.strip()
+            continue
+        positional.append(token)
+    return positional, options
+
+
+def _build_approval_action_params(
+    *,
+    request_id: str,
+    trailing_args: list[str],
+) -> dict[str, Any]:
+    _positional, options = _parse_key_value_args(trailing_args)
+    params: dict[str, Any] = {"request_id": request_id}
+    for key in ("scope", "matcher", "matcher_value"):
+        if key in options and options[key]:
+            params[key] = options[key]
+    return params
+
+
+async def _handle_approvals_command(
+    args: list[str],
+    *,
+    agent: Any,
+    display: CLIDisplay,
+) -> None:
+    handler = _resolve_approvals_handler(agent)
+    if handler is None:
+        display.warn("approval manager unavailable on current agent")
+        return
+    if not args:
+        _approvals_usage(display)
+        return
+
+    subcommand = args[0].lower()
+    try:
+        if subcommand == "list":
+            result = await handler.invoke(ResourceAction.APPROVALS_LIST)
+            pending = result.get("pending", [])
+            rules = result.get("rules", [])
+            display.info(f"pending={len(pending)} rules={len(rules)}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+
+        if subcommand == "poll":
+            _positional, options = _parse_key_value_args(args[1:])
+            params: dict[str, Any] = {}
+            for key in ("timeout_ms", "timeout_seconds"):
+                if key in options and options[key]:
+                    params[key] = options[key]
+            result = await handler.invoke(ResourceAction.APPROVALS_POLL, **params)
+            request = result.get("request")
+            if isinstance(request, dict):
+                display.info(f"pending request: {request.get('request_id', '?')}")
+            else:
+                display.info("no pending approval request")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+
+        if subcommand in {"grant", "deny"}:
+            if len(args) < 2:
+                display.warn(f"/approvals {subcommand} requires request_id")
+                _approvals_usage(display)
+                return
+            request_id = args[1]
+            action = (
+                ResourceAction.APPROVALS_GRANT
+                if subcommand == "grant"
+                else ResourceAction.APPROVALS_DENY
+            )
+            params = _build_approval_action_params(request_id=request_id, trailing_args=args[2:])
+            result = await handler.invoke(action, **params)
+            display.ok(f"{subcommand} applied: {request_id}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+
+        if subcommand == "revoke":
+            if len(args) < 2:
+                display.warn("/approvals revoke requires rule_id")
+                _approvals_usage(display)
+                return
+            rule_id = args[1]
+            result = await handler.invoke(
+                ResourceAction.APPROVALS_REVOKE,
+                rule_id=rule_id,
+            )
+            if result.get("removed"):
+                display.ok(f"revoked rule: {rule_id}")
+            else:
+                display.warn(f"rule not found: {rule_id}")
+            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+    except Exception as exc:  # noqa: BLE001
+        display.error(f"approvals command failed: {exc}")
+        return
+
+    display.warn(f"unknown approvals command: {subcommand}")
+    _approvals_usage(display)
 
 
 async def build_agent(
@@ -232,7 +432,14 @@ async def build_agent(
         verbose=False,
     )
 
-    event_log = StreamingEventLog(display.show_event)
+    approval_manager = ToolApprovalManager.from_paths(
+        workspace_dir=workspace,
+        user_dir=Path.home(),
+    )
+    event_log = StreamingEventLog(
+        display.show_event,
+        approval_manager=approval_manager,
+    )
     agent_config = Config(
         workspace_dir=str(workspace),
         user_dir=str(Path.home()),
@@ -246,6 +453,7 @@ async def build_agent(
         .with_planner(DefaultPlanner(model, verbose=False))
         .add_validators(validator)
         .with_remediator(DefaultRemediator(model, verbose=False))
+        .with_approval_manager(approval_manager)
         .with_event_log(event_log)
         .build()
     )
@@ -333,10 +541,19 @@ def _format_result_output(output: Any) -> str | None:
     return normalized or None
 
 
-async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
+async def run_task(
+    agent: Any,
+    task_text: str,
+    display: CLIDisplay,
+    *,
+    conversation_id: str | None = None,
+) -> None:
     display.header("EXECUTION")
+    metadata: dict[str, Any] = {}
+    if isinstance(conversation_id, str) and conversation_id.strip():
+        metadata["conversation_id"] = conversation_id.strip()
     try:
-        result = await agent(Task(description=task_text))
+        result = await agent(Task(description=task_text, metadata=metadata))
     except Exception as exc:
         display.error(f"execution error: {exc}")
         return
@@ -378,10 +595,13 @@ async def run_cli_loop(
                 quit_requested = True
                 break
             if cmd.type == CommandType.HELP:
-                display.info("/mode [plan|execute], /approve, /reject, /status, /quit")
+                display.info("/mode [plan|execute], /approve, /reject, /status, /approvals [list|poll|grant|deny|revoke], /quit")
                 continue
             if cmd.type == CommandType.STATUS:
                 display.info(f"status={state.status.value}, mode={state.mode.value}")
+                continue
+            if cmd.type == CommandType.APPROVALS:
+                await _handle_approvals_command(cmd.args, agent=agent, display=display)
                 continue
             if cmd.type == CommandType.MODE:
                 if not cmd.args:
@@ -402,7 +622,12 @@ async def run_cli_loop(
                     display.warn("no pending plan")
                     continue
                 state.status = SessionStatus.RUNNING
-                await run_task(agent, state.pending_task_description, display)
+                await run_task(
+                    agent,
+                    state.pending_task_description,
+                    display,
+                    conversation_id=state.conversation_id,
+                )
                 state.reset_task()
                 continue
             if cmd.type == CommandType.REJECT:
@@ -427,18 +652,48 @@ async def run_cli_loop(
             display.info("type /approve to execute or /reject to cancel")
         else:
             state.status = SessionStatus.RUNNING
-            await run_task(agent, task_text, display)
+            await run_task(
+                agent,
+                task_text,
+                display,
+                conversation_id=state.conversation_id,
+            )
             state.reset_task()
 
     return (state, quit_requested)
 
 
-async def main(argv: list[str] | None = None) -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DARE coding agent CLI")
     parser.add_argument("--mode", choices=["plan", "execute"], default="execute")
     parser.add_argument("--script", type=str, default=None, help="run scripted CLI session")
     parser.add_argument("--demo", type=str, default=None, help="run demo script")
     parser.add_argument("--model", type=str, default=None, help="OpenRouter model name")
+    parser.add_argument(
+        "--conversation-id",
+        type=str,
+        default=None,
+        help="Stable conversation id used to group multi-turn traces.",
+    )
+    parser.add_argument(
+        "--workspace",
+        type=str,
+        default=str(Path.cwd()),
+        help="Workspace root for file tools (default: current directory).",
+    )
+    return parser
+
+
+def _resolve_conversation_id(raw: str | None) -> str:
+    if isinstance(raw, str):
+        normalized = raw.strip()
+        if normalized:
+            return normalized
+    return uuid4().hex
+
+
+async def main(argv: list[str] | None = None) -> None:
+    parser = _build_parser()
     args = parser.parse_args(argv)
 
     try:
@@ -456,8 +711,9 @@ async def main(argv: list[str] | None = None) -> None:
     model_name = args.model or os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.7")
     max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", "2048"))
     timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT", "60"))
-    workspace = Path(__file__).parent / "workspace"
-    workspace.mkdir(exist_ok=True)
+    conversation_id = _resolve_conversation_id(args.conversation_id)
+    workspace = Path(args.workspace).expanduser().resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
 
     display = CLIDisplay()
     display.header("DARE CODING AGENT")
@@ -465,6 +721,7 @@ async def main(argv: list[str] | None = None) -> None:
     display.info(f"workspace={workspace}")
     display.info(f"max_tokens={max_tokens}")
     display.info(f"timeout={timeout_seconds}s")
+    display.info(f"conversation_id={conversation_id}")
 
     model = OpenRouterModelAdapter(
         model=model_name,
@@ -477,17 +734,29 @@ async def main(argv: list[str] | None = None) -> None:
     if args.demo:
         script_path = Path(args.demo)
         lines = load_script_lines(script_path)
-        await run_cli_loop(lines, agent=agent, model=model, display=display)
+        await run_cli_loop(
+            lines,
+            agent=agent,
+            model=model,
+            display=display,
+            state=CLISessionState(conversation_id=conversation_id),
+        )
         return
 
     if args.script:
         script_path = Path(args.script)
         lines = load_script_lines(script_path)
-        await run_cli_loop(lines, agent=agent, model=model, display=display)
+        await run_cli_loop(
+            lines,
+            agent=agent,
+            model=model,
+            display=display,
+            state=CLISessionState(conversation_id=conversation_id),
+        )
         return
 
     display.info("type /help for commands. /quit to exit.")
-    cli_state = CLISessionState()
+    cli_state = CLISessionState(conversation_id=conversation_id)
     while True:
         try:
             raw = input("dare> ").strip()

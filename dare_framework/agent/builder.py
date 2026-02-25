@@ -48,6 +48,10 @@ from dare_framework.model.factories import (
 from dare_framework.model.interfaces import IModelAdapterManager, IPromptStore
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import Prompt
+from dare_framework.observability._internal.llm_io_capture_hook import (
+    LLMIOCaptureHook,
+    create_default_llm_io_capture_hook,
+)
 from dare_framework.observability.kernel import ITelemetryProvider
 from dare_framework.plan import Envelope
 from dare_framework.plan._internal.composite_validator import CompositeValidator
@@ -670,6 +674,10 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
                 remediator = candidate
 
         explicit_hooks = list(self._hooks)
+        auto_capture_hook = create_default_llm_io_capture_hook(config)
+        if auto_capture_hook is not None:
+            if not any(isinstance(hook, LLMIOCaptureHook) for hook in explicit_hooks):
+                explicit_hooks.append(auto_capture_hook)
         config_hooks: list[IHook] = []
         manager = self._hook_manager
         if manager is not None:
