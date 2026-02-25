@@ -76,9 +76,9 @@
 
 以下事项来自本地未跟踪版本，作为跨阶段补充跟踪项保留：
 
-- [ ] T4-1 会话上下文自动压缩与跨会话交接闭环  
-  Status: `todo`  
-  现状：`Context.compress()` 与 `compression/core.py` 已有最小能力，但 Agent 主循环未统一接入自动压缩；`Task.previous_session_summary` 与 `session_summary` 结构存在，主流程未实际读写闭环。  
+- [x] T4-1 会话上下文自动压缩与跨会话交接闭环（已并入 T5-1）  
+  Status: `merged`  
+  说明：与 T5-1 合并，后续以 T5-1 作为唯一执行入口；本项仅保留追溯。  
   Evidence: `dare_framework/context/context.py`, `dare_framework/compression/core.py`, `dare_framework/plan/types.py`
 
 - [ ] T4-2 运行期配置统一收敛（含配额/预算）  
@@ -91,16 +91,16 @@
   现状：token 与 tool 调用在运行中有统计；Observability 模块可采集 metrics/traces，但默认是 no-op，且并非默认持久化输出，API 调用层面的统一报表能力仍需收敛。  
   Evidence: `dare_framework/agent/dare_agent.py`, `dare_framework/observability/_internal/tracing_hook.py`, `dare_framework/observability/_internal/metrics_collector.py`
 
-- [ ] T4-4 图片/富媒体一等支持（模型输入与上下文链路）  
-  Status: `todo`  
-  现状：`Message.content` 仍是字符串，模型适配器按文本消息序列化；A2A 可落盘附件并传路径，但不是原生多模态上下文协议。  
+- [x] T4-4 图片/富媒体一等支持（模型输入与上下文链路，已并入 T5-3）  
+  Status: `merged`  
+  说明：与 T5-3 合并，后续以 T5-3 作为唯一执行入口；本项仅保留追溯。  
   Evidence: `dare_framework/context/types.py`, `dare_framework/model/adapters/openai_adapter.py`, `dare_framework/a2a/server/message_adapter.py`
 
 ## 7. 本次新增事项（2026-02-25）
 
-- [ ] T5-1 session 管理下 context 持久化闭环  
+- [ ] T5-1 session 管理下 context 持久化与跨会话交接闭环  
   Status: `todo`  
-  范围：补齐 session 生命周期内/跨 session 的 context 读写、恢复、版本化与兼容策略（含失败回滚与迁移策略）。  
+  范围：补齐 session 生命周期内/跨 session 的 context 读写、恢复、版本化与兼容策略（含失败回滚与迁移策略）；统一接入 context 自动压缩与 session summary 交接链路。  
   交付：最小可用持久化方案 + 回归测试 + 运维排障说明。
 
 - [ ] T5-2 工具调用与 LLM thinking 通过 transport send 输出（含消息类型枚举）  
@@ -110,7 +110,7 @@
 
 - [ ] T5-3 图片/音频/视频富媒体消息格式支持  
   Status: `todo`  
-  范围：定义并落地多模态 message schema（文本 + 图片 + 音频 + 视频），覆盖模型输入、上下文存储、transport 传输与适配器能力探测。  
+  范围：定义并落地多模态 message schema（文本 + 图片 + 音频 + 视频），覆盖模型输入、上下文存储、transport 传输与适配器能力探测；统一替代“图片/富媒体一等支持”的原 T4-4 范围（含 A2A 附件链路规范化）。  
   交付：跨适配器能力矩阵 + 不支持能力时的降级策略 + 示例用例。
 
 - [ ] T5-4 全链路日志输出整理（模块分层与规范化）  
