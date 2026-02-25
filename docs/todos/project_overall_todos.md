@@ -71,3 +71,54 @@
 - 每次架构级评审或里程碑后更新本清单。
 - 每个 `done` 项必须附带 evidence。
 - 与模块 TODO 或权威设计冲突时，以权威设计与最新实现证据为准，并在 24 小时内完成同步更新。
+
+## 6. 补充关注点（本地 stash 恢复）
+
+以下事项来自本地未跟踪版本，作为跨阶段补充跟踪项保留：
+
+- [x] T4-1 会话上下文自动压缩与跨会话交接闭环（已并入 T5-1）  
+  Status: `merged`  
+  说明：与 T5-1 合并，后续以 T5-1 作为唯一执行入口；本项仅保留追溯。  
+  Evidence: `dare_framework/context/context.py`, `dare_framework/compression/core.py`, `dare_framework/plan/types.py`
+
+- [ ] T4-2 运行期配置统一收敛（含配额/预算）  
+  Status: `todo`  
+  现状：模型/MCP/工具等大量配置来自 `Config`；但预算上限（tokens/cost/tool_calls/time）主要通过 `with_budget(Budget)` 注入，`Config` 当前无预算字段，未形成“全走 config”统一面。  
+  Evidence: `dare_framework/config/types.py`, `dare_framework/agent/builder.py`, `dare_framework/context/types.py`
+
+- [ ] T4-3 元信息统计默认可采集、可持久化、可查询  
+  Status: `doing`  
+  现状：token 与 tool 调用在运行中有统计；Observability 模块可采集 metrics/traces，但默认是 no-op，且并非默认持久化输出，API 调用层面的统一报表能力仍需收敛。  
+  Evidence: `dare_framework/agent/dare_agent.py`, `dare_framework/observability/_internal/tracing_hook.py`, `dare_framework/observability/_internal/metrics_collector.py`
+
+- [x] T4-4 图片/富媒体一等支持（模型输入与上下文链路，已并入 T5-3）  
+  Status: `merged`  
+  说明：与 T5-3 合并，后续以 T5-3 作为唯一执行入口；本项仅保留追溯。  
+  Evidence: `dare_framework/context/types.py`, `dare_framework/model/adapters/openai_adapter.py`, `dare_framework/a2a/server/message_adapter.py`
+
+## 7. 本次新增事项（2026-02-25）
+
+- [ ] T5-1 session 管理下 context 持久化与跨会话交接闭环  
+  Status: `todo`  
+  范围：补齐 session 生命周期内/跨 session 的 context 读写、恢复、版本化与兼容策略（含失败回滚与迁移策略）；统一接入 context 自动压缩与 session summary 交接链路。  
+  交付：最小可用持久化方案 + 回归测试 + 运维排障说明。
+
+- [ ] T5-2 工具调用与 LLM thinking 通过 transport send 输出（含消息类型枚举）  
+  Status: `todo`  
+  范围：将 tool call 中间态、LLM thinking/trace 信息通过统一 transport 通道发送；补齐并统一对应消息类型枚举与序列化协议。  
+  交付：端到端消息流测试（sender/transport/receiver）+ 向后兼容策略。
+
+- [ ] T5-3 图片/音频/视频富媒体消息格式支持  
+  Status: `todo`  
+  范围：定义并落地多模态 message schema（文本 + 图片 + 音频 + 视频），覆盖模型输入、上下文存储、transport 传输与适配器能力探测；统一替代“图片/富媒体一等支持”的原 T4-4 范围（含 A2A 附件链路规范化）。  
+  交付：跨适配器能力矩阵 + 不支持能力时的降级策略 + 示例用例。
+
+- [ ] T5-4 全链路日志输出整理（模块分层与规范化）  
+  Status: `todo`  
+  范围：收敛 agent/context/tool/model/transport 等关键路径日志，统一字段、级别、trace/session 关联键与脱敏规则。  
+  交付：日志规范文档 + 关键流程日志覆盖检查脚本 + 采样策略说明。
+
+- [ ] T5-5 完整架构设计与各 domain 详细设计补齐  
+  Status: `todo`  
+  范围：补齐整体目标架构与 domain 设计文档，至少覆盖关键 API、数据模型、核心流程、异常处理、边界条件与可观测性策略。  
+  交付：架构总览文档 + 分 domain 设计文档包 + 设计评审清单与验收标准。
