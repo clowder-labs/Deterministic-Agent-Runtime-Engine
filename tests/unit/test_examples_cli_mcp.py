@@ -103,6 +103,21 @@ class _CaptureApprovalClient:
         )
 
 
+class _CaptureTimeoutApprovalClient:
+    def __init__(self) -> None:
+        self.last_timeout: float | None = None
+
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
+        _ = req
+        self.last_timeout = timeout
+        return TransportEnvelope(
+            id="resp-timeout",
+            kind=EnvelopeKind.MESSAGE,
+            event_type="result",
+            payload={"resp": {"result": {"request": None}}},
+        )
+
+
 class _MissingEventTypeApprovalClient:
     async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
         _ = timeout
@@ -174,6 +189,23 @@ async def test_handle_approvals_poll_forwards_session_filter_mcp_cli() -> None:
     )
     assert approval_client.last_meta is not None
     assert approval_client.last_meta.get("session_id") == "session-42"
+
+
+@pytest.mark.asyncio
+async def test_handle_approvals_poll_uses_user_timeout_for_transport_wait_mcp_cli() -> None:
+    cli_mcp = _load_cli_module(
+        "examples_06_cli_poll_timeout",
+        "examples/06-dare-coding-agent-mcp/cli.py",
+    )
+    display = _CaptureDisplay()
+    approval_client = _CaptureTimeoutApprovalClient()
+    await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
+        ["poll", "timeout_seconds=60"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert approval_client.last_timeout is not None
+    assert approval_client.last_timeout >= 60.0
 
 
 @pytest.mark.asyncio

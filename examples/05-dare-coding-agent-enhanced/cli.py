@@ -448,13 +448,17 @@ async def _invoke_approval_action(
     *,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    meta = dict(params or {})
     request = TransportEnvelope(
         id=new_envelope_id(),
         kind=EnvelopeKind.ACTION,
         payload=action.value,
-        meta=dict(params or {}),
+        meta=meta,
     )
-    response = await approval_client.ask(request, timeout=30.0)
+    response = await approval_client.ask(
+        request,
+        timeout=_approval_action_timeout_seconds(action, meta),
+    )
     payload = response.payload
     if not isinstance(payload, dict):
         raise RuntimeError(f"unexpected action response payload: {payload!r}")
@@ -473,6 +477,34 @@ async def _invoke_approval_action(
     if not isinstance(result, dict):
         raise RuntimeError(f"unexpected action result shape: {payload!r}")
     return result
+
+
+def _approval_action_timeout_seconds(action: ResourceAction, params: dict[str, Any]) -> float:
+    default_timeout = 30.0
+    if action != ResourceAction.APPROVALS_POLL:
+        return default_timeout
+
+    poll_timeout_seconds = _parse_poll_timeout_seconds(params)
+    if poll_timeout_seconds is None:
+        return default_timeout
+    # Leave a small transport cushion so ask() does not time out first.
+    return max(default_timeout, poll_timeout_seconds + 5.0)
+
+
+def _parse_poll_timeout_seconds(params: dict[str, Any]) -> float | None:
+    raw_seconds = params.get("timeout_seconds")
+    raw_millis = params.get("timeout_ms")
+    if raw_seconds is not None:
+        seconds = float(raw_seconds)
+        if seconds < 0:
+            raise ValueError("timeout_seconds must be >= 0")
+        return seconds
+    if raw_millis is not None:
+        millis = float(raw_millis)
+        if millis < 0:
+            raise ValueError("timeout_ms must be >= 0")
+        return millis / 1000.0
+    return None
 
 
 def _parse_key_value_args(tokens: list[str]) -> tuple[list[str], dict[str, str]]:

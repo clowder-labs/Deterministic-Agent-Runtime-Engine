@@ -126,3 +126,28 @@ async def test_approvals_action_handler_poll_filters_by_session_id(manager) -> N
     request = polled["request"]
     assert isinstance(request, dict)
     assert request["request_id"] == second.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_approvals_action_handler_poll_matches_deduplicated_pending_across_sessions(manager) -> None:
+    handler = ApprovalsActionHandler(manager)
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo same-command"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    second = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo same-command"},
+        session_id="session-b",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+    assert second.request is not None
+    assert first.request.request_id == second.request.request_id
+
+    polled = await handler.invoke(ResourceAction.APPROVALS_POLL, session_id="session-b", timeout_seconds=0.05)
+    request = polled["request"]
+    assert isinstance(request, dict)
+    assert request["request_id"] == first.request.request_id

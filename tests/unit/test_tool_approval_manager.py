@@ -190,6 +190,30 @@ async def test_poll_pending_filters_by_session_id(manager) -> None:
 
 
 @pytest.mark.asyncio
+async def test_poll_pending_session_filter_matches_deduplicated_pending_request(manager) -> None:
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo same-command"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    second = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo same-command"},
+        session_id="session-b",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+    assert second.request is not None
+    # Dedup keeps one pending request id for both sessions.
+    assert second.request.request_id == first.request.request_id
+
+    polled = await manager.poll_pending(session_id="session-b", timeout_seconds=0.05)
+    assert polled is not None
+    assert polled.request_id == first.request.request_id
+
+
+@pytest.mark.asyncio
 async def test_poll_pending_session_filter_timeout_returns_none(manager) -> None:
     await manager.evaluate(
         capability_id="run_command",

@@ -147,6 +147,10 @@ class ApprovalEvaluation:
 class _PendingApproval:
     request: PendingApprovalRequest
     fingerprint: str
+    # Track all sessions that are currently blocked on this deduplicated request.
+    # The first requester is also recorded so session-filtered polling can match it
+    # even after subsequent evaluate() calls deduplicate to the same request id.
+    session_ids: set[str] = field(default_factory=set)
     event: asyncio.Event = field(default_factory=asyncio.Event)
     resolution: ApprovalDecision | None = None
 
@@ -321,9 +325,12 @@ class ToolApprovalManager:
                     created_at=self._time_fn(),
                 )
                 existing = _PendingApproval(request=request, fingerprint=fingerprint)
+                self._track_pending_session_locked(existing, session_id)
                 self._pending_by_fingerprint[fingerprint] = existing
                 self._pending_by_id[request.request_id] = existing
                 self._pending_state_changed.notify_all()
+            else:
+                self._track_pending_session_locked(existing, session_id)
 
             return ApprovalEvaluation(
                 status=ApprovalEvaluationStatus.PENDING,
@@ -524,7 +531,11 @@ class ToolApprovalManager:
             return None
         candidates = list(self._pending_by_id.values())
         if session_id is not None:
-            candidates = [item for item in candidates if item.request.session_id == session_id]
+            candidates = [
+                item
+                for item in candidates
+                if session_id in item.session_ids or item.request.session_id == session_id
+            ]
             if not candidates:
                 return None
         oldest = min(
@@ -532,6 +543,11 @@ class ToolApprovalManager:
             key=lambda item: (item.request.created_at, item.request.request_id),
         )
         return oldest.request
+
+    @staticmethod
+    def _track_pending_session_locked(pending: _PendingApproval, session_id: str | None) -> None:
+        if isinstance(session_id, str) and session_id:
+            pending.session_ids.add(session_id)
 
 
 def _rule_matches(
