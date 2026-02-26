@@ -1,0 +1,5 @@
+# Example 10 scripted CLI demo
+/status
+请执行一次单 agent 的 AgentScope 等价能力基础循环验证。
+/save example-10
+/quit
