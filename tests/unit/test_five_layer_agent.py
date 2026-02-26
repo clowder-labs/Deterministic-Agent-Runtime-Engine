@@ -665,6 +665,73 @@ class TestNoPlannerToolExecution:
         assert "exec.resume" in event_types
         assert "tool.approval" in event_types
 
+    @pytest.mark.asyncio
+    async def test_no_planner_tool_params_session_id_does_not_collide_with_governance(self, tmp_path) -> None:
+        capability = CapabilityDescriptor(
+            id="run_command",
+            type=CapabilityType.TOOL,
+            name="run_command",
+            description="Run shell command",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"},
+                    "session_id": {"type": "string"},
+                },
+            },
+            metadata={"requires_approval": True},
+        )
+        tool_gateway = MockToolGateway([capability])
+        approval_manager = ToolApprovalManager(
+            workspace_store=JsonApprovalRuleStore(tmp_path / "workspace" / "approvals.json"),
+            user_store=JsonApprovalRuleStore(tmp_path / "user" / "approvals.json"),
+        )
+        model = MockModelAdapter(
+            [
+                ModelResponse(
+                    content="Run command with tool-level session_id argument.",
+                    tool_calls=[
+                        {
+                            "name": "run_command",
+                            "arguments": {
+                                "command": "git status --short",
+                                "session_id": "tool-arg-session",
+                            },
+                        }
+                    ],
+                ),
+                ModelResponse(content="Done.", tool_calls=[]),
+            ]
+        )
+        agent = _make_agent(
+            name="react-agent-tool-param-session-id",
+            model=model,
+            tool_gateway=tool_gateway,
+            approval_manager=approval_manager,
+        )
+
+        run_task = asyncio.create_task(agent("Run command with tool arg session_id"))
+        request_id: str | None = None
+        for _ in range(100):
+            pending = approval_manager.list_pending()
+            if pending:
+                request_id = pending[0].request_id
+                break
+            await asyncio.sleep(0.01)
+        assert request_id is not None
+
+        await approval_manager.grant(
+            request_id,
+            scope=ApprovalScope.ONCE,
+            matcher=ApprovalMatcherKind.EXACT_PARAMS,
+        )
+        result = await run_task
+        assert result.success is True
+
+        assert tool_gateway.invoke_calls
+        _capability_id, params, _envelope = tool_gateway.invoke_calls[-1]
+        assert params.get("session_id") == "tool-arg-session"
+
 
 # =============================================================================
 # Tests: Full Five-Layer Mode

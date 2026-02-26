@@ -7,6 +7,7 @@ agent orchestration can focus on the loop itself.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from dare_framework.tool._internal.control.approval_manager import (
@@ -32,6 +33,17 @@ if TYPE_CHECKING:
 ApprovalEventLogger = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
+@dataclass(frozen=True)
+class ApprovalInvokeContext:
+    """Gateway-local approval governance context carried outside tool params."""
+
+    session_id: str | None = None
+    transport: AgentChannel | None = None
+    tool_name: str | None = None
+    tool_call_id: str | None = None
+    event_logger: ApprovalEventLogger | None = None
+
+
 class GovernedToolGateway(IToolGateway):
     """IToolGateway wrapper that applies approval memory before tool execution."""
 
@@ -52,16 +64,18 @@ class GovernedToolGateway(IToolGateway):
     async def invoke(
         self,
         capability_id: str,
+        approval: ApprovalInvokeContext | None = None,
         *,
         envelope: Envelope,
         context: Context | None = None,
-        session_id: str | None = None,
-        transport: AgentChannel | None = None,
-        tool_name: str | None = None,
-        tool_call_id: str | None = None,
-        approval_event_logger: ApprovalEventLogger | None = None,
         **params: Any,
     ) -> ToolResult:
+        session_id = approval.session_id if approval is not None else None
+        transport = approval.transport if approval is not None else None
+        tool_name = approval.tool_name if approval is not None else None
+        tool_call_id = approval.tool_call_id if approval is not None else None
+        approval_event_logger = approval.event_logger if approval is not None else None
+
         requires_approval = self._requires_approval(capability_id)
         if requires_approval:
             decision_error = await self._resolve_approval(
@@ -249,4 +263,4 @@ class GovernedToolGateway(IToolGateway):
             self._logger.exception("approval event emission failed: %s", event_type)
 
 
-__all__ = ["GovernedToolGateway"]
+__all__ = ["ApprovalInvokeContext", "GovernedToolGateway"]

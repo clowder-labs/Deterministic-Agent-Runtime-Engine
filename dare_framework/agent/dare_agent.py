@@ -47,7 +47,10 @@ from dare_framework.plan.types import (
     ValidatedPlan,
     VerifyResult,
 )
-from dare_framework.tool._internal.governed_tool_gateway import GovernedToolGateway
+from dare_framework.tool._internal.governed_tool_gateway import (
+    ApprovalInvokeContext,
+    GovernedToolGateway,
+)
 from dare_framework.tool.types import CapabilityKind
 
 
@@ -981,15 +984,18 @@ class DareAgent(BaseAgent):
             })
 
             try:
-                result = await self._governed_tool_gateway.invoke(
-                    request.capability_id,
-                    envelope=request.envelope,
-                    context=self._context,
+                approval_ctx = ApprovalInvokeContext(
                     session_id=session_id,
                     transport=transport,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
-                    approval_event_logger=self._log_event,
+                    event_logger=self._log_event,
+                )
+                result = await self._governed_tool_gateway.invoke(
+                    request.capability_id,
+                    approval_ctx,
+                    envelope=request.envelope,
+                    context=self._context,
                     **request.params,
                 )
 
