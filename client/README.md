@@ -27,6 +27,10 @@
 
 # 一次性执行
 .venv/bin/python -m client run --task "读取 README 并总结"
+# 一次性执行（审批等待超时，默认 120s）
+.venv/bin/python -m client run --task "读取 README 并总结" --approval-timeout-seconds 120
+# 一次性执行（自动审批指定工具，例如 run_command）
+.venv/bin/python -m client run --task "读取 README 并总结" --auto-approve-tool run_command
 
 # 脚本模式
 .venv/bin/python -m client script --file /abs/path/to/demo.txt
@@ -77,3 +81,9 @@ JSON 行结构（简化）：
 - `130`：中断退出
 
 说明：`script` 模式下只要任一任务失败，最终退出码为 `1`。
+
+`run` 模式若触发工具审批并超过 `--approval-timeout-seconds`，会以失败退出，避免长时间无反馈阻塞。
+
+`run` 模式可使用：
+- `--auto-approve`：启用内置低风险工具自动审批名单。
+- `--auto-approve-tool <name>`：追加指定工具到自动审批名单（可重复传入）。

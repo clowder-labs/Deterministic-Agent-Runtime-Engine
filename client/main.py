@@ -6,8 +6,9 @@ import argparse
 import asyncio
 import dataclasses
 import json
+import time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 from client.commands.approvals import approvals_usage_lines, handle_approvals_tokens
 from client.commands.info import (
@@ -28,6 +29,7 @@ from client.runtime.event_stream import EventPump
 from client.runtime.task_runner import format_run_output, preview_plan, run_task
 from client.session import CLISessionState, ExecutionMode, SessionStatus
 from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
+from dare_framework.transport.interaction.resource_action import ResourceAction
 
 
 class OutputFacade:
@@ -219,6 +221,150 @@ async def _wait_for_background_task(
 
 def _normalize_mode(value: str) -> ExecutionMode:
     return ExecutionMode.PLAN if value == "plan" else ExecutionMode.EXECUTE
+
+
+@dataclasses.dataclass
+class _ApprovalWatchState:
+    """Track the currently pending approval request for timeout enforcement."""
+
+    request_id: str | None = None
+    pending_since_monotonic: float | None = None
+
+    def mark_pending(self, request_id: str) -> None:
+        normalized = request_id.strip() if request_id.strip() else "?"
+        if self.request_id == normalized and self.pending_since_monotonic is not None:
+            return
+        self.request_id = normalized
+        self.pending_since_monotonic = time.monotonic()
+
+    def mark_resolved(self, request_id: str) -> None:
+        if self.request_id is None:
+            return
+        normalized = request_id.strip() if request_id.strip() else "?"
+        if normalized not in {"?", self.request_id}:
+            return
+        self.request_id = None
+        self.pending_since_monotonic = None
+
+
+DEFAULT_AUTO_APPROVE_TOOLS: frozenset[str] = frozenset(
+    {
+        # Low-risk built-in tools; callers can extend with --auto-approve-tool.
+        "read_file",
+        "search_code",
+        "search_file",
+        "write_file",
+        "edit_line",
+    }
+)
+
+
+@dataclasses.dataclass
+class _RunApprovalPolicy:
+    """Auto-approval policy used by `run` mode transport event handling."""
+
+    action_client: TransportActionClient
+    output: OutputFacade
+    watch: _ApprovalWatchState
+    auto_approve_tools: set[str]
+    seen_disallowed: set[str] = dataclasses.field(default_factory=set)
+    attempted: set[str] = dataclasses.field(default_factory=set)
+
+    async def on_pending(self, request_id: str, tool_name: str, capability_id: str) -> None:
+        normalized_request = request_id.strip() if request_id.strip() else "?"
+        normalized_tool = tool_name.strip() if tool_name.strip() else "?"
+        self.watch.mark_pending(normalized_request)
+        if not self.auto_approve_tools:
+            return
+
+        if normalized_tool not in self.auto_approve_tools:
+            if normalized_request in self.seen_disallowed:
+                return
+            self.seen_disallowed.add(normalized_request)
+            self.output.warn(
+                "auto-approve skipped: "
+                f"request_id={normalized_request}, tool={normalized_tool}, capability={capability_id}"
+            )
+            self.output.warn(
+                "rerun with `--auto-approve-tool "
+                f"{normalized_tool}` to allow this tool in run mode"
+            )
+            return
+
+        if normalized_request in self.attempted:
+            return
+        self.attempted.add(normalized_request)
+        self.output.info(
+            f"auto-approving request_id={normalized_request} for tool={normalized_tool}"
+        )
+        try:
+            await self.action_client.invoke_action(
+                ResourceAction.APPROVALS_GRANT,
+                request_id=normalized_request,
+                scope="once",
+                matcher="exact_params",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.output.error(
+                f"auto-approve failed for request_id={normalized_request}: {exc}"
+            )
+            return
+        self.output.ok(f"auto-approved request_id={normalized_request}")
+        # Clear timeout watch immediately after grant acknowledgement.
+        self.watch.mark_resolved(normalized_request)
+
+
+async def _execute_task_with_approval_timeout(
+    *,
+    runtime: Any,
+    output: OutputFacade,
+    state: CLISessionState,
+    task_text: str,
+    approval_watch: _ApprovalWatchState,
+    approval_timeout_seconds: float | None,
+) -> bool:
+    """Run one task and fail fast when approval waits exceed the configured budget."""
+    task = asyncio.create_task(
+        _execute_task_and_report(
+            runtime=runtime,
+            output=output,
+            state=state,
+            task_text=task_text,
+        )
+    )
+    try:
+        while not task.done():
+            if (
+                approval_timeout_seconds is not None
+                and approval_timeout_seconds > 0
+                and approval_watch.pending_since_monotonic is not None
+            ):
+                elapsed = time.monotonic() - approval_watch.pending_since_monotonic
+                if elapsed >= approval_timeout_seconds:
+                    request_id = approval_watch.request_id or "?"
+                    output.error(
+                        "approval wait timed out "
+                        f"(request_id={request_id}, timeout={approval_timeout_seconds:.1f}s)"
+                    )
+                    output.error(
+                        "rerun with `--auto-approve-tool <tool_name>` "
+                        "or use `chat` mode to approve manually"
+                    )
+                    task.cancel()
+                    break
+            await asyncio.sleep(0.1)
+
+        try:
+            return await task
+        except asyncio.CancelledError:
+            return False
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 async def _handle_shell_command(
@@ -449,19 +595,49 @@ async def _run_cli_loop(
     return quit_requested
 
 
-def _on_transport_event(payload: dict[str, Any], *, output: OutputFacade) -> None:
+def _on_transport_event(
+    payload: dict[str, Any],
+    *,
+    output: OutputFacade,
+    on_approval_pending: Callable[[str, str, str], Awaitable[None] | None] | None = None,
+    on_approval_resolved: Callable[[str], Awaitable[None] | None] | None = None,
+) -> Awaitable[None] | None:
+    return _on_transport_event_async(
+        payload,
+        output=output,
+        on_approval_pending=on_approval_pending,
+        on_approval_resolved=on_approval_resolved,
+    )
+
+
+async def _on_transport_event_async(
+    payload: dict[str, Any],
+    *,
+    output: OutputFacade,
+    on_approval_pending: Callable[[str, str, str], Awaitable[None] | None] | None = None,
+    on_approval_resolved: Callable[[str], Awaitable[None] | None] | None = None,
+) -> None:
     payload_type = payload.get("type")
     if payload_type == "approval_pending":
         resp = payload.get("resp", {})
         request = resp.get("request", {}) if isinstance(resp, dict) else {}
-        request_id = request.get("request_id", "?")
-        capability_id = resp.get("capability_id", "?") if isinstance(resp, dict) else "?"
+        request_id = str(request.get("request_id", "?"))
+        capability_id = str(resp.get("capability_id", "?")) if isinstance(resp, dict) else "?"
+        tool_name = str(resp.get("tool_name", "?")) if isinstance(resp, dict) else "?"
+        if on_approval_pending is not None:
+            maybe_awaitable = on_approval_pending(request_id, tool_name, capability_id)
+            if maybe_awaitable is not None:
+                await maybe_awaitable
         output.warn(f"approval pending: request_id={request_id}, capability={capability_id}")
         return
     if payload_type == "approval_resolved":
         resp = payload.get("resp", {})
-        request_id = resp.get("request_id", "?") if isinstance(resp, dict) else "?"
+        request_id = str(resp.get("request_id", "?")) if isinstance(resp, dict) else "?"
         decision = resp.get("decision", "?") if isinstance(resp, dict) else "?"
+        if on_approval_resolved is not None:
+            maybe_awaitable = on_approval_resolved(request_id)
+            if maybe_awaitable is not None:
+                await maybe_awaitable
         output.info(f"approval resolved: request_id={request_id}, decision={decision}")
         return
     if payload_type == "hook":
@@ -552,6 +728,23 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--task", required=True)
     run.add_argument("--mode", choices=["plan", "execute"], default="execute")
     run.add_argument("--approve", action="store_true", help="execute after plan preview when mode=plan")
+    run.add_argument(
+        "--approval-timeout-seconds",
+        type=float,
+        default=120.0,
+        help="when approval is pending, fail run after timeout (<=0 disables)",
+    )
+    run.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="auto-grant approvals for low-risk tools in run mode",
+    )
+    run.add_argument(
+        "--auto-approve-tool",
+        action="append",
+        default=None,
+        help="extra tool name eligible for auto-approve (repeatable)",
+    )
 
     script = sub.add_parser("script", help="run script and exit")
     script.add_argument("--file", required=True)
@@ -683,13 +876,46 @@ async def main(argv: list[str] | None = None) -> int:
                 if not args.approve:
                     output.info("plan only (pass --approve to execute)")
                     return 0
-            state.status = SessionStatus.RUNNING
-            success = await _execute_task_and_report(
-                runtime=runtime,
+            auto_tools: set[str] = set()
+            if args.auto_approve:
+                auto_tools.update(DEFAULT_AUTO_APPROVE_TOOLS)
+            if args.auto_approve_tool:
+                auto_tools.update(
+                    tool.strip()
+                    for tool in args.auto_approve_tool
+                    if isinstance(tool, str) and tool.strip()
+                )
+            if auto_tools:
+                output.info(f"run auto-approve enabled for tools={','.join(sorted(auto_tools))}")
+            approval_watch = _ApprovalWatchState()
+            approval_policy = _RunApprovalPolicy(
+                action_client=action_client,
                 output=output,
-                state=state,
-                task_text=args.task,
+                watch=approval_watch,
+                auto_approve_tools=auto_tools,
             )
+            pump = EventPump(
+                client_channel=runtime.client_channel,
+                on_event=lambda payload: _on_transport_event(
+                    payload,
+                    output=output,
+                    on_approval_pending=approval_policy.on_pending,
+                    on_approval_resolved=approval_watch.mark_resolved,
+                ),
+            )
+            pump.start()
+            state.status = SessionStatus.RUNNING
+            try:
+                success = await _execute_task_with_approval_timeout(
+                    runtime=runtime,
+                    output=output,
+                    state=state,
+                    task_text=args.task,
+                    approval_watch=approval_watch,
+                    approval_timeout_seconds=args.approval_timeout_seconds,
+                )
+            finally:
+                await pump.stop()
             return 0 if success else 1
 
         if command == "script":

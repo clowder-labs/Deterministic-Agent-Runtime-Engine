@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,20 +12,24 @@ from dare_framework.config import Config
 
 
 class _FakeClientChannel:
+    def __init__(self, *, events: list[dict[str, Any]] | None = None) -> None:
+        self._events = list(events or [])
+
     async def poll(self, timeout: float | None = None):  # noqa: ANN001
         _ = timeout
-        # Yield to the loop to avoid busy-spin in event pump tests.
         await asyncio.sleep(0)
+        if self._events:
+            return SimpleNamespace(payload=self._events.pop(0))
         return None
 
 
 class _FakeRuntime:
-    def __init__(self, *, config: Config) -> None:
+    def __init__(self, *, config: Config, events: list[dict[str, Any]] | None = None) -> None:
         self.config = config
         self.model = object()
         self.channel = object()
         self.agent = object()
-        self.client_channel = _FakeClientChannel()
+        self.client_channel = _FakeClientChannel(events=events)
         self.closed = False
 
     async def close(self) -> None:
@@ -193,3 +198,117 @@ async def test_main_doctor_does_not_call_bootstrap_runtime(monkeypatch: pytest.M
         ]
     )
     assert rc == 0
+
+
+@pytest.mark.asyncio
+async def test_main_run_times_out_when_approval_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    pending_event = {
+        "type": "approval_pending",
+        "resp": {
+            "request": {"request_id": "req-timeout-1"},
+            "capability_id": "run_command",
+        },
+    }
+    runtime = _FakeRuntime(config=config, events=[pending_event])
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(1.0)
+        return type("OkResult", (), {"success": True, "output": {"content": "ok"}, "errors": []})()
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+            "--approval-timeout-seconds",
+            "0.2",
+        ]
+    )
+    output = capsys.readouterr().out
+    assert rc == 1
+    assert "approval pending: request_id=req-timeout-1" in output
+    assert "approval wait timed out" in output
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_run_auto_approves_configured_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    pending_event = {
+        "type": "approval_pending",
+        "resp": {
+            "request": {"request_id": "req-auto-1"},
+            "capability_id": "run_command",
+            "tool_name": "run_command",
+        },
+    }
+    runtime = _FakeRuntime(config=config, events=[pending_event])
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "done"}
+        errors: list[str] = []
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.4)
+        return _OkResult()
+
+    _FakeActionClient.calls = []
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "TransportActionClient", _FakeActionClient)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+            "--approval-timeout-seconds",
+            "0.2",
+            "--auto-approve-tool",
+            "run_command",
+        ]
+    )
+    output = capsys.readouterr().out
+    assert rc == 0
+    assert "auto-approving request_id=req-auto-1 for tool=run_command" in output
+    assert any(action_id == "approvals:grant" for action_id, _ in _FakeActionClient.calls)
+    assert runtime.closed is True
