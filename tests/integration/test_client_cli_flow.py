@@ -117,6 +117,105 @@ async def test_main_script_returns_nonzero_when_execution_fails(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_main_run_human_logs_to_default_file_and_keeps_stdout_to_task_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        return _OkResult()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    log_path = tmp_path / "dare.log"
+
+    assert rc == 0
+    assert output.strip() == "assistant says hi"
+    assert log_path.exists()
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "workspace=" in log_text
+    assert "task completed" in log_text
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_doctor_human_uses_configured_log_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    custom_log_path = tmp_path / "logs" / "cli.log"
+    config = Config.from_dict(
+        {
+            **_config_for_tests(tmp_path).to_dict(),
+            "cli": {"log_path": str(custom_log_path)},
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _forbidden_bootstrap(_options):  # noqa: ANN001
+        raise AssertionError("doctor should not bootstrap runtime")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _forbidden_bootstrap)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "doctor",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    default_log_path = tmp_path / "dare.log"
+
+    assert rc == 0
+    assert '"ok": true' in output or '"ok": false' in output
+    assert custom_log_path.exists()
+    assert default_log_path.exists() is False
+    assert "DARE CLIENT CLI" in custom_log_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
 async def test_main_script_allows_approvals_command_while_task_running(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -291,6 +390,7 @@ async def test_main_run_auto_approves_configured_tool(
     monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
     monkeypatch.setattr(client_main, "TransportActionClient", _FakeActionClient)
     monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+    monkeypatch.chdir(tmp_path)
 
     rc = await client_main.main(
         [
@@ -308,7 +408,9 @@ async def test_main_run_auto_approves_configured_tool(
         ]
     )
     output = capsys.readouterr().out
+    log_text = (tmp_path / "dare.log").read_text(encoding="utf-8")
     assert rc == 0
-    assert "auto-approving request_id=req-auto-1 for tool=run_command" in output
+    assert "auto-approving request_id=req-auto-1 for tool=run_command" not in output
+    assert "auto-approving request_id=req-auto-1 for tool=run_command" in log_text
     assert any(action_id == "approvals:grant" for action_id, _ in _FakeActionClient.calls)
     assert runtime.closed is True

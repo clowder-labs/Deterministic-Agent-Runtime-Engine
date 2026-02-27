@@ -74,6 +74,11 @@ async def test_write_file_enforces_max_bytes(tmp_path):
     assert result.output.get("code") == "CONTENT_TOO_LARGE"
 
 
+def test_write_file_requires_approval() -> None:
+    tool = WriteFileTool()
+    assert tool.requires_approval is True
+
+
 @pytest.mark.asyncio
 async def test_search_code_orders_results_deterministically(tmp_path):
     root = tmp_path / "root"

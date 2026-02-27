@@ -31,7 +31,13 @@
    ├── /examples/07-tool-approval-memory/ (工具审批记忆与自动放行示例)
    └── /examples/08-hook-governance/ (Hook 治理：patch + block 示例)
 
-7. 开发规范
+7. CLI 使用与配置
+   ├── /client/README.md (命令入口、`.dare/config.json`、LLM 配置说明)
+   ├── /.dare/config.json.example (OpenAI 最小配置)
+   ├── /.dare/config.openrouter.example.json (OpenRouter 最小配置)
+   └── /.dare/config.advanced.example.json (进阶配置示例)
+
+8. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
    └── guides/Development_Constraints.md (开发约束清单)
 ```
@@ -66,6 +72,10 @@
 | 文档/目录 | 作用 | 状态 |
 |---|---|---|
 | `dare_framework/` | 框架实现主目录（目标收敛到单一架构；详见权威设计） | ✅ 实现入口 |
+| `client/README.md` | DARE Client CLI 用法与配置入口，含 `.dare/config.json` 和 LLM 配置说明 | ✅ CLI 入口 |
+| `.dare/config.json.example` | OpenAI 最小配置示例，可作为 workspace `.dare/config.json` 起点 | ✅ 配置示例 |
+| `.dare/config.openrouter.example.json` | OpenRouter 最小配置示例 | ✅ 配置示例 |
+| `.dare/config.advanced.example.json` | 含 `endpoint/proxy/max_tokens` 的进阶配置示例 | ✅ 配置示例 |
 | `Project_Architecture_and_Priorities.md` | 以“实现视角”梳理现状与优先级（阅读入口指向权威设计） | ✅ 实现视角 |
 | `todos/README.md` | TODO 目录维护规则与生命周期说明 | ✅ 全局规划 |
 | `todos/project_overall_todos.md` | 项目总体 TODO 清单（跨模块路线图） | ✅ 全局规划 |
@@ -285,5 +295,5 @@ docs/
 
 ---
 
-*最后更新：2026-01-22*  
+*最后更新：2026-02-27*
 *维护者：DARE Framework Team*

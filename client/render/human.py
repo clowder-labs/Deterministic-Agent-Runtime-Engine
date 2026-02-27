@@ -17,6 +17,9 @@ class HumanRenderer:
         rule = "=" * self._width
         print(f"\n{rule}\n{title}\n{rule}\n", flush=True)
 
+    def message(self, text: str) -> None:
+        print(text, flush=True)
+
     def info(self, text: str) -> None:
         print(f"[INFO] {text}", flush=True)
 

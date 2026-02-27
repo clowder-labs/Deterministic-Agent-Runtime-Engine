@@ -58,7 +58,7 @@ class WriteFileTool(ITool):
 
     @property
     def requires_approval(self) -> bool:
-        return False
+        return True
 
     @property
     def timeout_seconds(self) -> int:

@@ -37,8 +37,30 @@ class CLISessionState:
     conversation_id: str = field(default_factory=lambda: uuid4().hex)
     execution_failures: int = 0
     last_execution_success: bool | None = None
+    pending_runtime_approvals: set[str] = field(default_factory=set)
 
     def clear_pending(self) -> None:
         """Drop in-memory plan preview state."""
         self.pending_plan = None
         self.pending_task_description = None
+
+    def mark_runtime_approval_pending(self, request_id: str) -> None:
+        """Track a transport approval that needs user action."""
+        normalized = request_id.strip() or "?"
+        self.pending_runtime_approvals.add(normalized)
+
+    def mark_runtime_approval_resolved(self, request_id: str) -> None:
+        """Clear a tracked runtime approval once transport reports resolution."""
+        normalized = request_id.strip() or "?"
+        if normalized == "?":
+            self.pending_runtime_approvals.clear()
+            return
+        self.pending_runtime_approvals.discard(normalized)
+
+    def has_pending_runtime_approval(self) -> bool:
+        """Return True when the running task is blocked on user approval."""
+        return bool(self.pending_runtime_approvals)
+
+    def clear_runtime_approvals(self) -> None:
+        """Clear approval state when execution ends or resets."""
+        self.pending_runtime_approvals.clear()

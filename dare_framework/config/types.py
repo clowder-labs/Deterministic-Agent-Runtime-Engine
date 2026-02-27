@@ -269,6 +269,25 @@ class ObservabilityConfig:
 
 
 @dataclass(frozen=True)
+class CLIConfig:
+    """CLI-specific runtime behavior."""
+
+    log_path: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CLIConfig:
+        raw_log_path = data.get("log_path")
+        log_path = str(raw_log_path) if raw_log_path is not None else None
+        return cls(log_path=log_path)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.log_path is not None:
+            payload["log_path"] = self.log_path
+        return payload
+
+
+@dataclass(frozen=True)
 class HooksConfig:
     """Governance configuration for runtime hook orchestration."""
 
@@ -332,6 +351,7 @@ class Config:
     skill_paths: list[str] = field(default_factory=list)
     """Directories to scan for skills (SKILL.md). When non-empty, used by SkillStoreBuilder; else default .dare/skills."""
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
+    cli: CLIConfig = field(default_factory=CLIConfig)
     allow_tools: list[str] = field(default_factory=list)
     allow_mcps: list[str] = field(default_factory=list)
     components: dict[str, ComponentConfig] = field(default_factory=dict)
@@ -365,6 +385,8 @@ class Config:
             else []
         )
         tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
+        cli_raw = data.get("cli")
+        cli = CLIConfig.from_dict(cli_raw) if isinstance(cli_raw, dict) else CLIConfig()
         allow_tools = [str(item) for item in data.get("allow_tools", [])] if isinstance(data.get("allow_tools"), list) else []
         allow_mcps = [str(item) for item in data.get("allow_mcps", [])] if isinstance(data.get("allow_mcps"), list) else []
         components_raw = data.get("components") if isinstance(data.get("components"), dict) else {}
@@ -406,6 +428,7 @@ class Config:
             mcp_paths=mcp_paths,
             skill_paths=skill_paths,
             tools=tools,
+            cli=cli,
             allow_tools=allow_tools,
             allow_mcps=allow_mcps,
             components=components,
@@ -456,6 +479,7 @@ class Config:
             "mcp_paths": list(self.mcp_paths),
             "skill_paths": list(self.skill_paths),
             "tools": dict(self.tools),
+            "cli": self.cli.to_dict(),
             "allow_tools": list(self.allow_tools),
             "allow_mcps": list(self.allow_mcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
@@ -469,6 +493,7 @@ class Config:
             "observability": self.observability.to_dict(),
         }
 __all__ = [
+    "CLIConfig",
     "ProxyConfig",
     "LLMConfig",
     "ComponentConfig",

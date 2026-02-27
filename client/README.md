@@ -53,18 +53,266 @@
 
 ## 配置
 
-默认配置来源：
+### 配置文件位置与覆盖顺序
 
-1. `--workspace` 指定目录下 `.dare/config.json`
-2. `--user-dir` 指定目录下 `.dare/config.json`
-3. CLI flags 覆盖（`--adapter/--model/--api-key/...`）
+默认会读取两个配置文件：
+
+1. `--user-dir` 指定目录下 `.dare/config.json`
+2. `--workspace` 指定目录下 `.dare/config.json`
+3. CLI flags 最终覆盖（`--adapter/--model/--api-key/--endpoint/--max-tokens/...`）
+
+也就是实际优先级是：`user < workspace < CLI flags`。
+
+补充说明：
+
+- 两个配置文件如果不存在，会自动创建为空对象 `{}`。
+- 配置是深合并：字典会逐层合并；标量和数组会被高优先级配置整体覆盖。
+- `--workspace` 默认为当前目录，`--user-dir` 默认为当前用户 home 目录。
 
 > 在受限环境中建议显式传入 `--user-dir`，避免写入不可访问的 home 目录。
 
+首次初始化时，也可以直接参考仓库内的示例文件：
+
+- `/.dare/config.json.example`：OpenAI 最小配置
+- `/.dare/config.openrouter.example.json`：OpenRouter 最小配置
+- `/.dare/config.advanced.example.json`：带 `cli.log_path/endpoint/proxy/max_tokens` 的进阶配置
+
+### 最小可用 LLM 配置
+
+最常见的做法是在 `.dare/config.json` 里写一个 `llm` 段：
+
+```json
+{
+  "llm": {
+    "adapter": "openai",
+    "model": "gpt-4o-mini",
+    "api_key": "sk-..."
+  }
+}
+```
+
+如果你不想把密钥写进配置文件，也可以使用环境变量：
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+这时 `config.json` 可以只保留模型相关字段：
+
+```json
+{
+  "llm": {
+    "model": "gpt-4o-mini"
+  }
+}
+```
+
+如果你就在当前仓库里试用 CLI，最省事的起点是：
+
+```bash
+cp .dare/config.json.example .dare/config.json
+export OPENAI_API_KEY=sk-...
+```
+
+如果你要试 OpenRouter，可以直接改用：
+
+```bash
+cp .dare/config.openrouter.example.json .dare/config.json
+export OPENROUTER_API_KEY=sk-or-...
+```
+
+### `llm` 字段说明
+
+- `adapter`：模型适配器，当前支持 `openai` 和 `openrouter`。不写时默认是 `openai`。
+- `model`：模型名，例如 `gpt-4o-mini`、`gpt-4.1`、`qwen/qwen3-coder:free`。
+- `api_key`：模型服务密钥。也可以通过环境变量提供。
+- `endpoint`：自定义 OpenAI-compatible base URL。对 `openrouter` 来说会作为 `base_url` 使用。
+- `proxy`：代理配置，支持 `http`、`https`、`no_proxy`、`use_system_proxy`、`disabled`。
+- 其他未显式声明的字段会进入 `llm.extra`，并透传给 adapter；例如可以直接写 `temperature`、`max_tokens`。
+
+### `cli` 字段说明
+
+- `cli.log_path`：CLI 日志文件路径。
+- 不配置时，默认写到当前工作目录下的 `./dare.log`。
+- 如果配置的是相对路径，也按当前工作目录解析；例如 `logs/dare.log` 会落到当前目录下的 `logs/dare.log`。
+
+示例：
+
+```json
+{
+  "cli": {
+    "log_path": "logs/dare.log"
+  }
+}
+```
+
+`proxy` 的优先级规则：
+
+- `disabled: true` 时，显式关闭代理，并忽略其他代理字段。
+- `use_system_proxy: true` 时，使用系统代理环境变量，并忽略显式 `http/https`。
+- 否则使用配置中的 `https` 或 `http`。
+
+### 常见 LLM 配置示例
+
+OpenAI：
+
+```json
+{
+  "llm": {
+    "adapter": "openai",
+    "model": "gpt-4o-mini"
+  }
+}
+```
+
+配合环境变量：
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+OpenRouter：
+
+```json
+{
+  "llm": {
+    "adapter": "openrouter",
+    "model": "qwen/qwen3-coder:free"
+  }
+}
+```
+
+配合环境变量：
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+export OPENROUTER_MODEL=qwen/qwen3-coder:free
+# 可选，默认就是 https://openrouter.ai/api/v1
+export OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+```
+
+OpenAI-compatible / 自建模型网关：
+
+```json
+{
+  "llm": {
+    "adapter": "openai",
+    "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "endpoint": "http://127.0.0.1:8000/v1",
+    "api_key": "dummy-key"
+  }
+}
+```
+
+如果服务不校验密钥，仍建议显式给一个占位值，例如 `dummy-key`，这样 `doctor` 检查不会报 missing API key。
+
+仓库里也提供了对应的完整示例文件：
+
+- `/.dare/config.json.example`
+- `/.dare/config.openrouter.example.json`
+- `/.dare/config.advanced.example.json`
+
+对应内容如下，便于直接在 README 里参考：
+
+`/.dare/config.openrouter.example.json`
+
+```json
+{
+  "llm": {
+    "adapter": "openrouter",
+    "model": "qwen/qwen3-coder:free"
+  }
+}
+```
+
+`/.dare/config.advanced.example.json`
+
+```json
+{
+  "cli": {
+    "log_path": "logs/dare.log"
+  },
+  "llm": {
+    "adapter": "openai",
+    "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "endpoint": "http://127.0.0.1:8000/v1",
+    "api_key": "dummy-key",
+    "max_tokens": 4096,
+    "temperature": 0.2,
+    "proxy": {
+      "https": "http://127.0.0.1:7890",
+      "no_proxy": "127.0.0.1,localhost"
+    }
+  }
+}
+```
+
+### 临时覆盖配置
+
+临时切模型或切换 provider 时，可以直接用 CLI flags 覆盖文件配置：
+
+```bash
+.venv/bin/python -m client \
+  --adapter openrouter \
+  --model qwen/qwen3-coder:free \
+  --api-key "$OPENROUTER_API_KEY" \
+  chat
+```
+
+或者只临时改 endpoint：
+
+```bash
+.venv/bin/python -m client \
+  --endpoint http://127.0.0.1:8000/v1 \
+  run --task "读取 README 并总结"
+```
+
+### 如何确认配置是否生效
+
+建议按下面顺序检查：
+
+```bash
+# 查看最终生效的合并配置
+.venv/bin/python -m client config show
+
+# 查看当前 runtime 选中的模型信息
+.venv/bin/python -m client model show
+
+# 做环境与依赖诊断
+.venv/bin/python -m client doctor
+```
+
+这三个命令分别用于：
+
+- `config show`：确认 `llm`、`mcp_paths`、`allow_tools` 等最终生效值。
+- `model show`：确认 runtime 实际加载的 adapter 名称和 model 名称。
+- `doctor`：检查配置文件是否存在、API key 是否可见、adapter 依赖是否安装、MCP 路径是否有效。
+
+### LLM 相关依赖
+
+如果你是用 `pip install -e . --no-deps` 只安装 CLI 入口，还需要自行安装模型适配器依赖：
+
+- `openai` adapter：需要 `langchain-openai`
+- `openrouter` adapter：需要 `openai`
+
+否则 `doctor` 会提示 adapter probe 或依赖缺失，runtime 也无法正常启动。
+
 ## 输出与退出码
 
-- `--output human`：人类可读日志（默认）
+- `--output human`：终端只显示用户交互内容；CLI 日志写入 `cli.log_path` 指定文件，默认 `./dare.log`
 - `--output json`：结构化行输出，适合脚本集成
+
+`human` 模式下常见行为：
+
+- 启动信息、运行时状态、自动审批等日志不再打印到终端，会进入日志文件。
+- 任务结果、plan preview、显式命令输出、需要用户处理的错误/审批提示仍会显示在终端。
+- `chat` 模式下，发送消息后如果任务还没完成，CLI 不会立刻再次显示 `dare>` 提示；等回复完成后才会回到下一次输入。
+- `chat` + `human` 模式下，如果运行过程中出现工具审批，CLI 会直接在终端内联显示审批内容，包括原因、命令和工作目录，并给出三种选择：
+  `1` 或 `y/yes` 表示仅允许这一次，
+  `2` 表示当前会话内对这条相同命令自动允许，
+  `3`、`n/no` 或直接回车表示拒绝；不需要再手动敲 `/approvals grant|deny`。
+- `--output json` 或显式 `approvals` 子命令仍保留 transport/action 控制面，适合脚本、外部 UI 或调试场景。
+- 如果需要保留结构化 stdout 给脚本消费，使用 `--output json`。
 
 JSON 行结构（简化）：
 

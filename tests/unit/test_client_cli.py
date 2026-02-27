@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import importlib
 import json
+import threading
 import time
 
 import pytest
@@ -732,6 +733,476 @@ async def test_run_chat_interactive_input_does_not_block_event_loop(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_run_chat_interactive_waits_for_completion_before_reprompt(monkeypatch) -> None:
+    client_main = importlib.import_module("client.main")
+    task_finished = threading.Event()
+
+    class _NoopPump:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return None
+
+        def start(self) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+    class _FakeResult:
+        success = True
+        output = "done"
+        errors = None
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.05)
+        task_finished.set()
+        return _FakeResult()
+
+    input_calls = 0
+
+    def _input(_prompt: str) -> str:
+        nonlocal input_calls
+        input_calls += 1
+        if input_calls == 1:
+            return "do work"
+        assert task_finished.is_set(), "prompt returned before task finished"
+        return "/quit"
+
+    monkeypatch.setattr(client_main, "EventPump", _NoopPump)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+    monkeypatch.setattr("builtins.input", _input)
+
+    class _FakeRuntime:
+        client_channel = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        model = object()
+        channel = object()
+        agent = object()
+
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=object(),
+        output=client_main.OutputFacade("json"),
+        mode="execute",
+        script_lines=None,
+    )
+
+    assert rc == 0
+    assert input_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_run_chat_interactive_json_mode_reprompts_when_approval_is_pending(monkeypatch) -> None:
+    client_main = importlib.import_module("client.main")
+    approval_emitted = threading.Event()
+    task_released = asyncio.Event()
+    task_finished = threading.Event()
+
+    class _ApprovalPump:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            self._on_event = kwargs["on_event"]
+            self._task: asyncio.Task[None] | None = None
+
+        def start(self) -> None:
+            self._task = asyncio.create_task(self._emit())
+
+        async def stop(self) -> None:
+            if self._task is None:
+                return
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+        async def _emit(self) -> None:
+            await asyncio.sleep(0.05)
+            approval_emitted.set()
+            maybe_awaitable = self._on_event(
+                {
+                    "type": "approval_pending",
+                    "resp": {
+                        "request": {"request_id": "req-1"},
+                        "capability_id": "run_command",
+                        "tool_name": "run_command",
+                    },
+                }
+            )
+            if maybe_awaitable is not None:
+                await maybe_awaitable
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await task_released.wait()
+        task_finished.set()
+        return type("OkResult", (), {"success": True, "output": "done", "errors": None})()
+
+    input_calls = 0
+
+    def _input(_prompt: str) -> str:
+        nonlocal input_calls
+        input_calls += 1
+        if input_calls == 1:
+            return "do work"
+        assert approval_emitted.is_set(), "prompt returned before approval pending surfaced"
+        assert task_finished.is_set() is False, "prompt should return while task is still waiting for approval"
+        task_released.set()
+        return "/quit"
+
+    monkeypatch.setattr(client_main, "EventPump", _ApprovalPump)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+    monkeypatch.setattr("builtins.input", _input)
+
+    class _FakeRuntime:
+        client_channel = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        model = object()
+        channel = object()
+        agent = object()
+
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=object(),
+        output=client_main.OutputFacade("json"),
+        mode="execute",
+        script_lines=None,
+    )
+
+    assert rc == 0
+    assert input_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_run_chat_interactive_human_mode_prompts_rich_inline_approval_and_grants(monkeypatch, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    approval_emitted = threading.Event()
+    task_released = asyncio.Event()
+    task_finished = threading.Event()
+    action_calls: list[tuple[str, dict[str, str]]] = []
+
+    class _ApprovalPump:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            self._on_event = kwargs["on_event"]
+            self._task: asyncio.Task[None] | None = None
+
+        def start(self) -> None:
+            self._task = asyncio.create_task(self._emit())
+
+        async def stop(self) -> None:
+            if self._task is None:
+                return
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+        async def _emit(self) -> None:
+            await asyncio.sleep(0.05)
+            approval_emitted.set()
+            maybe_awaitable = self._on_event(
+                {
+                    "type": "approval_pending",
+                    "resp": {
+                        "request": {
+                            "request_id": "req-1",
+                            "reason": "Tool run_command requires approval",
+                            "command": "git status",
+                            "params": {"command": "git status", "cwd": "/tmp/workspace"},
+                        },
+                        "capability_id": "run_command",
+                        "tool_name": "run_command",
+                    },
+                }
+            )
+            if maybe_awaitable is not None:
+                await maybe_awaitable
+
+    class _ActionClient:
+        async def invoke_action(self, action, **params):  # noqa: ANN001
+            action_id = action.value if hasattr(action, "value") else str(action)
+            action_calls.append((action_id, {key: str(value) for key, value in params.items()}))
+            task_released.set()
+            return {"ok": True}
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await task_released.wait()
+        task_finished.set()
+        return type("OkResult", (), {"success": True, "output": "done", "errors": None})()
+
+    prompts: list[str] = []
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            assert prompt == "dare> "
+            return "do work"
+        if len(prompts) == 2:
+            assert approval_emitted.wait(timeout=1), "approval prompt rendered before pending event"
+            assert prompt == "approve> "
+            assert task_finished.is_set() is False, "task should still be waiting during approval prompt"
+            return "y"
+        assert task_finished.is_set(), "chat prompt returned before approved task completed"
+        assert prompt == "dare> "
+        return "/quit"
+
+    monkeypatch.setattr(client_main, "EventPump", _ApprovalPump)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+    monkeypatch.setattr("builtins.input", _input)
+
+    class _FakeRuntime:
+        client_channel = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        model = object()
+        channel = object()
+        agent = object()
+
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=_ActionClient(),
+        output=client_main.OutputFacade("human"),
+        mode="execute",
+        script_lines=None,
+    )
+
+    assert rc == 0
+    assert prompts == ["dare> ", "approve> ", "dare> "]
+    assert action_calls == [
+        (
+            "approvals:grant",
+            {
+                "request_id": "req-1",
+                "scope": "once",
+                "matcher": "exact_params",
+            },
+        )
+    ]
+    output = capsys.readouterr().out
+    assert "Agent wants to run a shell command." in output
+    assert "Reason: Tool run_command requires approval" in output
+    assert "Command: git status" in output
+    assert "Cwd: /tmp/workspace" in output
+    assert "1. Allow once" in output
+    assert "2. Always allow this exact command in this session" in output
+    assert "3. Deny (default)" in output
+
+
+@pytest.mark.asyncio
+async def test_run_chat_interactive_human_mode_prompts_inline_approval_and_denies(monkeypatch) -> None:
+    client_main = importlib.import_module("client.main")
+    approval_emitted = threading.Event()
+    task_released = asyncio.Event()
+    task_finished = threading.Event()
+    action_calls: list[tuple[str, dict[str, str]]] = []
+
+    class _ApprovalPump:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            self._on_event = kwargs["on_event"]
+            self._task: asyncio.Task[None] | None = None
+
+        def start(self) -> None:
+            self._task = asyncio.create_task(self._emit())
+
+        async def stop(self) -> None:
+            if self._task is None:
+                return
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+        async def _emit(self) -> None:
+            await asyncio.sleep(0.05)
+            approval_emitted.set()
+            maybe_awaitable = self._on_event(
+                {
+                    "type": "approval_pending",
+                    "resp": {
+                        "request": {
+                            "request_id": "req-1",
+                            "reason": "Tool run_command requires approval",
+                            "command": "git status",
+                            "params": {"command": "git status", "cwd": "/tmp/workspace"},
+                        },
+                        "capability_id": "run_command",
+                        "tool_name": "run_command",
+                    },
+                }
+            )
+            if maybe_awaitable is not None:
+                await maybe_awaitable
+
+    class _ActionClient:
+        async def invoke_action(self, action, **params):  # noqa: ANN001
+            action_id = action.value if hasattr(action, "value") else str(action)
+            action_calls.append((action_id, {key: str(value) for key, value in params.items()}))
+            task_released.set()
+            return {"ok": True}
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await task_released.wait()
+        task_finished.set()
+        return type(
+            "DeniedResult",
+            (),
+            {"success": False, "output": None, "errors": ["tool invocation denied by human approval"]},
+        )()
+
+    prompts: list[str] = []
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            assert prompt == "dare> "
+            return "do work"
+        if len(prompts) == 2:
+            assert approval_emitted.wait(timeout=1), "approval prompt rendered before pending event"
+            assert prompt == "approve> "
+            assert task_finished.is_set() is False, "task should still be waiting during approval prompt"
+            return "n"
+        assert task_finished.is_set(), "chat prompt returned before denied task completed"
+        assert prompt == "dare> "
+        return "/quit"
+
+    monkeypatch.setattr(client_main, "EventPump", _ApprovalPump)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+    monkeypatch.setattr("builtins.input", _input)
+
+    class _FakeRuntime:
+        client_channel = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        model = object()
+        channel = object()
+        agent = object()
+
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=_ActionClient(),
+        output=client_main.OutputFacade("human"),
+        mode="execute",
+        script_lines=None,
+    )
+
+    assert rc == 0
+    assert prompts == ["dare> ", "approve> ", "dare> "]
+    assert action_calls == [
+        (
+            "approvals:deny",
+            {
+                "request_id": "req-1",
+                "scope": "once",
+                "matcher": "exact_params",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_chat_interactive_human_mode_can_remember_same_command_for_session(monkeypatch, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    approval_emitted = threading.Event()
+    task_released = asyncio.Event()
+    task_finished = threading.Event()
+    action_calls: list[tuple[str, dict[str, str]]] = []
+
+    class _ApprovalPump:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            self._on_event = kwargs["on_event"]
+            self._task: asyncio.Task[None] | None = None
+
+        def start(self) -> None:
+            self._task = asyncio.create_task(self._emit())
+
+        async def stop(self) -> None:
+            if self._task is None:
+                return
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+        async def _emit(self) -> None:
+            await asyncio.sleep(0.05)
+            approval_emitted.set()
+            maybe_awaitable = self._on_event(
+                {
+                    "type": "approval_pending",
+                    "resp": {
+                        "request": {
+                            "request_id": "req-1",
+                            "reason": "Tool run_command requires approval",
+                            "command": "git status",
+                            "params": {"command": "git status", "cwd": "/tmp/workspace"},
+                        },
+                        "capability_id": "run_command",
+                        "tool_name": "run_command",
+                    },
+                }
+            )
+            if maybe_awaitable is not None:
+                await maybe_awaitable
+
+    class _ActionClient:
+        async def invoke_action(self, action, **params):  # noqa: ANN001
+            action_id = action.value if hasattr(action, "value") else str(action)
+            action_calls.append((action_id, {key: str(value) for key, value in params.items()}))
+            task_released.set()
+            return {"ok": True}
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await task_released.wait()
+        task_finished.set()
+        return type("OkResult", (), {"success": True, "output": "done", "errors": None})()
+
+    prompts: list[str] = []
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            assert prompt == "dare> "
+            return "do work"
+        if len(prompts) == 2:
+            assert approval_emitted.wait(timeout=1), "approval prompt rendered before pending event"
+            assert prompt == "approve> "
+            assert task_finished.is_set() is False, "task should still be waiting during approval prompt"
+            return "2"
+        assert task_finished.is_set(), "chat prompt returned before approved task completed"
+        assert prompt == "dare> "
+        return "/quit"
+
+    monkeypatch.setattr(client_main, "EventPump", _ApprovalPump)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+    monkeypatch.setattr("builtins.input", _input)
+
+    class _FakeRuntime:
+        client_channel = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        model = object()
+        channel = object()
+        agent = object()
+
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=_ActionClient(),
+        output=client_main.OutputFacade("human"),
+        mode="execute",
+        script_lines=None,
+    )
+
+    assert rc == 0
+    assert prompts == ["dare> ", "approve> ", "dare> "]
+    assert action_calls == [
+        (
+            "approvals:grant",
+            {
+                "request_id": "req-1",
+                "scope": "session",
+                "matcher": "exact_params",
+            },
+        )
+    ]
+    output = capsys.readouterr().out
+    assert "Same command will be auto-approved for the rest of this session." in output
+
+
+@pytest.mark.asyncio
 async def test_main_script_command_missing_file_returns_two(monkeypatch, tmp_path, capsys) -> None:
     client_main = importlib.import_module("client.main")
     workspace = tmp_path / "workspace"
@@ -835,6 +1306,13 @@ def test_default_auto_approve_tools_are_runtime_tool_subset() -> None:
     }
 
     assert client_main.DEFAULT_AUTO_APPROVE_TOOLS.issubset(runtime_tool_names)
+
+
+def test_default_auto_approve_tools_exclude_write_file() -> None:
+    client_main = importlib.import_module("client.main")
+    runtime_bootstrap = importlib.import_module("client.runtime.bootstrap")
+
+    assert runtime_bootstrap.WriteFileTool().name not in client_main.DEFAULT_AUTO_APPROVE_TOOLS
 
 
 def test_cli_raises_system_exit(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -22,6 +22,7 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
         user_dir / ".dare" / "config.json",
         {
             "llm": {"model": "user-model", "proxy": {"use_system_proxy": True}},
+            "cli": {"log_path": "user.log"},
             "allow_tools": ["tool_a"],
             "allow_mcps": ["user_mcp"],
             "mcp": {"user": {"endpoint": "http://user-mcp"}},
@@ -35,6 +36,7 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
                 "model": "workspace-model",
                 "proxy": {"disabled": True, "http": "http://proxy:8080"},
             },
+            "cli": {"log_path": "workspace.log"},
             "allow_mcps": ["workspace_mcp"],
             "tools": {"local_command": {"timeout": 12}},
             "components": {"hook": {"stdout": {"level": "info"}}},
@@ -64,6 +66,7 @@ def test_file_config_provider_merges_user_and_workspace(tmp_path: Path) -> None:
     assert config.llm.proxy.disabled is True
     assert config.llm.proxy.use_system_proxy is False
     assert config.llm.proxy.http is None
+    assert config.cli.log_path == "workspace.log"
     assert config.allow_tools == ["tool_a"]
     assert config.allow_mcps == ["workspace_mcp"]
     assert config.mcp["user"]["endpoint"] == "http://user-mcp"

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import dataclasses
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
@@ -26,6 +27,7 @@ from client.render.json import JsonRenderer
 from client.runtime.action_client import ActionClientError, TransportActionClient
 from client.runtime.bootstrap import RuntimeOptions, bootstrap_runtime, load_effective_config
 from client.runtime.event_stream import EventPump
+from client.runtime.logging_setup import CLI_LOGGER_NAME, configure_cli_logging, resolve_cli_log_path
 from client.runtime.task_runner import format_run_output, preview_plan, run_task
 from client.session import CLISessionState, ExecutionMode, SessionStatus
 from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
@@ -39,48 +41,65 @@ class OutputFacade:
         self._mode = mode
         self._human = HumanRenderer() if mode == "human" else None
         self._json = JsonRenderer() if mode == "json" else None
+        self._logger = logging.getLogger(CLI_LOGGER_NAME)
 
     @property
     def mode(self) -> str:
         return self._mode
 
     def header(self, title: str) -> None:
+        self._logger.info("%s", title)
         if self._human is not None:
-            self._human.header(title)
             return
         self._json.emit({"type": "event", "event": "header", "data": {"title": title}})
 
     def info(self, text: str) -> None:
+        self._logger.info("%s", text)
         if self._human is not None:
-            self._human.info(text)
             return
         self._json.emit({"type": "log", "level": "info", "message": text})
 
     def warn(self, text: str) -> None:
+        self._logger.warning("%s", text)
         if self._human is not None:
-            self._human.warn(text)
             return
         self._json.emit({"type": "log", "level": "warn", "message": text})
 
     def ok(self, text: str) -> None:
+        self._logger.info("%s", text)
         if self._human is not None:
-            self._human.ok(text)
             return
         self._json.emit({"type": "log", "level": "ok", "message": text})
 
     def error(self, text: str) -> None:
+        self._logger.error("%s", text)
         if self._human is not None:
-            self._human.error(text)
             return
         self._json.emit({"type": "log", "level": "error", "message": text})
 
-    def show_mode(self, mode: ExecutionMode) -> None:
+    def display(self, text: str, *, level: str = "info") -> None:
+        level_name = level.strip().lower()
+        if level_name == "warn":
+            self.warn(text)
+        elif level_name == "error":
+            self.error(text)
+        elif level_name == "ok":
+            self.ok(text)
+        else:
+            self.info(text)
+
         if self._human is not None:
-            self._human.show_mode(mode)
+            self._human.message(text)
+
+    def show_mode(self, mode: ExecutionMode) -> None:
+        self._logger.info("mode=%s", mode.value)
+        if self._human is not None:
+            self._human.message(f"mode={mode.value}")
             return
         self._json.emit({"type": "event", "event": "mode", "data": {"mode": mode.value}})
 
     def show_plan(self, plan: Any) -> None:
+        self._logger.info("plan preview: %s", getattr(plan, "plan_description", ""))
         if self._human is not None:
             self._human.show_plan(plan)
             return
@@ -98,14 +117,15 @@ class OutputFacade:
         self._json.emit({"type": "event", "event": "plan_preview", "data": payload})
 
     def emit_data(self, payload: Any) -> None:
+        self._logger.info("result=%s", json.dumps(_serialize(payload), ensure_ascii=False))
         if self._human is not None:
             print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
             return
         self._json.emit({"type": "result", "data": payload})
 
     def emit_event(self, event: str, payload: Any) -> None:
+        self._logger.info("event=%s payload=%s", event, json.dumps(_serialize(payload), ensure_ascii=False))
         if self._human is not None:
-            print(json.dumps({"event": event, "payload": payload}, ensure_ascii=False), flush=True)
             return
         self._json.emit({"type": "event", "event": event, "data": payload})
 
@@ -138,7 +158,7 @@ def _load_script_lines_with_handling(path: Path, *, output: OutputFacade) -> lis
     try:
         return _load_script_lines(path)
     except OSError as exc:
-        output.error(f"failed to load script file: {exc}")
+        output.display(f"failed to load script file: {exc}", level="error")
         return None
 
 
@@ -164,27 +184,29 @@ async def _execute_task_and_report(
     except asyncio.CancelledError:
         state.last_execution_success = False
         state.execution_failures += 1
-        output.warn("execution cancelled")
+        output.display("execution cancelled", level="warn")
         return False
     except Exception as exc:  # noqa: BLE001
         state.last_execution_success = False
         state.execution_failures += 1
-        output.error(f"execution error: {exc}")
+        output.display(f"execution error: {exc}", level="error")
         return False
 
     if result.success:
         state.last_execution_success = True
-        output.ok("task completed")
         text = format_run_output(result.output)
         if text:
-            output.info(text)
+            output.display(text)
+        else:
+            output.display("task completed", level="ok")
+        output.ok("task completed")
         return True
 
     state.last_execution_success = False
     state.execution_failures += 1
-    output.error("task failed")
+    output.display("task failed", level="error")
     if result.errors:
-        output.error(f"errors: {result.errors}")
+        output.display(f"errors: {result.errors}", level="error")
     return False
 
 
@@ -199,12 +221,13 @@ async def _finalize_background_task_if_done(
     try:
         await task
     except asyncio.CancelledError:
-        output.warn("execution cancelled")
+        output.display("execution cancelled", level="warn")
     except Exception as exc:  # noqa: BLE001
-        output.error(f"execution failed: {exc}")
+        output.display(f"execution failed: {exc}", level="error")
     finally:
         state.active_execution_task = None
         state.active_execution_description = None
+        state.clear_runtime_approvals()
         if state.status == SessionStatus.RUNNING:
             state.status = SessionStatus.IDLE
 
@@ -224,6 +247,22 @@ async def _wait_for_background_task(
             pass
         except Exception:
             pass
+    await _finalize_background_task_if_done(state, output=output)
+
+
+async def _wait_until_prompt_allowed(
+    state: CLISessionState,
+    *,
+    output: OutputFacade,
+    release_on_pending: bool = True,
+    poll_interval_seconds: float = 0.05,
+) -> None:
+    """Hold the prompt while a task is running unless user action is required."""
+    while _is_execution_running(state):
+        if release_on_pending and state.has_pending_runtime_approval():
+            return
+        await asyncio.sleep(poll_interval_seconds)
+        await _finalize_background_task_if_done(state, output=output)
     await _finalize_background_task_if_done(state, output=output)
 
 
@@ -261,9 +300,112 @@ DEFAULT_AUTO_APPROVE_TOOLS: frozenset[str] = frozenset(
         # Keep this set aligned with currently registered runtime tool names.
         "read_file",
         "search_code",
-        "write_file",
     }
 )
+
+
+def _approval_request_lines(
+    *,
+    request: dict[str, Any],
+    tool_name: str,
+    capability_id: str,
+) -> list[str]:
+    """Render the approval request so the user can see exactly what is being allowed."""
+    params = request.get("params", {})
+    command = request.get("command")
+    reason = request.get("reason")
+    cwd = params.get("cwd") if isinstance(params, dict) else None
+
+    if capability_id == "run_command" or tool_name == "run_command":
+        lines = ["Agent wants to run a shell command."]
+    else:
+        label = tool_name or capability_id or "Tool"
+        lines = [f"{label} requires approval."]
+
+    if isinstance(reason, str) and reason.strip():
+        lines.append(f"Reason: {reason.strip()}")
+    if isinstance(command, str) and command.strip():
+        lines.append(f"Command: {command.strip()}")
+    if isinstance(cwd, str) and cwd.strip():
+        lines.append(f"Cwd: {cwd.strip()}")
+    has_command = isinstance(command, str) and bool(command.strip())
+    if not has_command and isinstance(params, dict) and params:
+        lines.append(f"Params: {json.dumps(_serialize(params), ensure_ascii=False, sort_keys=True)}")
+
+    lines.extend(
+        [
+            "Choose what to do:",
+            "1. Allow once",
+            "2. Always allow this exact command in this session",
+            "3. Deny (default)",
+        ]
+    )
+    return lines
+
+
+def _parse_inline_approval_choice(raw: str) -> tuple[ResourceAction, str, str] | None:
+    """Interpret interactive approval input."""
+    answer = raw.strip().lower()
+    if answer in {"1", "y", "yes"}:
+        return ResourceAction.APPROVALS_GRANT, "once", "exact_params"
+    if answer in {"2", "a", "always", "session"}:
+        return ResourceAction.APPROVALS_GRANT, "session", "exact_params"
+    if answer in {"", "3", "n", "no"}:
+        return ResourceAction.APPROVALS_DENY, "once", "exact_params"
+    return None
+
+
+async def _resolve_inline_chat_approval(
+    *,
+    action_client: TransportActionClient,
+    output: OutputFacade,
+    request: dict[str, Any],
+    tool_name: str,
+    capability_id: str,
+) -> None:
+    """Collect an inline approval decision for human chat sessions."""
+    normalized_request = str(request.get("request_id", "?")).strip() or "?"
+    for line in _approval_request_lines(
+        request=request,
+        tool_name=tool_name.strip(),
+        capability_id=capability_id.strip(),
+    ):
+        output.display(line, level="warn")
+
+    while True:
+        try:
+            raw = await asyncio.to_thread(input, "approve> ")
+        except (EOFError, KeyboardInterrupt):
+            raw = ""
+        parsed = _parse_inline_approval_choice(raw)
+
+        if parsed is None:
+            output.display("Choose 1, 2, or 3.", level="warn")
+            continue
+        action, scope, matcher = parsed
+        decision = "allow" if action == ResourceAction.APPROVALS_GRANT else "deny"
+
+        try:
+            await action_client.invoke_action(
+                action,
+                request_id=normalized_request,
+                scope=scope,
+                matcher=matcher,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output.display(f"failed to submit approval decision: {exc}", level="error")
+            continue
+
+        if action == ResourceAction.APPROVALS_GRANT and scope == "session":
+            output.display(
+                "Same command will be auto-approved for the rest of this session.",
+                level="ok",
+            )
+        output.info(
+            "approval decision submitted: "
+            f"request_id={normalized_request}, decision={decision}, scope={scope}, matcher={matcher}"
+        )
+        return
 
 
 @dataclasses.dataclass
@@ -288,13 +430,15 @@ class _RunApprovalPolicy:
             if normalized_request in self.seen_disallowed:
                 return
             self.seen_disallowed.add(normalized_request)
-            self.output.warn(
+            self.output.display(
                 "auto-approve skipped: "
-                f"request_id={normalized_request}, tool={normalized_tool}, capability={capability_id}"
+                f"request_id={normalized_request}, tool={normalized_tool}, capability={capability_id}",
+                level="warn",
             )
-            self.output.warn(
+            self.output.display(
                 "rerun with `--auto-approve-tool "
-                f"{normalized_tool}` to allow this tool in run mode"
+                f"{normalized_tool}` to allow this tool in run mode",
+                level="warn",
             )
             return
 
@@ -312,8 +456,10 @@ class _RunApprovalPolicy:
                 matcher="exact_params",
             )
         except Exception as exc:  # noqa: BLE001
-            self.output.error(
+            self.output.display(
                 f"auto-approve failed for request_id={normalized_request}: {exc}"
+                ,
+                level="error",
             )
             return
         self.output.ok(f"auto-approved request_id={normalized_request}")
@@ -349,13 +495,15 @@ async def _execute_task_with_approval_timeout(
                 elapsed = time.monotonic() - approval_watch.pending_since_monotonic
                 if elapsed >= approval_timeout_seconds:
                     request_id = approval_watch.request_id or "?"
-                    output.error(
+                    output.display(
                         "approval wait timed out "
-                        f"(request_id={request_id}, timeout={approval_timeout_seconds:.1f}s)"
+                        f"(request_id={request_id}, timeout={approval_timeout_seconds:.1f}s)",
+                        level="error",
                     )
-                    output.error(
+                    output.display(
                         "rerun with `--auto-approve-tool <tool_name>` "
-                        "or use `chat` mode to approve manually"
+                        "or use `chat` mode to approve manually",
+                        level="error",
                     )
                     task.cancel()
                     break
@@ -385,15 +533,15 @@ async def _handle_shell_command(
 ) -> bool:
     if command.type == CommandType.QUIT:
         if _is_execution_running(state):
-            output.warn("cancelling running execution")
+            output.display("cancelling running execution", level="warn")
             assert state.active_execution_task is not None
             state.active_execution_task.cancel()
             await _finalize_background_task_if_done(state, output=output)
-        output.info("bye")
+        output.display("bye")
         return True
 
     if command.type == CommandType.HELP:
-        output.info(
+        output.display(
             "/mode [plan|execute], /approve, /reject, /status, "
             "/approvals [...], /mcp [...], /tools list, /skills list, "
             "/config show, /model show, /interrupt, /quit"
@@ -402,18 +550,18 @@ async def _handle_shell_command(
 
     if command.type == CommandType.STATUS:
         running = _is_execution_running(state)
-        output.info(f"status={state.status.value}, mode={state.mode.value}, running={running}")
+        output.display(f"status={state.status.value}, mode={state.mode.value}, running={running}")
         if running and state.active_execution_description:
-            output.info(f"active_task={state.active_execution_description}")
+            output.display(f"active_task={state.active_execution_description}")
         return False
 
     if command.type == CommandType.MODE:
         if not command.args:
-            output.warn("/mode requires plan or execute")
+            output.display("/mode requires plan or execute", level="warn")
             return False
         mode = command.args[0].strip().lower()
         if mode not in {"plan", "execute"}:
-            output.warn(f"unknown mode: {mode}")
+            output.display(f"unknown mode: {mode}", level="warn")
             return False
         state.mode = _normalize_mode(mode)
         output.show_mode(state.mode)
@@ -421,11 +569,11 @@ async def _handle_shell_command(
 
     if command.type == CommandType.APPROVE:
         if state.pending_task_description is None:
-            output.warn("no pending plan")
+            output.display("no pending plan", level="warn")
             return False
         task_text = state.pending_task_description
         if background_execute and _is_execution_running(state):
-            output.warn("another execution is running")
+            output.display("another execution is running", level="warn")
             return False
         state.clear_pending()
         if background_execute:
@@ -456,16 +604,16 @@ async def _handle_shell_command(
         state.clear_pending()
         if not _is_execution_running(state):
             state.status = SessionStatus.IDLE
-        output.info("plan rejected")
+        output.display("plan rejected")
         return False
 
     if command.type == CommandType.APPROVALS:
         try:
             payload = await handle_approvals_tokens(command.args, action_client=action_client)
         except Exception as exc:  # noqa: BLE001
-            output.error(str(exc))
+            output.display(str(exc), level="error")
             for line in approvals_usage_lines():
-                output.info(line)
+                output.display(line)
             return False
         output.emit_data(_serialize(payload))
         return False
@@ -474,11 +622,11 @@ async def _handle_shell_command(
         try:
             payload = await handle_mcp_tokens(command.args, runtime=runtime)
         except Exception as exc:  # noqa: BLE001
-            output.error(str(exc))
-            output.info("/mcp list|inspect [tool_name]|reload [paths...]|unload")
+            output.display(str(exc), level="error")
+            output.display("/mcp list|inspect [tool_name]|reload [paths...]|unload")
             return False
         if "tools" in payload:
-            output.info(format_mcp_inspection(payload["tools"]))
+            output.display(format_mcp_inspection(payload["tools"]))
         else:
             output.emit_data(_serialize(payload))
         return False
@@ -544,13 +692,13 @@ async def _run_cli_loop(
                 # Command failures must affect scripted exit status.
                 state.last_execution_success = False
                 state.execution_failures += 1
-                output.error(str(exc))
+                output.display(str(exc), level="error")
                 continue
             except Exception as exc:  # noqa: BLE001
                 # Keep command exceptions visible while preserving deterministic script rc.
                 state.last_execution_success = False
                 state.execution_failures += 1
-                output.error(f"command failed: {exc}")
+                output.display(f"command failed: {exc}", level="error")
                 continue
             if quit_requested:
                 break
@@ -574,16 +722,16 @@ async def _run_cli_loop(
                 # Plan preview failures should affect scripted exit status.
                 state.last_execution_success = False
                 state.execution_failures += 1
-                output.error(f"plan preview failed: {exc}")
+                output.display(f"plan preview failed: {exc}", level="error")
                 continue
             state.status = SessionStatus.AWAITING_APPROVAL
             output.show_plan(state.pending_plan)
-            output.info("type /approve to execute or /reject to cancel")
+            output.display("type /approve to execute or /reject to cancel")
             continue
 
         if background_execute:
             if _is_execution_running(state):
-                output.warn("another execution is running")
+                output.display("another execution is running", level="warn")
                 continue
             state.status = SessionStatus.RUNNING
             state.active_execution_description = task_text
@@ -615,14 +763,16 @@ def _on_transport_event(
     payload: dict[str, Any],
     *,
     output: OutputFacade,
-    on_approval_pending: Callable[[str, str, str], Awaitable[None] | None] | None = None,
+    on_approval_pending: Callable[[dict[str, Any], str, str], Awaitable[None] | None] | None = None,
     on_approval_resolved: Callable[[str], Awaitable[None] | None] | None = None,
+    suppress_human_approval_pending_output: bool = False,
 ) -> Awaitable[None] | None:
     return _on_transport_event_async(
         payload,
         output=output,
         on_approval_pending=on_approval_pending,
         on_approval_resolved=on_approval_resolved,
+        suppress_human_approval_pending_output=suppress_human_approval_pending_output,
     )
 
 
@@ -630,8 +780,9 @@ async def _on_transport_event_async(
     payload: dict[str, Any],
     *,
     output: OutputFacade,
-    on_approval_pending: Callable[[str, str, str], Awaitable[None] | None] | None = None,
+    on_approval_pending: Callable[[dict[str, Any], str, str], Awaitable[None] | None] | None = None,
     on_approval_resolved: Callable[[str], Awaitable[None] | None] | None = None,
+    suppress_human_approval_pending_output: bool = False,
 ) -> None:
     payload_type = payload.get("type")
     if payload_type == "approval_pending":
@@ -641,10 +792,14 @@ async def _on_transport_event_async(
         capability_id = str(resp.get("capability_id", "?")) if isinstance(resp, dict) else "?"
         tool_name = str(resp.get("tool_name", "?")) if isinstance(resp, dict) else "?"
         if on_approval_pending is not None:
-            maybe_awaitable = on_approval_pending(request_id, tool_name, capability_id)
+            maybe_awaitable = on_approval_pending(request, tool_name, capability_id)
             if maybe_awaitable is not None:
                 await maybe_awaitable
-        output.warn(f"approval pending: request_id={request_id}, capability={capability_id}")
+        message = f"approval pending: request_id={request_id}, capability={capability_id}"
+        if suppress_human_approval_pending_output and output.mode == "human":
+            output.warn(message)
+        else:
+            output.display(message, level="warn")
         return
     if payload_type == "approval_resolved":
         resp = payload.get("resp", {})
@@ -673,10 +828,31 @@ async def _run_chat(
     script_lines: list[str] | None,
 ) -> int:
     state = CLISessionState(mode=_normalize_mode(mode))
-    output.show_mode(state.mode)
+    inline_chat_approvals = script_lines is None and output.mode == "human"
+
+    async def _handle_chat_approval_pending(request: dict[str, Any], tool_name: str, capability_id: str) -> None:
+        request_id = str(request.get("request_id", "?")).strip() or "?"
+        state.mark_runtime_approval_pending(request_id)
+        if not inline_chat_approvals:
+            return
+        await _resolve_inline_chat_approval(
+            action_client=action_client,
+            output=output,
+            request=request,
+            tool_name=tool_name,
+            capability_id=capability_id,
+        )
+
+    output.info(f"mode={state.mode.value}")
     pump = EventPump(
         client_channel=runtime.client_channel,
-        on_event=lambda payload: _on_transport_event(payload, output=output),
+        on_event=lambda payload: _on_transport_event(
+            payload,
+            output=output,
+            on_approval_pending=_handle_chat_approval_pending,
+            on_approval_resolved=state.mark_runtime_approval_resolved,
+            suppress_human_approval_pending_output=inline_chat_approvals,
+        ),
     )
     pump.start()
     try:
@@ -692,11 +868,11 @@ async def _run_chat(
                 background_execute=False,
             )
             if _is_execution_running(state):
-                output.warn("waiting for last background execution")
+                output.display("waiting for last background execution", level="warn")
                 await _wait_for_background_task(state, output=output)
             return 0 if state.execution_failures == 0 else 1
 
-        output.info("type /help for commands. /quit to exit.")
+        output.display("type /help for commands. /quit to exit.")
         while True:
             try:
                 # Offload blocking stdin reads so background tasks/event pump keep running.
@@ -717,8 +893,13 @@ async def _run_chat(
             )
             if quit_requested:
                 break
+            await _wait_until_prompt_allowed(
+                state,
+                output=output,
+                release_on_pending=not inline_chat_approvals,
+            )
         if _is_execution_running(state):
-            output.warn("waiting for running execution")
+            output.display("waiting for running execution", level="warn")
             await _wait_for_background_task(state, output=output)
         return 0
     finally:
@@ -842,11 +1023,12 @@ def _build_runtime_options(args: argparse.Namespace) -> RuntimeOptions:
 async def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    configure_cli_logging(resolve_cli_log_path())
     output = OutputFacade(args.output)
     try:
         options = _build_runtime_options(args)
     except OSError as exc:
-        output.error(f"invalid runtime path: {exc}")
+        output.display(f"invalid runtime path: {exc}", level="error")
         return 2
     runtime = None
     exit_code = 0
@@ -855,9 +1037,10 @@ async def main(argv: list[str] | None = None) -> int:
         try:
             provider, config = load_effective_config(options)
         except (OSError, ValueError) as exc:
-            output.error(f"invalid config: {exc}")
+            output.display(f"invalid config: {exc}", level="error")
             return 2
         _ = provider
+        configure_cli_logging(resolve_cli_log_path(config))
 
         output.header("DARE CLIENT CLI")
         output.info(f"workspace={config.workspace_dir}")
@@ -881,7 +1064,7 @@ async def main(argv: list[str] | None = None) -> int:
         try:
             runtime = await bootstrap_runtime(options)
         except Exception as exc:  # noqa: BLE001
-            output.error(f"runtime bootstrap failed: {exc}")
+            output.display(f"runtime bootstrap failed: {exc}", level="error")
             return 1
         action_client = TransportActionClient(runtime.client_channel, timeout_seconds=args.timeout)
 
@@ -910,11 +1093,11 @@ async def main(argv: list[str] | None = None) -> int:
                         user_dir=runtime.config.user_dir,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    output.error(f"plan preview failed: {exc}")
+                    output.display(f"plan preview failed: {exc}", level="error")
                     return 1
                 output.show_plan(plan)
                 if not args.approve:
-                    output.info("plan only (pass --approve to execute)")
+                    output.display("plan only (pass --approve to execute)")
                     return 0
             auto_tools: set[str] = set()
             if args.auto_approve:
@@ -939,7 +1122,11 @@ async def main(argv: list[str] | None = None) -> int:
                 on_event=lambda payload: _on_transport_event(
                     payload,
                     output=output,
-                    on_approval_pending=approval_policy.on_pending,
+                    on_approval_pending=lambda request, tool_name, capability_id: approval_policy.on_pending(
+                        str(request.get("request_id", "?")).strip() or "?",
+                        tool_name,
+                        capability_id,
+                    ),
                     on_approval_resolved=approval_watch.mark_resolved,
                 ),
             )
@@ -998,11 +1185,11 @@ async def main(argv: list[str] | None = None) -> int:
             try:
                 payload = await handle_mcp_tokens(tokens, runtime=runtime)
             except Exception as exc:  # noqa: BLE001
-                output.error(str(exc))
-                output.info("/mcp list|inspect [tool_name]|reload [paths...]|unload")
+                output.display(str(exc), level="error")
+                output.display("/mcp list|inspect [tool_name]|reload [paths...]|unload")
                 return 1
             if "tools" in payload:
-                output.info(format_mcp_inspection(payload["tools"]))
+                output.display(format_mcp_inspection(payload["tools"]))
             else:
                 output.emit_data(_serialize(payload))
             return 0
@@ -1032,13 +1219,13 @@ async def main(argv: list[str] | None = None) -> int:
             output.emit_data(_serialize(payload))
             return 0
 
-        output.error(f"unknown command: {command}")
+        output.display(f"unknown command: {command}", level="error")
         exit_code = 2
     except ActionClientError as exc:
-        output.error(str(exc))
+        output.display(str(exc), level="error")
         exit_code = 1
     except KeyboardInterrupt:
-        output.warn("interrupted")
+        output.display("interrupted", level="warn")
         exit_code = 130
     finally:
         if runtime is not None:

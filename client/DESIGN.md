@@ -164,7 +164,7 @@ dare doctor
 ### 7.1 来源
 
 1. CLI flags（最高）
-2. workspace `.dare/config.json`
+2. workspace `.dare/config.json`（覆盖 user）
 3. user `.dare/config.json`
 4. 代码默认值（最低）
 
@@ -172,8 +172,9 @@ dare doctor
 
 1. `workspace_dir`、`user_dir`
 2. `llm.adapter/model/api_key/endpoint/proxy`
-3. `mcp_paths`、`allow_mcps`
-4. `default_prompt_id`
+3. `cli.log_path`
+4. `mcp_paths`、`allow_mcps`
+5. `default_prompt_id`
 
 ### 7.3 一致性原则
 
@@ -183,7 +184,9 @@ CLI 层不自行定义“平行配置模型”，只对 `Config` 做覆盖合并
 
 ### 8.1 输出模式
 
-1. `--output human`（默认）：可读文本。
+1. `--output human`（默认）：终端仅保留交互内容；日志统一落盘到 `cli.log_path`（默认 `./dare.log`）。
+   - `chat` 模式下执行期间默认不重复显示 prompt；仅在任务完成后重新给出 `dare>` 输入提示。
+   - 若执行中触发工具审批，CLI 直接以内联 `approve>` 提示收集 `y/n` 决策，再通过 `approvals:*` action 提交到底层审批管理器。
 2. `--output json`：结构化 JSON，便于自动化集成。
 
 ### 8.2 标准退出码

@@ -47,6 +47,7 @@ class ConfigActionHandler(IActionHandler):
             "workspace_dir": data.get("workspace_dir"),
             "user_dir": data.get("user_dir"),
             "llm": data.get("llm"),
+            "cli": data.get("cli"),
             "allow_tools": data.get("allow_tools"),
             "allow_mcps": data.get("allow_mcps"),
             "mcp_paths": data.get("mcp_paths"),
