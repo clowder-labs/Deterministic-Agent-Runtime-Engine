@@ -280,8 +280,11 @@ class DefaultAssembledContext(IAssembleContext):
         knowledge_config = context.config.knowledge if isinstance(context.config.knowledge, dict) else {}
         ltm_top_k, ltm_ratio = self._load_source_options(ltm_config)
         knowledge_top_k, knowledge_ratio = self._load_source_options(knowledge_config)
+        reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+        if reserve_tokens_raw is None:
+            reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
         reserve_tokens = self._safe_int(
-            ltm_config.get("assemble_reserve_tokens"),
+            reserve_tokens_raw,
             self._DEFAULT_RESERVE_TOKENS,
             minimum=0,
         )
