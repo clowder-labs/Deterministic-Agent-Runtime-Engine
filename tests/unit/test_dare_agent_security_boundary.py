@@ -11,6 +11,12 @@ from dare_framework.hook.types import HookDecision, HookPhase, HookResult
 from dare_framework.infra.component import ComponentType
 from dare_framework.plan.types import ProposedPlan, Task, ToolLoopRequest, ValidatedPlan
 from dare_framework.security import PolicyDecision, RiskLevel, TrustedInput
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalDecision,
+    ApprovalEvaluation,
+    ApprovalEvaluationStatus,
+    PendingApprovalRequest,
+)
 from dare_framework.tool.types import ToolResult
 
 
@@ -202,6 +208,46 @@ class _RecordingPhaseHook:
         return HookResult(decision=HookDecision.ALLOW)
 
 
+class _PendingAllowApprovalManager:
+    def __init__(self) -> None:
+        self.evaluate_calls = 0
+        self.wait_calls = 0
+
+    async def evaluate(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        reason: str,
+    ) -> ApprovalEvaluation:
+        self.evaluate_calls += 1
+        return ApprovalEvaluation(
+            status=ApprovalEvaluationStatus.PENDING,
+            request=PendingApprovalRequest(
+                request_id="req-security-ask",
+                capability_id=capability_id,
+                params=dict(params),
+                params_hash="hash",
+                command=None,
+                session_id=session_id,
+                reason=reason,
+                created_at=0.0,
+            ),
+            reason="approval required",
+        )
+
+    async def wait_for_resolution(
+        self,
+        request_id: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> ApprovalDecision:
+        _ = (request_id, timeout_seconds)
+        self.wait_calls += 1
+        return ApprovalDecision.ALLOW
+
+
 def _build_agent(
     *,
     boundary: Any,
@@ -211,6 +257,7 @@ def _build_agent(
     tool_gateway: _RecordingToolGateway | None = None,
     event_log: Any | None = None,
     hooks: list[Any] | None = None,
+    approval_manager: Any | None = None,
 ) -> DareAgent:
     return DareAgent(
         name="security-agent",
@@ -222,6 +269,7 @@ def _build_agent(
         security_boundary=boundary,
         event_log=event_log,
         hooks=hooks,
+        approval_manager=approval_manager,
     )
 
 
@@ -253,8 +301,30 @@ async def test_tool_loop_approve_required_without_execution_control_fails() -> N
     )
 
     assert result["success"] is False
-    assert "security approval" in str(result["error"])
+    assert "approval manager" in str(result["error"])
     assert tool_gateway.invoke_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_approve_required_routes_through_approval_workflow() -> None:
+    tool_gateway = _RecordingToolGateway()
+    approval_manager = _PendingAllowApprovalManager()
+    agent = _build_agent(
+        boundary=_ApproveToolBoundary(),
+        tool_gateway=tool_gateway,
+        approval_manager=approval_manager,
+    )
+
+    result = await agent._run_tool_loop(  # noqa: SLF001
+        ToolLoopRequest(capability_id="tool.echo", params={"value": 1}),
+        tool_name="echo",
+        tool_call_id="tc-security-ask-approval-flow",
+    )
+
+    assert result["success"] is True
+    assert tool_gateway.invoke_calls == 1
+    assert approval_manager.evaluate_calls == 1
+    assert approval_manager.wait_calls == 1
 
 
 @pytest.mark.asyncio

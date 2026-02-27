@@ -59,6 +59,16 @@ from dare_framework.tool._internal.control.approval_manager import (
     ApprovalEvaluationStatus,
 )
 from dare_framework.tool.types import CapabilityKind
+from dare_framework.transport.interaction.payloads import (
+    build_approval_pending_payload,
+    build_approval_resolved_payload,
+)
+from dare_framework.transport.types import (
+    EnvelopeKind,
+    TransportEnvelope,
+    TransportEventType,
+    new_envelope_id,
+)
 
 
 @dataclass
@@ -170,6 +180,8 @@ class DareAgent(BaseAgent):
         normalized_execution_mode = execution_mode.strip().lower()
         if normalized_execution_mode not in {"model_driven", "step_driven"}:
             raise ValueError("execution_mode must be 'model_driven' or 'step_driven'")
+        if normalized_execution_mode == "step_driven" and planner is None:
+            raise ValueError("step_driven execution requires planner")
         # Planner output in step-driven mode must pass validator-derived trust/policy metadata.
         if normalized_execution_mode == "step_driven" and planner is not None and validator is None:
             raise ValueError("step_driven execution with planner requires validator")
@@ -1048,6 +1060,7 @@ class DareAgent(BaseAgent):
                     step_executor,
                     step,
                     previous_results,
+                    transport=transport,
                 )
             previous_results.append(step_result)
 
@@ -1123,6 +1136,8 @@ class DareAgent(BaseAgent):
         step_executor: IStepExecutor,
         step: ValidatedStep,
         previous_results: list[StepResult],
+        *,
+        transport: AgentChannel | None = None,
     ) -> StepResult:
         """Execute custom step executors behind the same security gates."""
         step_context = self._build_step_context_from_previous(previous_results)
@@ -1154,12 +1169,31 @@ class DareAgent(BaseAgent):
             )
 
         if trust_error is not None:
-            return StepResult(
-                step_id=step.step_id,
-                success=False,
-                output=None,
-                errors=[trust_error],
-            )
+            approval_required = trust_error == "tool invocation requires security approval"
+            if approval_required and not requires_approval:
+                approved, approval_error = await self._resolve_tool_approval(
+                    capability_id=step.capability_id,
+                    params=trusted_params,
+                    session_id=self._session_state.run_id if self._session_state is not None else None,
+                    tool_name=step.capability_id,
+                    tool_call_id=f"step-{step.step_id}",
+                    transport=transport,
+                )
+                if not approved:
+                    return StepResult(
+                        step_id=step.step_id,
+                        success=False,
+                        output=None,
+                        errors=[approval_error or trust_error],
+                    )
+                trust_error = None
+            if trust_error is not None:
+                return StepResult(
+                    step_id=step.step_id,
+                    success=False,
+                    output=None,
+                    errors=[trust_error],
+                )
 
         secured_step = replace(step, params=trusted_params, envelope=envelope)
         try:
@@ -1294,36 +1328,55 @@ class DareAgent(BaseAgent):
                     "output": {},
                 }
             if trust_error is not None:
-                await self._log_event(
-                    "security.tool.policy",
-                    {
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "capability_id": request.capability_id,
-                        "error": trust_error,
-                        "attempt": attempts,
-                    },
-                )
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
+                approval_required = trust_error == "tool invocation requires security approval"
+                if approval_required:
+                    if not requires_approval:
+                        approved, approval_error = await self._resolve_tool_approval(
+                            capability_id=request.capability_id,
+                            params=trusted_params,
+                            session_id=session_id,
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                            transport=transport,
+                        )
+                        if not approved:
+                            trust_error = approval_error or trust_error
+                        else:
+                            trust_error = None
+                    else:
+                        trust_error = None
+                    requires_approval = True
+                if trust_error is not None:
+                    await self._log_event(
+                        "security.tool.policy",
+                        {
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "capability_id": request.capability_id,
+                            "error": trust_error,
+                            "attempt": attempts,
+                        },
+                    )
+                    await self._emit_hook(
+                        HookPhase.AFTER_TOOL,
+                        {
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "capability_id": request.capability_id,
+                            "attempt": attempts,
+                            "success": False,
+                            "error": trust_error,
+                            "approved": False,
+                            "evidence_collected": False,
+                            "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                            "budget_stats": self._budget_stats(),
+                        },
+                    )
+                    return {
                         "success": False,
                         "error": trust_error,
-                        "approved": False,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "error": trust_error,
-                    "output": {},
-                }
+                        "output": {},
+                    }
             before_tool_dispatch = await self._emit_hook(
                 HookPhase.BEFORE_TOOL,
                 {
@@ -1561,7 +1614,7 @@ class DareAgent(BaseAgent):
         if decision is PolicyDecision.ALLOW:
             return trusted_input.params, None
         if decision is PolicyDecision.APPROVE_REQUIRED:
-            return {}, "tool invocation requires security approval"
+            return trusted_input.params, "tool invocation requires security approval"
         return {}, "tool invocation denied by security policy"
 
     async def _resolve_tool_approval(
@@ -1572,6 +1625,7 @@ class DareAgent(BaseAgent):
         session_id: str | None,
         tool_name: str,
         tool_call_id: str,
+        transport: AgentChannel | None = None,
     ) -> tuple[bool, str | None]:
         if self._approval_manager is None:
             return False, "tool requires approval but no approval manager is configured"
@@ -1616,6 +1670,7 @@ class DareAgent(BaseAgent):
         request_id = evaluation.request.request_id
         await self._emit_approval_pending_message(
             request=evaluation.request.to_dict(),
+            transport=transport,
             capability_id=capability_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
@@ -1650,6 +1705,7 @@ class DareAgent(BaseAgent):
         await self._emit_approval_resolved_message(
             request_id=request_id,
             decision=decision.value,
+            transport=transport,
             capability_id=capability_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
@@ -1657,6 +1713,74 @@ class DareAgent(BaseAgent):
         if decision == ApprovalDecision.ALLOW:
             return True, None
         return False, "tool invocation denied by human approval"
+
+    async def _emit_approval_pending_message(
+        self,
+        *,
+        request: dict[str, Any],
+        transport: AgentChannel | None,
+        capability_id: str,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> None:
+        if transport is None:
+            return
+        payload = build_approval_pending_payload(
+            request=request,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        # Approval pending is an explicit user-choice interaction shape.
+        resp = payload.get("resp")
+        if isinstance(resp, dict):
+            resp.setdefault(
+                "options",
+                [
+                    {"label": "allow", "description": "Approve this tool invocation."},
+                    {"label": "deny", "description": "Deny this tool invocation."},
+                ],
+            )
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.SELECT,
+            event_type=TransportEventType.APPROVAL_PENDING.value,
+            payload=payload,
+        )
+        try:
+            await transport.send(envelope)
+        except Exception:
+            self._logger.exception("approval pending transport send failed")
+
+    async def _emit_approval_resolved_message(
+        self,
+        *,
+        request_id: str,
+        decision: str,
+        transport: AgentChannel | None,
+        capability_id: str,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> None:
+        if transport is None:
+            return
+        payload = build_approval_resolved_payload(
+            request_id=request_id,
+            decision=decision,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.APPROVAL_RESOLVED.value,
+            payload=payload,
+        )
+        try:
+            await transport.send(envelope)
+        except Exception:
+            self._logger.exception("approval resolved transport send failed")
 
     def _coerce_risk_level(self, risk_level: int) -> RiskLevel:
         mapping = {
