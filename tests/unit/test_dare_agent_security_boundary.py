@@ -102,6 +102,14 @@ class _PlanApproveRequiredBoundary(_AllowBoundary):
         return PolicyDecision.ALLOW
 
 
+class _PlanPolicyCrashBoundary(_AllowBoundary):
+    async def check_policy(self, *, action: str, resource: str, context: dict[str, Any]) -> PolicyDecision:
+        _ = (resource, context)
+        if action == "execute_plan":
+            raise RuntimeError("plan policy backend unavailable")
+        return PolicyDecision.ALLOW
+
+
 class _TrustFailureBoundary(_AllowBoundary):
     async def verify_trust(self, *, input: dict[str, Any], context: dict[str, Any]) -> TrustedInput:
         _ = (input, context)
@@ -294,3 +302,28 @@ async def test_tool_loop_security_boundary_exception_returns_structured_failure(
     assert result["success"] is False
     assert "trust backend unavailable" in str(result["error"])
     assert tool_gateway.invoke_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_plan_policy_exception_returns_structured_milestone_failure() -> None:
+    model = _RecordingModel()
+    event_log = _RecordingEventLog()
+    hook = _RecordingPhaseHook()
+    agent = _build_agent(
+        boundary=_PlanPolicyCrashBoundary(),
+        model=model,
+        planner=_Planner(),
+        validator=_Validator(),
+        event_log=event_log,
+        hooks=[hook],
+    )
+
+    result = await agent("run guarded task")
+
+    assert result.success is False
+    assert any("plan policy backend unavailable" in str(err) for err in result.errors)
+    policy_events = [payload for event_type, payload in event_log.events if event_type == "security.plan.policy"]
+    assert policy_events
+    assert policy_events[-1].get("decision") == "error"
+    assert any(event_type == "milestone.failed" for event_type, _ in event_log.events)
+    assert HookPhase.AFTER_MILESTONE in hook.phases

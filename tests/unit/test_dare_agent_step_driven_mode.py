@@ -34,6 +34,24 @@ class _ToolGateway:
         return ToolResult(success=True, output={"ok": True})
 
 
+class _ChainingToolGateway:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def list_capabilities(self) -> list[Any]:
+        return []
+
+    async def invoke(self, capability_id: str, *, envelope: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = envelope
+        self.calls += 1
+        if capability_id == "tool.first":
+            return ToolResult(success=True, output={"first": 1})
+        previous_output = params.get("_previous_output")
+        if not isinstance(previous_output, dict):
+            return ToolResult(success=False, error="previous output must be dict")
+        return ToolResult(success=True, output={"prev_first": previous_output.get("first")})
+
+
 class _AllowBoundary:
     async def verify_trust(self, *, input: dict[str, Any], context: dict[str, Any]) -> TrustedInput:
         _ = context
@@ -107,12 +125,13 @@ def _build_agent(
     execution_mode: str = "model_driven",
     boundary: Any | None = None,
     context: Context | None = None,
+    tool_gateway: Any | None = None,
 ) -> DareAgent:
     return DareAgent(
         name="step-mode-agent",
         model=model,
         context=context or Context(config=Config()),
-        tool_gateway=_ToolGateway(),
+        tool_gateway=tool_gateway or _ToolGateway(),
         step_executor=step_executor,
         execution_mode=execution_mode,
         security_boundary=boundary,
@@ -261,6 +280,35 @@ async def test_step_driven_uses_step_risk_level_when_descriptor_missing() -> Non
     assert result["success"] is False
     assert any("security policy" in error for error in result.get("errors", []))
     assert context.budget.used_tool_calls == 1
+    assert model.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_step_driven_passes_plain_previous_output_between_steps() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    gateway = _ChainingToolGateway()
+    agent = _build_agent(
+        model=model,
+        execution_mode="step_driven",
+        boundary=_AllowBoundary(),
+        context=context,
+        tool_gateway=gateway,
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(step_id="s1", capability_id="tool.first", risk_level=RiskLevel.READ_ONLY),
+            ValidatedStep(step_id="s2", capability_id="tool.second", risk_level=RiskLevel.READ_ONLY),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is True
+    assert result["outputs"] == [{"first": 1}, {"prev_first": 1}]
+    assert gateway.calls == 2
     assert model.calls == 0
 
 

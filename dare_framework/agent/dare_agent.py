@@ -503,10 +503,16 @@ class DareAgent(BaseAgent):
             validated_plan = await self._run_plan_loop(milestone)
             self._log(f"Plan loop done, validated_plan={validated_plan is not None}")
 
-            plan_policy_error, plan_policy_decision = await self._check_plan_policy(
-                milestone,
-                validated_plan,
-            )
+            try:
+                plan_policy_error, plan_policy_decision = await self._check_plan_policy(
+                    milestone,
+                    validated_plan,
+                )
+            except Exception as exc:
+                # Preserve milestone-level failure semantics when policy backends
+                # are unavailable instead of aborting the whole run.
+                plan_policy_error = f"plan policy evaluation failed: {exc}"
+                plan_policy_decision = "error"
             if plan_policy_error is not None:
                 if self._sandbox is not None and snapshot_id:
                     self._sandbox.rollback(self._context, snapshot_id)
@@ -1075,9 +1081,11 @@ class DareAgent(BaseAgent):
             descriptor=descriptor,
         )
         if tool_result.get("success"):
-            result_payload = tool_result.get("result")
+            # Expose plain tool output for step chaining; `result` carries
+            # internal wrapper details and should not leak into step outputs.
+            result_payload = tool_result.get("output")
             if result_payload is None:
-                result_payload = tool_result.get("output")
+                result_payload = tool_result.get("result")
             evidence = evidence_collector.collect(
                 source=step.capability_id,
                 data={"result": result_payload, "params": step.params},
