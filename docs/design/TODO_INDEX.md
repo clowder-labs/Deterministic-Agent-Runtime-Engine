@@ -4,6 +4,11 @@
 >
 > 用途：集中查看当前架构/模块设计文档中的 TODO，便于分工与追踪。
 
+## Current Sprint (Agent)
+- [x] A-101 DareAgent 结构化拆分（`session/milestone/execute/tool` 内聚到 `dare_framework/agent/_internal/`，`dare_agent.py` 退化为门面编排）
+- [ ] A-102 step-driven 路径策略定稿（最小闭环或显式下线）
+- [ ] A-103 统一输出数据形状（output envelope）
+
 ## agent
 - [ ] 将 ValidatedPlan.steps 驱动 Execute Loop（计划执行一致性）。(`docs/design/modules/agent/README.md`)
 - [ ] 引入 plan attempt snapshot/rollback，实现失败计划隔离。(`docs/design/modules/agent/README.md`)
