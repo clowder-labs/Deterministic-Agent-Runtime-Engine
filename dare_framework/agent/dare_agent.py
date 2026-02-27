@@ -1096,12 +1096,15 @@ class DareAgent(BaseAgent):
             params={**step.params, **step_context},
             envelope=step.envelope or Envelope(risk_level=step.risk_level),
         )
+        metadata_requires_approval = step.metadata.get("requires_approval")
+        requires_approval_override = metadata_requires_approval if isinstance(metadata_requires_approval, bool) else None
         tool_result = await self._run_tool_loop(
             request,
             transport=transport,
             tool_name=step.capability_id,
             tool_call_id=f"step-{step.step_id}",
             descriptor=descriptor,
+            requires_approval_override=requires_approval_override,
         )
         if tool_result.get("success"):
             # Expose plain tool output for step chaining; `result` carries
@@ -1373,6 +1376,7 @@ class DareAgent(BaseAgent):
         tool_name: str,
         tool_call_id: str,
         descriptor: Any | None = None,
+        requires_approval_override: bool | None = None,
     ) -> dict[str, Any]:
         """Run the tool loop - single tool invocation."""
         # Budget check
@@ -1389,6 +1393,7 @@ class DareAgent(BaseAgent):
             self._risk_level_value_from_envelope(request.envelope),
         )
         descriptor_requires_approval = self._requires_approval(descriptor)
+        metadata_requires_approval = requires_approval_override is True
         requires_approval = descriptor_requires_approval
         session_id = self._session_state.run_id if self._session_state is not None else None
 
@@ -1403,7 +1408,7 @@ class DareAgent(BaseAgent):
                     params=request.params,
                     tool_name=tool_name,
                     risk_level=risk_level,
-                    requires_approval=descriptor_requires_approval,
+                    requires_approval=descriptor_requires_approval or metadata_requires_approval,
                 )
             except Exception as e:
                 await self._log_event("tool.error", {
@@ -1435,27 +1440,10 @@ class DareAgent(BaseAgent):
                     "output": {},
                 }
             approval_required_by_policy = trust_error == "tool invocation requires security approval"
-            requires_approval = descriptor_requires_approval or approval_required_by_policy
+            requires_approval = descriptor_requires_approval or metadata_requires_approval or approval_required_by_policy
             if trust_error is not None:
                 if approval_required_by_policy:
-                    # Descriptor-gated approvals are enforced by the governed
-                    # gateway on every invocation; policy-only approvals must
-                    # be explicitly re-evaluated for each retry attempt.
-                    if not descriptor_requires_approval:
-                        approved, approval_error = await self._resolve_tool_approval(
-                            capability_id=request.capability_id,
-                            params=trusted_params,
-                            session_id=session_id,
-                            tool_name=tool_name,
-                            tool_call_id=tool_call_id,
-                            transport=transport,
-                        )
-                        if not approved:
-                            trust_error = approval_error or trust_error
-                        else:
-                            trust_error = None
-                    else:
-                        trust_error = None
+                    trust_error = None
                 if trust_error is not None:
                     await self._log_event(
                         "security.tool.policy",
@@ -1485,6 +1473,50 @@ class DareAgent(BaseAgent):
                     return {
                         "success": False,
                         "error": trust_error,
+                        "output": {},
+                    }
+            # Descriptor-gated approvals are enforced by the governed gateway.
+            # Policy-only and step-metadata approvals must be re-evaluated for
+            # each retry attempt in this loop.
+            if requires_approval and not descriptor_requires_approval:
+                approved, approval_error = await self._resolve_tool_approval(
+                    capability_id=request.capability_id,
+                    params=trusted_params,
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    transport=transport,
+                )
+                if not approved:
+                    approval_error_text = approval_error or "tool invocation requires security approval"
+                    await self._log_event(
+                        "security.tool.policy",
+                        {
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "capability_id": request.capability_id,
+                            "error": approval_error_text,
+                            "attempt": attempts,
+                        },
+                    )
+                    await self._emit_hook(
+                        HookPhase.AFTER_TOOL,
+                        {
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "capability_id": request.capability_id,
+                            "attempt": attempts,
+                            "success": False,
+                            "error": approval_error_text,
+                            "approved": False,
+                            "evidence_collected": False,
+                            "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                            "budget_stats": self._budget_stats(),
+                        },
+                    )
+                    return {
+                        "success": False,
+                        "error": approval_error_text,
                         "output": {},
                     }
             before_tool_dispatch = await self._emit_hook(

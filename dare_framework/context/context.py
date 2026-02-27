@@ -233,7 +233,8 @@ class DefaultAssembledContext(IAssembleContext):
         for message in messages:
             message_tokens = self._estimate_tokens([message])
             if used + message_tokens > budget_tokens:
-                break
+                # Skip oversized candidates so smaller later hits can still fit.
+                continue
             kept.append(message)
             used += message_tokens
         return kept

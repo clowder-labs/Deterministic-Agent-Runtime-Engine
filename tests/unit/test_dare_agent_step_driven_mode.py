@@ -686,6 +686,40 @@ async def test_step_driven_custom_executor_deny_skips_approval_flow() -> None:
 
 
 @pytest.mark.asyncio
+async def test_step_driven_tool_loop_respects_step_metadata_requires_approval() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    approval_manager = _PendingAllowApprovalManager()
+    agent = _build_agent(
+        model=model,
+        execution_mode="step_driven",
+        boundary=_AllowBoundary(),
+        context=context,
+        approval_manager=approval_manager,
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(
+                step_id="s1",
+                capability_id="tool.one",
+                risk_level=RiskLevel.READ_ONLY,
+                metadata={"requires_approval": True},
+            ),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is True
+    assert approval_manager.evaluate_calls == 1
+    assert approval_manager.wait_calls == 1
+    assert context.budget.used_tool_calls == 1
+    assert model.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_step_driven_custom_executor_respects_before_tool_hook_policy() -> None:
     model = _RecordingModel()
     context = Context(config=Config())

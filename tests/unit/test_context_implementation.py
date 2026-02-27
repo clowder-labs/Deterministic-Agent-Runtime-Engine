@@ -201,3 +201,37 @@ def test_context_assemble_single_source_uses_full_retrieval_budget():
     assert contents == ["q", "x" * 64]
     assert assembled.metadata["retrieval"]["ltm_count"] == 1
     assert assembled.metadata["retrieval"]["degraded"] is False
+
+
+def test_context_assemble_skips_oversized_retrieval_hits_and_keeps_later_candidates():
+    ltm = _FakeRetrieval(
+        [
+            Message(role="assistant", content="x" * 220),
+            Message(role="assistant", content="small-hit"),
+        ]
+    )
+    config = Config(
+        long_term_memory={
+            "assemble_top_k": 2,
+            "assemble_reserve_tokens": 0,
+            "assemble_ratio": 1.0,
+        },
+        knowledge={
+            "assemble_top_k": 0,
+            "assemble_ratio": 0.0,
+        },
+    )
+    ctx = Context(
+        config=config,
+        budget=Budget(max_tokens=35),
+        long_term_memory=ltm,
+        knowledge=None,
+    )
+    ctx.stm_add(Message(role="user", content="q"))
+
+    assembled = ctx.assemble()
+
+    contents = [message.content for message in assembled.messages]
+    assert contents == ["q", "small-hit"]
+    assert assembled.metadata["retrieval"]["ltm_count"] == 1
+    assert assembled.metadata["retrieval"]["degraded"] is True
