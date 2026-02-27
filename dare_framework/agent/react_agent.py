@@ -120,7 +120,10 @@ class ReactAgent(BaseAgent):
                     final_text = "模型未返回可显示的文本回复。请重试，或明确要求先调用 ask_user 再继续。"
                 assistant_message = Message(role="assistant", content=final_text)
                 self._context.stm_add(assistant_message)
-                output = build_output_envelope(final_text)
+                output = build_output_envelope(
+                    final_text,
+                    usage=response.usage if isinstance(response.usage, dict) else None,
+                )
                 return RunResult(
                     success=True,
                     output=output,

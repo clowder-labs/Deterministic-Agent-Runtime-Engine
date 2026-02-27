@@ -75,6 +75,21 @@ async def test_react_agent_returns_output_envelope() -> None:
 
 
 @pytest.mark.asyncio
+async def test_react_agent_preserves_usage_in_output_envelope() -> None:
+    agent = ReactAgent(
+        name="react-output-envelope-usage",
+        model=_Model(content="react-ok", usage={"total_tokens": 13}),
+        context=Context(config=Config()),
+        tool_gateway=_ToolGateway(),
+    )
+
+    result = await agent("hello")
+    envelope = _assert_output_envelope(result)
+    assert envelope["content"] == "react-ok"
+    assert envelope["usage"] == {"total_tokens": 13}
+
+
+@pytest.mark.asyncio
 async def test_dare_agent_returns_output_envelope() -> None:
     agent = DareAgent(
         name="dare-output-envelope",
