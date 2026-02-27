@@ -1168,32 +1168,36 @@ class DareAgent(BaseAgent):
                 errors=[str(exc)],
             )
 
-        if trust_error is not None:
-            approval_required = trust_error == "tool invocation requires security approval"
-            if approval_required and not requires_approval:
-                approved, approval_error = await self._resolve_tool_approval(
-                    capability_id=step.capability_id,
-                    params=trusted_params,
-                    session_id=self._session_state.run_id if self._session_state is not None else None,
-                    tool_name=step.capability_id,
-                    tool_call_id=f"step-{step.step_id}",
-                    transport=transport,
-                )
-                if not approved:
-                    return StepResult(
-                        step_id=step.step_id,
-                        success=False,
-                        output=None,
-                        errors=[approval_error or trust_error],
-                    )
-                trust_error = None
-            if trust_error is not None:
+        approval_required_by_policy = trust_error == "tool invocation requires security approval"
+        if approval_required_by_policy:
+            trust_error = None
+
+        # Custom step executors bypass governed gateway invocation, so approval
+        # gating must be enforced explicitly in this path.
+        if requires_approval or approval_required_by_policy:
+            approved, approval_error = await self._resolve_tool_approval(
+                capability_id=step.capability_id,
+                params=trusted_params,
+                session_id=self._session_state.run_id if self._session_state is not None else None,
+                tool_name=step.capability_id,
+                tool_call_id=f"step-{step.step_id}",
+                transport=transport,
+            )
+            if not approved:
                 return StepResult(
                     step_id=step.step_id,
                     success=False,
                     output=None,
-                    errors=[trust_error],
+                    errors=[approval_error or "tool invocation requires security approval"],
                 )
+
+        if trust_error is not None:
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[trust_error],
+            )
 
         secured_step = replace(step, params=trusted_params, envelope=envelope)
         try:

@@ -10,6 +10,12 @@ from dare_framework.context import Context
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.types import StepResult, ValidatedPlan, ValidatedStep
 from dare_framework.security.types import PolicyDecision, RiskLevel, TrustedInput
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalDecision,
+    ApprovalEvaluation,
+    ApprovalEvaluationStatus,
+    PendingApprovalRequest,
+)
 from dare_framework.tool.types import ToolResult
 
 
@@ -93,6 +99,14 @@ class _DenyToolBoundary(_AllowBoundary):
         return PolicyDecision.ALLOW
 
 
+class _ApproveToolBoundary(_AllowBoundary):
+    async def check_policy(self, *, action: str, resource: str, context: dict[str, Any]) -> PolicyDecision:
+        _ = (resource, context)
+        if action == "invoke_tool":
+            return PolicyDecision.APPROVE_REQUIRED
+        return PolicyDecision.ALLOW
+
+
 class _DenyNonReadOnlyBoundary(_AllowBoundary):
     async def verify_trust(self, *, input: dict[str, Any], context: dict[str, Any]) -> TrustedInput:
         raw_risk = context.get("risk_level", RiskLevel.READ_ONLY)
@@ -154,6 +168,46 @@ class _NoOpValidator:
         return {"success": True}
 
 
+class _PendingAllowApprovalManager:
+    def __init__(self) -> None:
+        self.evaluate_calls = 0
+        self.wait_calls = 0
+
+    async def evaluate(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        reason: str,
+    ) -> ApprovalEvaluation:
+        self.evaluate_calls += 1
+        return ApprovalEvaluation(
+            status=ApprovalEvaluationStatus.PENDING,
+            request=PendingApprovalRequest(
+                request_id="req-step-executor-approval",
+                capability_id=capability_id,
+                params=dict(params),
+                params_hash="hash",
+                command=None,
+                session_id=session_id,
+                reason=reason,
+                created_at=0.0,
+            ),
+            reason="approval required",
+        )
+
+    async def wait_for_resolution(
+        self,
+        request_id: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> ApprovalDecision:
+        _ = (request_id, timeout_seconds)
+        self.wait_calls += 1
+        return ApprovalDecision.ALLOW
+
+
 def _build_agent(
     *,
     model: _RecordingModel,
@@ -164,6 +218,7 @@ def _build_agent(
     tool_gateway: Any | None = None,
     planner: Any | None = None,
     validator: Any | None = None,
+    approval_manager: Any | None = None,
     auto_wire_step_driven_defaults: bool = True,
 ) -> DareAgent:
     normalized_execution_mode = execution_mode.strip().lower()
@@ -181,6 +236,7 @@ def _build_agent(
         step_executor=step_executor,
         execution_mode=execution_mode,
         security_boundary=boundary,
+        approval_manager=approval_manager,
     )
 
 
@@ -489,5 +545,79 @@ async def test_step_driven_custom_executor_respects_security_policy() -> None:
     assert result["success"] is False
     assert any("security policy" in error for error in result.get("errors", []))
     assert step_executor.step_ids == []
+    assert context.budget.used_tool_calls == 1
+    assert model.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_step_driven_custom_executor_requires_metadata_approval_under_allow_policy() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    step_executor = _RecordingStepExecutor()
+    approval_manager = _PendingAllowApprovalManager()
+    agent = _build_agent(
+        model=model,
+        step_executor=step_executor,
+        execution_mode="step_driven",
+        boundary=_AllowBoundary(),
+        context=context,
+        approval_manager=approval_manager,
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(
+                step_id="s1",
+                capability_id="tool.one",
+                risk_level=RiskLevel.READ_ONLY,
+                metadata={"requires_approval": True},
+            ),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is True
+    assert step_executor.step_ids == ["s1"]
+    assert approval_manager.evaluate_calls == 1
+    assert approval_manager.wait_calls == 1
+    assert context.budget.used_tool_calls == 1
+    assert model.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_step_driven_custom_executor_approve_required_with_metadata_routes_to_approval_workflow() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    step_executor = _RecordingStepExecutor()
+    approval_manager = _PendingAllowApprovalManager()
+    agent = _build_agent(
+        model=model,
+        step_executor=step_executor,
+        execution_mode="step_driven",
+        boundary=_ApproveToolBoundary(),
+        context=context,
+        approval_manager=approval_manager,
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(
+                step_id="s1",
+                capability_id="tool.one",
+                risk_level=RiskLevel.READ_ONLY,
+                metadata={"requires_approval": True},
+            ),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is True
+    assert step_executor.step_ids == ["s1"]
+    assert approval_manager.evaluate_calls == 1
+    assert approval_manager.wait_calls == 1
     assert context.budget.used_tool_calls == 1
     assert model.calls == 0
