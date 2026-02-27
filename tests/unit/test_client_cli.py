@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import importlib
 import json
+import time
 
 import pytest
 
@@ -641,6 +642,93 @@ async def test_run_chat_script_returns_nonzero_on_command_error(monkeypatch) -> 
         script_lines=["/status"],
     )
     assert rc == 1
+
+
+@pytest.mark.asyncio
+async def test_run_chat_script_plan_preview_failure_returns_nonzero(monkeypatch) -> None:
+    client_main = importlib.import_module("client.main")
+
+    async def _fake_preview_plan(*, task_text, model, workspace_dir, user_dir):  # noqa: ANN001
+        _ = (task_text, model, workspace_dir, user_dir)
+        raise RuntimeError("planner unavailable")
+
+    monkeypatch.setattr(client_main, "preview_plan", _fake_preview_plan)
+
+    class _FakeClientChannel:
+        async def poll(self, timeout=None):  # noqa: ANN001
+            await asyncio.sleep(0)
+            return None
+
+    class _FakeRuntime:
+        agent = object()
+        channel = object()
+        model = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        client_channel = _FakeClientChannel()
+
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=object(),
+        output=client_main.OutputFacade("json"),
+        mode="plan",
+        script_lines=["generate a plan"],
+    )
+    assert rc == 1
+
+
+@pytest.mark.asyncio
+async def test_run_chat_interactive_input_does_not_block_event_loop(monkeypatch) -> None:
+    client_main = importlib.import_module("client.main")
+
+    class _NoopPump:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return None
+
+        def start(self) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+    async def _fake_run_cli_loop(*_args, **_kwargs):
+        return True
+
+    def _slow_input(_prompt: str) -> str:
+        time.sleep(0.25)
+        return "/quit"
+
+    monkeypatch.setattr(client_main, "EventPump", _NoopPump)
+    monkeypatch.setattr(client_main, "_run_cli_loop", _fake_run_cli_loop)
+    monkeypatch.setattr("builtins.input", _slow_input)
+
+    class _FakeRuntime:
+        client_channel = object()
+        config = Config.from_dict({"workspace_dir": ".", "user_dir": "."})
+        model = object()
+        channel = object()
+        agent = object()
+
+    start = time.monotonic()
+    tick_at: float | None = None
+
+    async def _ticker() -> None:
+        nonlocal tick_at
+        await asyncio.sleep(0.05)
+        tick_at = time.monotonic()
+
+    ticker_task = asyncio.create_task(_ticker())
+    rc = await client_main._run_chat(
+        runtime=_FakeRuntime(),
+        action_client=object(),
+        output=client_main.OutputFacade("json"),
+        mode="execute",
+        script_lines=None,
+    )
+    await ticker_task
+
+    assert rc == 0
+    assert tick_at is not None
+    assert tick_at - start < 0.2
 
 
 @pytest.mark.asyncio

@@ -572,6 +572,9 @@ async def _run_cli_loop(
                 )
             except Exception as exc:  # noqa: BLE001
                 state.clear_pending()
+                # Plan preview failures should affect scripted exit status.
+                state.last_execution_success = False
+                state.execution_failures += 1
                 output.error(f"plan preview failed: {exc}")
                 continue
             state.status = SessionStatus.AWAITING_APPROVAL
@@ -697,10 +700,12 @@ async def _run_chat(
         output.info("type /help for commands. /quit to exit.")
         while True:
             try:
-                raw = input("dare> ").strip()
+                # Offload blocking stdin reads so background tasks/event pump keep running.
+                raw = await asyncio.to_thread(input, "dare> ")
             except (EOFError, KeyboardInterrupt):
                 print("", flush=True)
                 break
+            raw = raw.strip()
             if not raw:
                 continue
             quit_requested = await _run_cli_loop(
