@@ -86,3 +86,4 @@ async def test_dare_agent_returns_output_envelope() -> None:
     result = await agent("hello")
     envelope = _assert_output_envelope(result)
     assert envelope["content"] == "dare-ok"
+    assert envelope["usage"] == {"total_tokens": 11}
