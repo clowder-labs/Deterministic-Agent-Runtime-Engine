@@ -89,6 +89,7 @@ def test_config_to_dict_round_trip() -> None:
             "cli": {"log_path": "/tmp/dare.log"},
             "allow_tools": ["tool_a"],
             "components": {"hook": {"stdout": {"level": "info"}}},
+            "security": {"boundary": "noop"},
         }
     )
 
@@ -100,6 +101,7 @@ def test_config_to_dict_round_trip() -> None:
     assert payload["cli"]["log_path"] == "/tmp/dare.log"
     assert payload["allow_tools"] == ["tool_a"]
     assert payload["components"]["hook"]["stdout"] == {"level": "info"}
+    assert payload["security"]["boundary"] == "noop"
 
 
 def test_config_is_immutable() -> None:

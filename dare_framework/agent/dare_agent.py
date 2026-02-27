@@ -47,6 +47,17 @@ from dare_framework.plan.types import (
     ValidatedPlan,
     VerifyResult,
 )
+from dare_framework.security import (
+    ISecurityBoundary,
+    NoOpSecurityBoundary,
+    PolicyDecision,
+    SECURITY_APPROVAL_MANAGER_MISSING,
+    SECURITY_POLICY_CHECK_FAILED,
+    SECURITY_POLICY_DENIED,
+    SECURITY_TRUST_DERIVATION_FAILED,
+    SecurityBoundaryError,
+)
+from dare_framework.security.types import TrustedInput
 from dare_framework.tool._internal.governed_tool_gateway import (
     ApprovalInvokeContext,
     GovernedToolGateway,
@@ -61,6 +72,15 @@ class MilestoneResult:
     outputs: list[Any] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     verify_result: VerifyResult | None = None
+
+
+@dataclass(frozen=True)
+class SecurityPreflightResult:
+    """Outcome of tool security preflight checks."""
+
+    trusted_input: TrustedInput
+    decision: PolicyDecision
+    reason: str | None = None
 
 
 if TYPE_CHECKING:
@@ -121,6 +141,7 @@ class DareAgent(BaseAgent):
         event_log: IEventLog | None = None,
         hooks: list[IHook] | None = None,
         telemetry: ITelemetryProvider | None = None,
+        security_boundary: ISecurityBoundary | None = None,
         # Milestone orchestration components (optional)
         sandbox: IPlanAttemptSandbox | None = None,
         step_executor: IStepExecutor | None = None,
@@ -148,6 +169,7 @@ class DareAgent(BaseAgent):
             event_log: Event log for audit (optional).
             hooks: Hook implementations invoked at lifecycle phases (optional).
             telemetry: Telemetry provider for traces/metrics/logs (optional).
+            security_boundary: Security boundary used for trust/policy preflight.
             max_milestone_attempts: Max retries per milestone.
             max_plan_attempts: Max plan generation attempts.
             max_tool_iterations: Max tool call iterations per execute loop.
@@ -193,6 +215,7 @@ class DareAgent(BaseAgent):
         self._telemetry = telemetry if telemetry is not None else NoOpTelemetryProvider()
         self._event_log = make_trace_aware(event_log)
         self._hooks = list(hooks) if hooks is not None else []
+        self._security_boundary = security_boundary if security_boundary is not None else NoOpSecurityBoundary()
         if isinstance(self._telemetry, OTelTelemetryProvider):
             if not any(isinstance(hook, ObservabilityHook) for hook in self._hooks):
                 self._hooks.append(ObservabilityHook(self._telemetry))
@@ -976,14 +999,166 @@ class DareAgent(BaseAgent):
                     "error": policy_error,
                     "output": {},
                 }
+
+            try:
+                preflight = await self._evaluate_tool_security(
+                    request=request,
+                    descriptor=descriptor,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    attempt=attempts,
+                )
+            except SecurityBoundaryError as exc:
+                denied_error = str(exc).strip() or "security policy denied tool invocation"
+                await self._log_event(
+                    "security.policy_denied",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": request.capability_id,
+                        "code": exc.code,
+                        "reason": exc.reason,
+                        "error": denied_error,
+                    },
+                )
+                denied_status = "not_allow"
+                await self._emit_hook(
+                    HookPhase.AFTER_TOOL,
+                    {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "capability_id": request.capability_id,
+                        "attempt": attempts,
+                        "success": False,
+                        "error": denied_error,
+                        "approved": False,
+                        "policy_decision": PolicyDecision.DENY.value,
+                        "security_code": exc.code,
+                        "evidence_collected": False,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                        "budget_stats": self._budget_stats(),
+                    },
+                )
+                return {
+                    "success": False,
+                    "status": denied_status,
+                    "error": denied_error,
+                    "output": {
+                        "status": denied_status,
+                        "code": exc.code,
+                        "message": denied_error,
+                    },
+                }
+
+            trusted_input = preflight.trusted_input
+            risk_level = self._risk_level_from_trusted_input(trusted_input)
+            effective_params = dict(trusted_input.params)
+            policy_decision = preflight.decision.value
+
+            if preflight.decision is PolicyDecision.DENY:
+                denied_error = preflight.reason or "tool invocation denied by security policy"
+                await self._log_event(
+                    "security.policy_denied",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": request.capability_id,
+                        "code": SECURITY_POLICY_DENIED,
+                        "reason": preflight.reason,
+                    },
+                )
+                denied_status = "not_allow"
+                await self._emit_hook(
+                    HookPhase.AFTER_TOOL,
+                    {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "capability_id": request.capability_id,
+                        "attempt": attempts,
+                        "success": False,
+                        "error": denied_error,
+                        "approved": False,
+                        "policy_decision": policy_decision,
+                        "security_code": SECURITY_POLICY_DENIED,
+                        "evidence_collected": False,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                        "budget_stats": self._budget_stats(),
+                    },
+                )
+                return {
+                    "success": False,
+                    "status": denied_status,
+                    "error": denied_error,
+                    "output": {
+                        "status": denied_status,
+                        "code": SECURITY_POLICY_DENIED,
+                        "message": denied_error,
+                    },
+                }
+
+            if (
+                preflight.decision is PolicyDecision.APPROVE_REQUIRED
+                and self._approval_manager is None
+            ):
+                denied_error = "tool invocation requires approval but no approval manager is configured"
+                await self._log_event(
+                    "security.policy_denied",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": request.capability_id,
+                        "code": SECURITY_APPROVAL_MANAGER_MISSING,
+                        "reason": "approval manager missing",
+                    },
+                )
+                await self._emit_hook(
+                    HookPhase.AFTER_TOOL,
+                    {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "capability_id": request.capability_id,
+                        "attempt": attempts,
+                        "success": False,
+                        "error": denied_error,
+                        "approved": False,
+                        "policy_decision": policy_decision,
+                        "security_code": SECURITY_APPROVAL_MANAGER_MISSING,
+                        "evidence_collected": False,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                        "budget_stats": self._budget_stats(),
+                    },
+                )
+                return {
+                    "success": False,
+                    "status": "fail",
+                    "error": denied_error,
+                    "output": {
+                        "status": "fail",
+                        "code": SECURITY_APPROVAL_MANAGER_MISSING,
+                        "message": denied_error,
+                    },
+                }
+
             await self._log_event("tool.invoke", {
                 "tool_name": tool_name,
                 "tool_call_id": tool_call_id,
                 "capability_id": request.capability_id,
                 "attempt": attempts,
+                "policy_decision": policy_decision,
             })
 
             try:
+                async def approval_observer(payload: dict[str, Any]) -> None:
+                    await self._log_event(
+                        "security.policy_approval",
+                        {
+                            "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
+                            "capability_id": request.capability_id,
+                            **payload,
+                        },
+                    )
+
                 approval_ctx = ApprovalInvokeContext(
                     session_id=session_id,
                     transport=transport,
@@ -991,12 +1166,15 @@ class DareAgent(BaseAgent):
                     tool_call_id=tool_call_id,
                     event_logger=self._log_event,
                     runtime_context=self._context,
+                    force_approval=preflight.decision is PolicyDecision.APPROVE_REQUIRED,
+                    approval_reason=preflight.reason,
+                    approval_observer=approval_observer,
                 )
                 result = await self._governed_tool_gateway.invoke(
                     request.capability_id,
                     approval_ctx,
                     envelope=request.envelope,
-                    **request.params,
+                    **effective_params,
                 )
 
                 await self._log_event("tool.result", {
@@ -1005,6 +1183,7 @@ class DareAgent(BaseAgent):
                     "capability_id": request.capability_id,
                     "success": getattr(result, "success", True),
                     "attempt": attempts,
+                    "policy_decision": policy_decision,
                 })
 
                 tool_success = True
@@ -1030,6 +1209,7 @@ class DareAgent(BaseAgent):
                         "success": tool_success,
                         "error": result.error if hasattr(result, "error") else None,
                         "approved": approved,
+                        "policy_decision": policy_decision,
                         "evidence_collected": evidence_collected,
                         "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
                         "budget_stats": self._budget_stats(),
@@ -1076,6 +1256,7 @@ class DareAgent(BaseAgent):
                     "capability_id": request.capability_id,
                     "error": str(e),
                     "attempt": attempts,
+                    "policy_decision": policy_decision,
                 })
                 approved = True
                 try:
@@ -1095,6 +1276,7 @@ class DareAgent(BaseAgent):
                         "success": False,
                         "error": str(e),
                         "approved": approved,
+                        "policy_decision": policy_decision,
                         "evidence_collected": False,
                         "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
                         "budget_stats": self._budget_stats(),
@@ -1251,6 +1433,157 @@ class DareAgent(BaseAgent):
                 scripts=script_map,
             )
         )
+
+    async def _evaluate_tool_security(
+        self,
+        *,
+        request: ToolLoopRequest,
+        descriptor: Any | None,
+        tool_name: str,
+        tool_call_id: str,
+        attempt: int,
+    ) -> SecurityPreflightResult:
+        trust_context: dict[str, Any] = {
+            "capability_id": request.capability_id,
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "attempt": attempt,
+            "descriptor": descriptor,
+            "risk_level": getattr(request.envelope.risk_level, "value", request.envelope.risk_level),
+            "envelope_risk_level": getattr(request.envelope.risk_level, "value", request.envelope.risk_level),
+            "requires_approval": self._requires_approval(descriptor),
+        }
+        try:
+            trusted_input = await self._security_boundary.verify_trust(
+                input=dict(request.params),
+                context=trust_context,
+            )
+        except SecurityBoundaryError as exc:
+            await self._log_event(
+                "security.trust_verified",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": request.capability_id,
+                    "status": "failed",
+                    "code": exc.code,
+                    "reason": exc.reason,
+                },
+            )
+            raise
+        except Exception as exc:
+            message = str(exc).strip() or "security trust verification failed"
+            await self._log_event(
+                "security.trust_verified",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": request.capability_id,
+                    "status": "failed",
+                    "code": SECURITY_TRUST_DERIVATION_FAILED,
+                    "reason": message,
+                },
+            )
+            raise SecurityBoundaryError(
+                code=SECURITY_TRUST_DERIVATION_FAILED,
+                message=message,
+                reason=message,
+            ) from exc
+
+        await self._log_event(
+            "security.trust_verified",
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": request.capability_id,
+                "status": "verified",
+                "risk_level": trusted_input.risk_level.value,
+                "requires_approval": bool(trusted_input.metadata.get("requires_approval", False)),
+            },
+        )
+
+        policy_context = {
+            **trust_context,
+            "trusted_input": trusted_input,
+            "risk_level": trusted_input.risk_level.value,
+            "requires_approval": bool(trusted_input.metadata.get("requires_approval", False)),
+            "metadata": dict(trusted_input.metadata),
+        }
+        try:
+            decision = await self._security_boundary.check_policy(
+                action="invoke_tool",
+                resource=request.capability_id,
+                context=policy_context,
+            )
+            if not isinstance(decision, PolicyDecision):
+                raw_value = getattr(decision, "value", decision)
+                try:
+                    decision = PolicyDecision(str(raw_value))
+                except ValueError as exc:
+                    raise SecurityBoundaryError(
+                        code=SECURITY_POLICY_CHECK_FAILED,
+                        message=f"unsupported policy decision: {raw_value!r}",
+                        reason="security boundary returned unknown policy decision",
+                    ) from exc
+        except SecurityBoundaryError:
+            raise
+        except Exception as exc:
+            message = str(exc).strip() or "security policy check failed"
+            raise SecurityBoundaryError(
+                code=SECURITY_POLICY_CHECK_FAILED,
+                message=message,
+                reason=message,
+            ) from exc
+
+        reason = self._derive_policy_reason(
+            decision=decision,
+            capability_id=request.capability_id,
+            trusted_input=trusted_input,
+        )
+        await self._log_event(
+            "security.policy_checked",
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": request.capability_id,
+                "decision": decision.value,
+                "reason": reason,
+            },
+        )
+        return SecurityPreflightResult(
+            trusted_input=trusted_input,
+            decision=decision,
+            reason=reason,
+        )
+
+    def _derive_policy_reason(
+        self,
+        *,
+        decision: PolicyDecision,
+        capability_id: str,
+        trusted_input: TrustedInput,
+    ) -> str | None:
+        metadata = dict(trusted_input.metadata)
+        if decision is PolicyDecision.ALLOW:
+            return None
+        if decision is PolicyDecision.APPROVE_REQUIRED:
+            raw_reason = metadata.get("approval_reason")
+            if isinstance(raw_reason, str) and raw_reason.strip():
+                return raw_reason.strip()
+            return f"policy requires approval for capability '{capability_id}'"
+        raw_reason = metadata.get("deny_reason")
+        if isinstance(raw_reason, str) and raw_reason.strip():
+            return raw_reason.strip()
+        return f"policy denied capability '{capability_id}'"
+
+    def _risk_level_from_trusted_input(self, trusted_input: TrustedInput) -> int:
+        mapping = {
+            "read_only": 1,
+            "idempotent_write": 2,
+            "non_idempotent_effect": 3,
+            "compensatable": 4,
+        }
+        return mapping.get(trusted_input.risk_level.value, 1)
 
     def _risk_level_value(self, descriptor: Any | None) -> int:
         if descriptor is None or descriptor.metadata is None:

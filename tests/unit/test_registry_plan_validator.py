@@ -10,6 +10,7 @@ from dare_framework.security.types import RiskLevel
 from dare_framework.tool.tool_manager import ToolManager
 from dare_framework.tool.kernel import ITool
 from dare_framework.tool.types import CapabilityKind, ToolResult, ToolType
+from dare_framework.tool.types import CapabilityDescriptor, CapabilityType
 from dare_framework.infra.component import ComponentType
 
 
@@ -136,3 +137,30 @@ async def test_registry_validator_handles_plan_tool_prefix() -> None:
     assert validated.success is True
     assert validated.steps[0].risk_level == RiskLevel.READ_ONLY
     assert validated.steps[0].metadata["capability_kind"] == CapabilityKind.PLAN_TOOL.value
+
+
+@pytest.mark.asyncio
+async def test_registry_validator_fails_when_trusted_risk_metadata_missing() -> None:
+    class _Gateway:
+        def list_capabilities(self) -> list[CapabilityDescriptor]:
+            return [
+                CapabilityDescriptor(
+                    id="tool:missing-risk",
+                    type=CapabilityType.TOOL,
+                    name="missing_risk",
+                    description="missing risk metadata",
+                    input_schema={"type": "object", "properties": {}},
+                    metadata={"capability_kind": CapabilityKind.TOOL.value},
+                )
+            ]
+
+    validator = RegistryPlanValidator(tool_gateway=_Gateway())
+    plan = ProposedPlan(
+        plan_description="plan",
+        steps=[ProposedStep(step_id="s1", capability_id="tool:missing-risk", params={})],
+    )
+
+    validated = await validator.validate_plan(plan, {})
+
+    assert validated.success is False
+    assert "missing trusted risk metadata" in validated.errors[0]

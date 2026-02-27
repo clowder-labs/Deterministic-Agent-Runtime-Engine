@@ -63,6 +63,8 @@ from dare_framework.plan.interfaces import (
     IValidator,
     IValidatorManager,
 )
+from dare_framework.security.kernel import ISecurityBoundary
+from dare_framework.security.impl import NoOpSecurityBoundary, PolicySecurityBoundary
 from dare_framework.skill import Skill, ISkillLoader, ISkillStore, SkillStoreBuilder
 from dare_framework.skill._internal.action_handler import SkillsActionHandler
 from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
@@ -602,6 +604,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         self._execution_control: IExecutionControl | None = None
         self._hooks: list[IHook] = []
         self._telemetry: ITelemetryProvider | None = None
+        self._security_boundary: ISecurityBoundary | None = None
         self._verbose: bool = False
 
     def with_planner(self, planner: IPlanner) -> DareAgentBuilder:
@@ -630,6 +633,11 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
 
     def with_telemetry(self, telemetry: ITelemetryProvider) -> DareAgentBuilder:
         self._telemetry = telemetry
+        return self
+
+    def with_security_boundary(self, security_boundary: ISecurityBoundary) -> DareAgentBuilder:
+        """Inject an explicit security boundary for tool preflight."""
+        self._security_boundary = security_boundary
         return self
 
     def with_verbose(self, verbose: bool = True) -> DareAgentBuilder:
@@ -720,6 +728,7 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             hooks = None
 
         telemetry = self._telemetry
+        security_boundary = self._resolve_security_boundary(config)
         return DareAgent(
             name=self._name,
             model=model,
@@ -733,10 +742,23 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             event_log=self._event_log,
             hooks=hooks,
             telemetry=telemetry,
+            security_boundary=security_boundary,
             agent_channel=agent_channel,
             verbose=self._verbose,
             approval_manager=approval_manager,
         )
+
+    def _resolve_security_boundary(self, config: Config) -> ISecurityBoundary:
+        if self._security_boundary is not None:
+            return self._security_boundary
+        raw_mode = config.security.get("boundary", config.security.get("mode", "policy"))
+        mode = str(raw_mode).strip().lower()
+        if mode in {"off", "none", "noop", "disabled"}:
+            boundary: ISecurityBoundary = NoOpSecurityBoundary()
+        else:
+            boundary = PolicySecurityBoundary.from_config(config.security)
+        self._security_boundary = boundary
+        return boundary
 
 
 __all__ = ["DareAgentBuilder", "ReactAgentBuilder", "SimpleChatAgentBuilder"]

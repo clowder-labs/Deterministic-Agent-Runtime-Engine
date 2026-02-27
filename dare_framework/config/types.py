@@ -356,6 +356,7 @@ class Config:
     allow_mcps: list[str] = field(default_factory=list)
     components: dict[str, ComponentConfig] = field(default_factory=dict)
     hooks: HooksConfig = field(default_factory=HooksConfig)
+    security: dict[str, Any] = field(default_factory=dict)
     knowledge: dict[str, Any] = field(default_factory=dict)
     """Knowledge backend config: type (vector|rawdata), storage (in_memory|sqlite|chromadb), options."""
     long_term_memory: dict[str, Any] = field(default_factory=dict)
@@ -397,6 +398,7 @@ class Config:
         }
         hooks_raw = data.get("hooks")
         hooks = HooksConfig.from_dict(hooks_raw) if isinstance(hooks_raw, dict) else HooksConfig()
+        security = data.get("security") if isinstance(data.get("security"), dict) else {}
         knowledge = data.get("knowledge") if isinstance(data.get("knowledge"), dict) else {}
         long_term_memory = data.get("long_term_memory") if isinstance(data.get("long_term_memory"), dict) else {}
         prompt_store_path_pattern = data.get("prompt_store_path_pattern")
@@ -433,6 +435,7 @@ class Config:
             allow_mcps=allow_mcps,
             components=components,
             hooks=hooks,
+            security=security,
             knowledge=knowledge,
             long_term_memory=long_term_memory,
             workspace_dir=workspace_dir,
@@ -484,6 +487,7 @@ class Config:
             "allow_mcps": list(self.allow_mcps),
             "components": {key: value.to_dict() for key, value in self.components.items()},
             "hooks": self.hooks.to_dict(),
+            "security": dict(self.security),
             "knowledge": dict(self.knowledge),
             "long_term_memory": dict(self.long_term_memory),
             "workspace_dir": self.workspace_dir,

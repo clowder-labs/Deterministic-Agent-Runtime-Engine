@@ -32,7 +32,9 @@ def extract_trace_context() -> TraceContext | None:
         return None
 
     ctx = trace.get_current_span().get_span_context()
-    if not ctx.is_valid():
+    is_valid_attr = getattr(ctx, "is_valid", None)
+    is_valid = is_valid_attr() if callable(is_valid_attr) else bool(is_valid_attr)
+    if not is_valid:
         return None
 
     return TraceContext(

@@ -6,8 +6,10 @@ import pytest
 
 from dare_framework.plan.types import Envelope
 from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalDecision,
     ApprovalEvaluation,
     ApprovalEvaluationStatus,
+    PendingApprovalRequest,
 )
 from dare_framework.tool._internal.governed_tool_gateway import (
     ApprovalInvokeContext,
@@ -58,6 +60,40 @@ class _RecordingApprovalManager:
         return ApprovalEvaluation(status=ApprovalEvaluationStatus.ALLOW)
 
 
+class _PendingApprovalManager(_RecordingApprovalManager):
+    async def evaluate(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        reason: str,
+    ) -> ApprovalEvaluation:
+        self.evaluate_calls.append(
+            {
+                "capability_id": capability_id,
+                "params": dict(params),
+                "session_id": session_id,
+                "reason": reason,
+            }
+        )
+        request = PendingApprovalRequest(
+            request_id="req-1",
+            capability_id=capability_id,
+            params=dict(params),
+            params_hash="hash",
+            command=None,
+            session_id=session_id,
+            reason=reason,
+            created_at=1.0,
+        )
+        return ApprovalEvaluation(status=ApprovalEvaluationStatus.PENDING, request=request)
+
+    async def wait_for_resolution(self, request_id: str) -> ApprovalDecision:
+        assert request_id == "req-1"
+        return ApprovalDecision.ALLOW
+
+
 @pytest.mark.asyncio
 async def test_governed_gateway_approval_uses_effective_params_with_context_collision() -> None:
     capability = CapabilityDescriptor(
@@ -93,3 +129,39 @@ async def test_governed_gateway_approval_uses_effective_params_with_context_coll
     delegate_params = delegate.invoke_calls[0]["params"]
     assert delegate_params["command"] == "echo hello"
     assert delegate_params["context"] == "tool-arg-context"
+
+
+@pytest.mark.asyncio
+async def test_governed_gateway_force_approval_uses_custom_reason_and_observer() -> None:
+    capability = CapabilityDescriptor(
+        id="run_command",
+        type=CapabilityType.TOOL,
+        name="run_command",
+        description="run command",
+        input_schema={"type": "object", "properties": {}},
+        metadata={"requires_approval": False},
+    )
+    delegate = _RecordingDelegateGateway(capability)
+    approval_manager = _PendingApprovalManager()
+    gateway = GovernedToolGateway(delegate, approval_manager=approval_manager)
+    observed: list[dict[str, Any]] = []
+
+    async def observer(payload: dict[str, Any]) -> None:
+        observed.append(dict(payload))
+
+    result = await gateway.invoke(
+        capability.id,
+        approval=ApprovalInvokeContext(
+            force_approval=True,
+            approval_reason="policy requires approval",
+            approval_observer=observer,
+        ),
+        envelope=Envelope(),
+        command="echo hello",
+    )
+
+    assert result.success is True
+    assert approval_manager.evaluate_calls
+    assert approval_manager.evaluate_calls[0]["reason"] == "policy requires approval"
+    assert any(item.get("status") == "pending" and item.get("request_id") == "req-1" for item in observed)
+    assert any(item.get("status") == "allow" and item.get("request_id") == "req-1" for item in observed)

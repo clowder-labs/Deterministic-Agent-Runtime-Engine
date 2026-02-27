@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from dare_framework.transport.kernel import AgentChannel
 
 ApprovalEventLogger = Callable[[str, dict[str, Any]], Awaitable[None]]
+ApprovalObserver = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,9 @@ class ApprovalInvokeContext:
     tool_call_id: str | None = None
     event_logger: ApprovalEventLogger | None = None
     runtime_context: Context | None = None
+    force_approval: bool = False
+    approval_reason: str | None = None
+    approval_observer: ApprovalObserver | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,9 @@ class GovernedToolGateway(IToolGateway):
         tool_call_id = approval.tool_call_id if approval is not None else None
         approval_event_logger = approval.event_logger if approval is not None else None
         runtime_context = approval.runtime_context if approval is not None else None
+        force_approval = approval.force_approval if approval is not None else False
+        approval_reason = approval.approval_reason if approval is not None else None
+        approval_observer = approval.approval_observer if approval is not None else None
         if runtime_context is None:
             runtime_context = context
 
@@ -101,7 +108,7 @@ class GovernedToolGateway(IToolGateway):
             delegate_params = dict(params)
             delegate_params.setdefault("context", context)
 
-        requires_approval = self._requires_approval(capability_id)
+        requires_approval = force_approval or self._requires_approval(capability_id)
         if requires_approval:
             approval_resolution = await self._resolve_approval(
                 capability_id=capability_id,
@@ -110,6 +117,8 @@ class GovernedToolGateway(IToolGateway):
                 transport=transport,
                 tool_name=tool_name or capability_id,
                 tool_call_id=tool_call_id or "unknown",
+                approval_reason=approval_reason,
+                approval_observer=approval_observer,
                 event_logger=approval_event_logger,
             )
             if approval_resolution.verdict != "allow":
@@ -153,6 +162,8 @@ class GovernedToolGateway(IToolGateway):
         transport: AgentChannel | None,
         tool_name: str,
         tool_call_id: str,
+        approval_reason: str | None,
+        approval_observer: ApprovalObserver | None,
         event_logger: ApprovalEventLogger | None,
     ) -> ApprovalResolution:
         if self._approval_manager is None:
@@ -165,7 +176,7 @@ class GovernedToolGateway(IToolGateway):
             capability_id=capability_id,
             params=params,
             session_id=session_id,
-            reason=f"Tool {capability_id} requires approval",
+            reason=approval_reason or f"Tool {capability_id} requires approval",
         )
         if evaluation.status == ApprovalEvaluationStatus.ALLOW:
             await self._emit_approval_event(
@@ -175,6 +186,14 @@ class GovernedToolGateway(IToolGateway):
                     "tool_name": tool_name,
                     "tool_call_id": tool_call_id,
                     "capability_id": capability_id,
+                    "status": "allow",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            await self._notify_approval_observer(
+                approval_observer,
+                {
                     "status": "allow",
                     "source": "rule",
                     "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
@@ -194,6 +213,14 @@ class GovernedToolGateway(IToolGateway):
                     "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
                 },
             )
+            await self._notify_approval_observer(
+                approval_observer,
+                {
+                    "status": "deny",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
             return ApprovalResolution(
                 verdict="deny",
                 error="tool invocation denied by approval rule",
@@ -205,6 +232,14 @@ class GovernedToolGateway(IToolGateway):
             )
 
         request_id = evaluation.request.request_id
+        await self._notify_approval_observer(
+            approval_observer,
+            {
+                "status": "pending",
+                "source": "pending_request",
+                "request_id": request_id,
+            },
+        )
         await self._emit_approval_pending_message(
             request=evaluation.request.to_dict(),
             transport=transport,
@@ -237,6 +272,14 @@ class GovernedToolGateway(IToolGateway):
                 "tool_name": tool_name,
                 "tool_call_id": tool_call_id,
                 "capability_id": capability_id,
+                "status": decision.value,
+                "source": "pending_request",
+                "request_id": request_id,
+            },
+        )
+        await self._notify_approval_observer(
+            approval_observer,
+            {
                 "status": decision.value,
                 "source": "pending_request",
                 "request_id": request_id,
@@ -300,6 +343,18 @@ class GovernedToolGateway(IToolGateway):
             await event_logger(event_type, payload)
         except Exception:
             self._logger.exception("approval event emission failed: %s", event_type)
+
+    async def _notify_approval_observer(
+        self,
+        observer: ApprovalObserver | None,
+        payload: dict[str, Any],
+    ) -> None:
+        if observer is None:
+            return
+        try:
+            await observer(payload)
+        except Exception:
+            self._logger.exception("approval observer callback failed")
 
     def _build_delegate_invoke_kwargs(
         self,

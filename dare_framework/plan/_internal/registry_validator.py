@@ -136,7 +136,13 @@ class RegistryPlanValidator(IValidator):
             return None
 
         metadata = _normalize_metadata(capability.metadata)
+        if "risk_level" not in metadata:
+            errors.append(f"missing trusted risk metadata for capability: {resolved_id}")
+            return None
         risk_level = _parse_risk_level(metadata.get("risk_level"))
+        if risk_level is None:
+            errors.append(f"invalid trusted risk metadata for capability: {resolved_id}")
+            return None
 
         return ValidatedStep(
             step_id=step.step_id,
@@ -219,15 +225,15 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-def _parse_risk_level(value: Any) -> RiskLevel:
+def _parse_risk_level(value: Any) -> RiskLevel | None:
     if isinstance(value, RiskLevel):
         return value
     if isinstance(value, str):
         try:
             return RiskLevel(value)
         except ValueError:
-            return RiskLevel.READ_ONLY
-    return RiskLevel.READ_ONLY
+            return None
+    return None
 
 
 __all__ = ["RegistryPlanValidator"]
