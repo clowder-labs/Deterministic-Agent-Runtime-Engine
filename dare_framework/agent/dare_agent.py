@@ -1090,8 +1090,10 @@ class DareAgent(BaseAgent):
         if tool_result.get("success"):
             # Expose plain tool output for step chaining; `result` carries
             # internal wrapper details and should not leak into step outputs.
-            result_payload = tool_result.get("output")
-            if result_payload is None:
+            if "output" in tool_result:
+                # Preserve explicit None payloads; only fallback when output is absent.
+                result_payload = tool_result.get("output")
+            else:
                 result_payload = tool_result.get("result")
             evidence = evidence_collector.collect(
                 source=step.capability_id,

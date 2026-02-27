@@ -52,6 +52,22 @@ class _ChainingToolGateway:
         return ToolResult(success=True, output={"prev_first": previous_output.get("first")})
 
 
+class _NoneOutputToolGateway:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def list_capabilities(self) -> list[Any]:
+        return []
+
+    async def invoke(self, capability_id: str, *, envelope: Any, **params: Any) -> ToolResult[dict[str, Any] | None]:
+        _ = envelope
+        self.calls += 1
+        if capability_id == "tool.none":
+            return ToolResult(success=True, output=None)
+        previous_output = params.get("_previous_output", "missing")
+        return ToolResult(success=True, output={"previous_is_none": previous_output is None})
+
+
 class _AllowBoundary:
     async def verify_trust(self, *, input: dict[str, Any], context: dict[str, Any]) -> TrustedInput:
         _ = context
@@ -341,6 +357,35 @@ async def test_step_driven_passes_plain_previous_output_between_steps() -> None:
 
     assert result["success"] is True
     assert result["outputs"] == [{"first": 1}, {"prev_first": 1}]
+    assert gateway.calls == 2
+    assert model.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_step_driven_preserves_none_output_between_steps() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    gateway = _NoneOutputToolGateway()
+    agent = _build_agent(
+        model=model,
+        execution_mode="step_driven",
+        boundary=_AllowBoundary(),
+        context=context,
+        tool_gateway=gateway,
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="none-output plan",
+        steps=[
+            ValidatedStep(step_id="s1", capability_id="tool.none", risk_level=RiskLevel.READ_ONLY),
+            ValidatedStep(step_id="s2", capability_id="tool.inspect", risk_level=RiskLevel.READ_ONLY),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is True
+    assert result["outputs"] == [None, {"previous_is_none": True}]
     assert gateway.calls == 2
     assert model.calls == 0
 
