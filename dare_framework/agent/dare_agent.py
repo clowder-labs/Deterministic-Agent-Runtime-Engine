@@ -1176,8 +1176,9 @@ class DareAgent(BaseAgent):
             self._risk_level_value(descriptor),
             self._risk_level_value_from_envelope(envelope),
         )
-        requires_approval = self._requires_approval(descriptor)
+        descriptor_requires_approval = self._requires_approval(descriptor)
         metadata_requires_approval = step.metadata.get("requires_approval")
+        requires_approval = descriptor_requires_approval
         if isinstance(metadata_requires_approval, bool):
             requires_approval = requires_approval or metadata_requires_approval
 
@@ -1205,6 +1206,19 @@ class DareAgent(BaseAgent):
             )
 
         approval_required_by_policy = trust_error == "tool invocation requires security approval"
+        if trust_error is not None and not approval_required_by_policy:
+            await _emit_after_tool(
+                success=False,
+                error=trust_error,
+                approved=False,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[trust_error],
+            )
         if approval_required_by_policy:
             trust_error = None
 
@@ -1233,20 +1247,6 @@ class DareAgent(BaseAgent):
                     output=None,
                     errors=[approval_error_text],
                 )
-
-        if trust_error is not None:
-            await _emit_after_tool(
-                success=False,
-                error=trust_error,
-                approved=False,
-                evidence_collected=False,
-            )
-            return StepResult(
-                step_id=step.step_id,
-                success=False,
-                output=None,
-                errors=[trust_error],
-            )
 
         before_tool_dispatch = await self._emit_hook(
             HookPhase.BEFORE_TOOL,
@@ -1388,7 +1388,8 @@ class DareAgent(BaseAgent):
             self._risk_level_value(descriptor),
             self._risk_level_value_from_envelope(request.envelope),
         )
-        requires_approval = self._requires_approval(descriptor)
+        descriptor_requires_approval = self._requires_approval(descriptor)
+        requires_approval = descriptor_requires_approval
         session_id = self._session_state.run_id if self._session_state is not None else None
 
         while True:
@@ -1402,7 +1403,7 @@ class DareAgent(BaseAgent):
                     params=request.params,
                     tool_name=tool_name,
                     risk_level=risk_level,
-                    requires_approval=requires_approval,
+                    requires_approval=descriptor_requires_approval,
                 )
             except Exception as e:
                 await self._log_event("tool.error", {
@@ -1433,10 +1434,14 @@ class DareAgent(BaseAgent):
                     "error": str(e),
                     "output": {},
                 }
+            approval_required_by_policy = trust_error == "tool invocation requires security approval"
+            requires_approval = descriptor_requires_approval or approval_required_by_policy
             if trust_error is not None:
-                approval_required = trust_error == "tool invocation requires security approval"
-                if approval_required:
-                    if not requires_approval:
+                if approval_required_by_policy:
+                    # Descriptor-gated approvals are enforced by the governed
+                    # gateway on every invocation; policy-only approvals must
+                    # be explicitly re-evaluated for each retry attempt.
+                    if not descriptor_requires_approval:
                         approved, approval_error = await self._resolve_tool_approval(
                             capability_id=request.capability_id,
                             params=trusted_params,
@@ -1451,7 +1456,6 @@ class DareAgent(BaseAgent):
                             trust_error = None
                     else:
                         trust_error = None
-                    requires_approval = True
                 if trust_error is not None:
                     await self._log_event(
                         "security.tool.policy",

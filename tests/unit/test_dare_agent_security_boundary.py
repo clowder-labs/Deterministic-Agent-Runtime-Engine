@@ -9,7 +9,14 @@ from dare_framework.config import Config
 from dare_framework.context import Context
 from dare_framework.hook.types import HookDecision, HookPhase, HookResult
 from dare_framework.infra.component import ComponentType
-from dare_framework.plan.types import ProposedPlan, Task, ToolLoopRequest, ValidatedPlan
+from dare_framework.plan.types import (
+    DonePredicate,
+    Envelope,
+    ProposedPlan,
+    Task,
+    ToolLoopRequest,
+    ValidatedPlan,
+)
 from dare_framework.security import PolicyDecision, RiskLevel, TrustedInput
 from dare_framework.tool._internal.control.approval_manager import (
     ApprovalDecision,
@@ -47,6 +54,21 @@ class _RecordingToolGateway:
         self.invoke_calls += 1
         self.last_params = dict(params)
         return ToolResult(success=True, output={"ok": True})
+
+
+class _TwoStageDoneToolGateway:
+    def __init__(self) -> None:
+        self.invoke_calls = 0
+
+    def list_capabilities(self) -> list[Any]:
+        return []
+
+    async def invoke(self, capability_id: str, *, envelope: Any, **params: Any) -> ToolResult[dict[str, Any]]:
+        _ = (capability_id, envelope, params)
+        self.invoke_calls += 1
+        if self.invoke_calls == 1:
+            return ToolResult(success=True, output={"stage": 1})
+        return ToolResult(success=True, output={"done": True})
 
 
 class _AllowBoundary:
@@ -414,6 +436,33 @@ async def test_tool_loop_approval_wait_exception_returns_structured_failure() ->
     assert "approval resolution failed" in str(result["error"])
     assert "approval wait channel unavailable" in str(result["error"])
     assert tool_gateway.invoke_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_policy_approve_required_rechecks_approval_on_retry() -> None:
+    tool_gateway = _TwoStageDoneToolGateway()
+    approval_manager = _PendingAllowApprovalManager()
+    agent = _build_agent(
+        boundary=_ApproveToolBoundary(),
+        tool_gateway=tool_gateway,  # type: ignore[arg-type]
+        approval_manager=approval_manager,
+    )
+
+    result = await agent._run_tool_loop(  # noqa: SLF001
+        ToolLoopRequest(
+            capability_id="tool.echo",
+            params={"value": 1},
+            envelope=Envelope(done_predicate=DonePredicate(required_keys=["done"])),
+        ),
+        tool_name="echo",
+        tool_call_id="tc-security-approval-retry",
+    )
+
+    assert result["success"] is True
+    assert tool_gateway.invoke_calls == 2
+    # Policy-driven approval requirement should be enforced on each retry.
+    assert approval_manager.evaluate_calls == 2
+    assert approval_manager.wait_calls == 2
 
 
 @pytest.mark.asyncio
