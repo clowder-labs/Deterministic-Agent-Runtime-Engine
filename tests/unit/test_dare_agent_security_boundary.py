@@ -248,6 +248,53 @@ class _PendingAllowApprovalManager:
         return ApprovalDecision.ALLOW
 
 
+class _EvaluateErrorApprovalManager:
+    async def evaluate(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        reason: str,
+    ) -> ApprovalEvaluation:
+        _ = (capability_id, params, session_id, reason)
+        raise RuntimeError("approval backend unavailable")
+
+
+class _PendingWaitErrorApprovalManager:
+    async def evaluate(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        reason: str,
+    ) -> ApprovalEvaluation:
+        return ApprovalEvaluation(
+            status=ApprovalEvaluationStatus.PENDING,
+            request=PendingApprovalRequest(
+                request_id="req-security-ask-wait-error",
+                capability_id=capability_id,
+                params=dict(params),
+                params_hash="hash",
+                command=None,
+                session_id=session_id,
+                reason=reason,
+                created_at=0.0,
+            ),
+            reason="approval required",
+        )
+
+    async def wait_for_resolution(
+        self,
+        request_id: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> ApprovalDecision:
+        _ = (request_id, timeout_seconds)
+        raise RuntimeError("approval wait channel unavailable")
+
+
 def _build_agent(
     *,
     boundary: Any,
@@ -325,6 +372,48 @@ async def test_tool_loop_approve_required_routes_through_approval_workflow() -> 
     assert tool_gateway.invoke_calls == 1
     assert approval_manager.evaluate_calls == 1
     assert approval_manager.wait_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_approval_evaluate_exception_returns_structured_failure() -> None:
+    tool_gateway = _RecordingToolGateway()
+    agent = _build_agent(
+        boundary=_ApproveToolBoundary(),
+        tool_gateway=tool_gateway,
+        approval_manager=_EvaluateErrorApprovalManager(),
+    )
+
+    result = await agent._run_tool_loop(  # noqa: SLF001
+        ToolLoopRequest(capability_id="tool.echo", params={"value": 1}),
+        tool_name="echo",
+        tool_call_id="tc-security-approval-evaluate-error",
+    )
+
+    assert result["success"] is False
+    assert "approval evaluation failed" in str(result["error"])
+    assert "approval backend unavailable" in str(result["error"])
+    assert tool_gateway.invoke_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_approval_wait_exception_returns_structured_failure() -> None:
+    tool_gateway = _RecordingToolGateway()
+    agent = _build_agent(
+        boundary=_ApproveToolBoundary(),
+        tool_gateway=tool_gateway,
+        approval_manager=_PendingWaitErrorApprovalManager(),
+    )
+
+    result = await agent._run_tool_loop(  # noqa: SLF001
+        ToolLoopRequest(capability_id="tool.echo", params={"value": 1}),
+        tool_name="echo",
+        tool_call_id="tc-security-approval-wait-error",
+    )
+
+    assert result["success"] is False
+    assert "approval resolution failed" in str(result["error"])
+    assert "approval wait channel unavailable" in str(result["error"])
+    assert tool_gateway.invoke_calls == 0
 
 
 @pytest.mark.asyncio

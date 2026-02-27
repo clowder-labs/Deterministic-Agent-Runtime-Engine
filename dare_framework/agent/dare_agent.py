@@ -1634,12 +1634,30 @@ class DareAgent(BaseAgent):
         if self._approval_manager is None:
             return False, "tool requires approval but no approval manager is configured"
 
-        evaluation = await self._approval_manager.evaluate(
-            capability_id=capability_id,
-            params=params,
-            session_id=session_id,
-            reason=f"Tool {capability_id} requires approval",
-        )
+        try:
+            evaluation = await self._approval_manager.evaluate(
+                capability_id=capability_id,
+                params=params,
+                session_id=session_id,
+                reason=f"Tool {capability_id} requires approval",
+            )
+        except Exception as exc:
+            error = f"tool approval evaluation failed: {exc}"
+            try:
+                await self._log_event(
+                    "tool.approval",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": capability_id,
+                        "status": "error",
+                        "source": "evaluate",
+                        "error": str(exc),
+                    },
+                )
+            except Exception:
+                self._logger.exception("approval evaluation error event emission failed")
+            return False, error
         if evaluation.status == ApprovalEvaluationStatus.ALLOW:
             await self._log_event(
                 "tool.approval",
@@ -1687,7 +1705,26 @@ class DareAgent(BaseAgent):
                 "mode": "approval_memory_wait",
             },
         )
-        decision = await self._approval_manager.wait_for_resolution(request_id)
+        try:
+            decision = await self._approval_manager.wait_for_resolution(request_id)
+        except Exception as exc:
+            error = f"tool approval resolution failed: {exc}"
+            try:
+                await self._log_event(
+                    "tool.approval",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": capability_id,
+                        "status": "error",
+                        "source": "pending_request",
+                        "request_id": request_id,
+                        "error": str(exc),
+                    },
+                )
+            except Exception:
+                self._logger.exception("approval resolution error event emission failed")
+            return False, error
         await self._log_event(
             "exec.resume",
             {
