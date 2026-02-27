@@ -102,3 +102,17 @@ async def test_dare_agent_returns_output_envelope() -> None:
     envelope = _assert_output_envelope(result)
     assert envelope["content"] == "dare-ok"
     assert envelope["usage"] == {"total_tokens": 11}
+
+
+@pytest.mark.asyncio
+async def test_dare_agent_preserves_empty_content_in_output_envelope() -> None:
+    agent = DareAgent(
+        name="dare-output-envelope-empty",
+        model=_Model(content=""),
+        context=Context(config=Config()),
+        tool_gateway=_ToolGateway(),
+    )
+
+    result = await agent("hello")
+    envelope = _assert_output_envelope(result)
+    assert envelope["content"] == ""

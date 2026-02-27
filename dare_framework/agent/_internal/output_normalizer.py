@@ -73,6 +73,14 @@ def normalize_run_output(output: Any) -> str | None:
     if text:
         return text
     if isinstance(output, dict):
+        for key in ("content", "text", "output", "message", "result"):
+            if key not in output:
+                continue
+            value = output.get(key)
+            if value is None:
+                return None
+            if isinstance(value, str) and not value.strip():
+                return None
         try:
             return json.dumps(output, ensure_ascii=False, indent=2)
         except TypeError:
