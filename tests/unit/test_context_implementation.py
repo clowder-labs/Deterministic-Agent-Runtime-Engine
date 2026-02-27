@@ -171,3 +171,33 @@ def test_context_assemble_handles_retrieval_exception_gracefully():
     assert contents == ["query", "knowledge-hit"]
     assert assembled.metadata["retrieval"]["degraded"] is True
     assert assembled.metadata["retrieval"]["degrade_reason"] == "ltm_retrieval_failed"
+
+
+def test_context_assemble_single_source_uses_full_retrieval_budget():
+    ltm = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    config = Config(
+        long_term_memory={
+            "assemble_top_k": 1,
+            "assemble_reserve_tokens": 0,
+            "assemble_ratio": 0.5,
+        },
+        knowledge={
+            "assemble_top_k": 1,
+            "assemble_ratio": 0.5,
+        },
+    )
+    # Remaining retrieval budget ~= 40 tokens after STM estimate.
+    ctx = Context(
+        config=config,
+        budget=Budget(max_tokens=49),
+        long_term_memory=ltm,
+        knowledge=None,
+    )
+    ctx.stm_add(Message(role="user", content="q"))
+
+    assembled = ctx.assemble()
+
+    contents = [message.content for message in assembled.messages]
+    assert contents == ["q", "x" * 64]
+    assert assembled.metadata["retrieval"]["ltm_count"] == 1
+    assert assembled.metadata["retrieval"]["degraded"] is False

@@ -304,17 +304,31 @@ class DefaultAssembledContext(IAssembleContext):
 
         ltm_messages: list[Message] = []
         knowledge_messages: list[Message] = []
-        if retrieval_budget <= 0 and (context.long_term_memory is not None or context.knowledge is not None):
+        ltm_active = context.long_term_memory is not None and ltm_top_k > 0
+        knowledge_active = context.knowledge is not None and knowledge_top_k > 0
+
+        if retrieval_budget <= 0 and (ltm_active or knowledge_active):
             self._set_degrade(retrieval_metadata, reason="token_budget_low")
         else:
-            ratio_total = ltm_ratio + knowledge_ratio
+            ratio_total = 0.0
+            if ltm_active:
+                ratio_total += ltm_ratio
+            if knowledge_active:
+                ratio_total += knowledge_ratio
             if ratio_total <= 0:
-                ltm_ratio = self._DEFAULT_SOURCE_RATIO
-                knowledge_ratio = self._DEFAULT_SOURCE_RATIO
-                ratio_total = ltm_ratio + knowledge_ratio
+                # Fallback only across active retrieval sources.
+                ratio_total = 0.0
+                if ltm_active:
+                    ltm_ratio = self._DEFAULT_SOURCE_RATIO
+                    ratio_total += ltm_ratio
+                if knowledge_active:
+                    knowledge_ratio = self._DEFAULT_SOURCE_RATIO
+                    ratio_total += knowledge_ratio
 
-            normalized_ltm_ratio = ltm_ratio / ratio_total
-            normalized_knowledge_ratio = knowledge_ratio / ratio_total
+            normalized_ltm_ratio = (ltm_ratio / ratio_total) if ltm_active and ratio_total > 0 else 0.0
+            normalized_knowledge_ratio = (
+                (knowledge_ratio / ratio_total) if knowledge_active and ratio_total > 0 else 0.0
+            )
 
             ltm_budget = float("inf")
             knowledge_budget = float("inf")
@@ -322,7 +336,7 @@ class DefaultAssembledContext(IAssembleContext):
                 ltm_budget = retrieval_budget * normalized_ltm_ratio
                 knowledge_budget = retrieval_budget * normalized_knowledge_ratio
 
-            if context.long_term_memory is not None and ltm_top_k > 0:
+            if ltm_active:
                 try:
                     ltm_candidates = context.long_term_memory.get(query=query, top_k=ltm_top_k)
                     ltm_messages = self._take_with_budget(ltm_candidates, ltm_budget)
@@ -332,7 +346,7 @@ class DefaultAssembledContext(IAssembleContext):
                     self._set_degrade(retrieval_metadata, reason="ltm_retrieval_failed")
                     ltm_messages = []
 
-            if context.knowledge is not None and knowledge_top_k > 0:
+            if knowledge_active:
                 try:
                     knowledge_candidates = context.knowledge.get(query=query, top_k=knowledge_top_k)
                     knowledge_messages = self._take_with_budget(knowledge_candidates, knowledge_budget)
