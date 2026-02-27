@@ -59,6 +59,28 @@ class _DenyToolBoundary(_AllowBoundary):
         return PolicyDecision.ALLOW
 
 
+class _DenyNonReadOnlyBoundary(_AllowBoundary):
+    async def verify_trust(self, *, input: dict[str, Any], context: dict[str, Any]) -> TrustedInput:
+        raw_risk = context.get("risk_level", RiskLevel.READ_ONLY)
+        if isinstance(raw_risk, str):
+            try:
+                raw_risk = RiskLevel(raw_risk)
+            except ValueError:
+                raw_risk = RiskLevel.READ_ONLY
+        if not isinstance(raw_risk, RiskLevel):
+            raw_risk = RiskLevel.READ_ONLY
+        return TrustedInput(params=dict(input), risk_level=raw_risk)
+
+    async def check_policy(self, *, action: str, resource: str, context: dict[str, Any]) -> PolicyDecision:
+        _ = resource
+        if action != "invoke_tool":
+            return PolicyDecision.ALLOW
+        risk_level = str(context.get("risk_level", RiskLevel.READ_ONLY.value))
+        if risk_level == RiskLevel.READ_ONLY.value:
+            return PolicyDecision.ALLOW
+        return PolicyDecision.DENY
+
+
 class _RecordingStepExecutor:
     def __init__(self) -> None:
         self.step_ids: list[str] = []
@@ -185,6 +207,36 @@ async def test_step_driven_default_executor_routes_through_security_policy() -> 
         plan_description="step plan",
         steps=[
             ValidatedStep(step_id="s1", capability_id="tool.one", risk_level=RiskLevel.READ_ONLY),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is False
+    assert any("security policy" in error for error in result.get("errors", []))
+    assert context.budget.used_tool_calls == 1
+    assert model.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_step_driven_uses_step_risk_level_when_descriptor_missing() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    agent = _build_agent(
+        model=model,
+        execution_mode="step_driven",
+        boundary=_DenyNonReadOnlyBoundary(),
+        context=context,
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(
+                step_id="s1",
+                capability_id="tool.one",
+                risk_level=RiskLevel.NON_IDEMPOTENT_EFFECT,
+            ),
         ],
     )
 

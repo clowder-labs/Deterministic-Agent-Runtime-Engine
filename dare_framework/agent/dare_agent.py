@@ -1142,7 +1142,13 @@ class DareAgent(BaseAgent):
         done_predicate = request.envelope.done_predicate
         max_calls = self._tool_loop_max_calls(request.envelope)
         attempts = 0
-        risk_level = self._risk_level_value(descriptor)
+        # Use the strictest risk level from descriptor metadata and envelope
+        # constraints to avoid downgrading policy checks when descriptor data
+        # is missing/stale (e.g. step-driven validated steps).
+        risk_level = max(
+            self._risk_level_value(descriptor),
+            self._risk_level_value_from_envelope(request.envelope),
+        )
         requires_approval = self._requires_approval(descriptor)
         session_id = self._session_state.run_id if self._session_state is not None else None
 
@@ -1709,6 +1715,20 @@ class DareAgent(BaseAgent):
         if descriptor is None or descriptor.metadata is None:
             return 1
         risk_level = descriptor.metadata.get("risk_level", "read_only")
+        if hasattr(risk_level, "value"):
+            risk_level = risk_level.value
+        mapping = {
+            "read_only": 1,
+            "idempotent_write": 2,
+            "non_idempotent_effect": 3,
+            "compensatable": 4,
+        }
+        return mapping.get(str(risk_level), 1)
+
+    def _risk_level_value_from_envelope(self, envelope: Envelope | None) -> int:
+        if envelope is None:
+            return 1
+        risk_level = envelope.risk_level
         if hasattr(risk_level, "value"):
             risk_level = risk_level.value
         mapping = {
