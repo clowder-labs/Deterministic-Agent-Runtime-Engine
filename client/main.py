@@ -1046,7 +1046,11 @@ async def main(argv: list[str] | None = None) -> int:
         exit_code = 130
     finally:
         if runtime is not None:
-            await runtime.close()
+            close = getattr(runtime, "close", None)
+            if callable(close):
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
     return exit_code
 
 

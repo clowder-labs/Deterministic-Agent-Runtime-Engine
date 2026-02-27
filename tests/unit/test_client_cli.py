@@ -205,7 +205,8 @@ async def test_main_approvals_grant_forwards_session_id(monkeypatch, tmp_path) -
     ]
 
 
-def test_build_doctor_report_warns_on_missing_api_key() -> None:
+def test_build_doctor_report_warns_on_missing_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     config = Config.from_dict(
         {
             "workspace_dir": ".",

@@ -33,6 +33,7 @@ from dare_framework.event.kernel import IEventLog
 from dare_framework.hook.interfaces import IHookManager
 from dare_framework.hook.kernel import IHook
 from dare_framework.hook._internal.agent_event_transport_hook import AgentEventTransportHook
+from dare_framework.infra.component import ComponentType
 from dare_framework.knowledge import IKnowledge, create_knowledge
 from dare_framework.knowledge._internal.knowledge_tools import (
     KnowledgeAddTool,
@@ -462,6 +463,19 @@ class _BaseAgentBuilder(Generic[TAgent]):
             tool_manager.register_provider(provider)
         for tool in tools:
             tool_manager.register_tool(tool)
+
+        # Apply config-level component disables to all registered tools except the ones
+        # explicitly injected via the builder (those must remain available).
+        disabled = set(config.component_settings(ComponentType.TOOL).disabled)
+        explicit_names = {tool.name for tool in tools}
+        for tool_name in disabled:
+            if tool_name in explicit_names:
+                continue
+            try:
+                tool_manager.change_capability_status(tool_name, enabled=False)
+            except KeyError:
+                # Config may reference tools that are not registered in this build.
+                continue
         return ToolGateway(tool_manager), tool_manager
 
     def _resolve_approval_manager(self, config: Config) -> ToolApprovalManager:
