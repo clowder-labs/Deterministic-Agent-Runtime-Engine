@@ -1224,10 +1224,41 @@ class DareAgent(BaseAgent):
             )
         if approval_required_by_policy:
             trust_error = None
+        effective_requires_approval = requires_approval or approval_required_by_policy
+
+        before_tool_dispatch = await self._emit_hook(
+            HookPhase.BEFORE_TOOL,
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": step.capability_id,
+                "attempt": attempt,
+                "risk_level": risk_level,
+                "requires_approval": effective_requires_approval,
+            },
+        )
+        if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+            policy_error = (
+                "tool invocation requires hook approval"
+                if before_tool_dispatch.decision is HookDecision.ASK
+                else "tool invocation denied by hook policy"
+            )
+            await _emit_after_tool(
+                success=False,
+                error=policy_error,
+                approved=True,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[policy_error],
+            )
 
         # Custom step executors bypass governed gateway invocation, so approval
         # gating must be enforced explicitly in this path.
-        if requires_approval or approval_required_by_policy:
+        if effective_requires_approval:
             approved, approval_error = await self._resolve_tool_approval(
                 capability_id=step.capability_id,
                 params=trusted_params,
@@ -1250,36 +1281,6 @@ class DareAgent(BaseAgent):
                     output=None,
                     errors=[approval_error_text],
                 )
-
-        before_tool_dispatch = await self._emit_hook(
-            HookPhase.BEFORE_TOOL,
-            {
-                "tool_name": tool_name,
-                "tool_call_id": tool_call_id,
-                "capability_id": step.capability_id,
-                "attempt": attempt,
-                "risk_level": risk_level,
-                "requires_approval": requires_approval,
-            },
-        )
-        if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
-            policy_error = (
-                "tool invocation requires hook approval"
-                if before_tool_dispatch.decision is HookDecision.ASK
-                else "tool invocation denied by hook policy"
-            )
-            await _emit_after_tool(
-                success=False,
-                error=policy_error,
-                approved=True,
-                evidence_collected=False,
-            )
-            return StepResult(
-                step_id=step.step_id,
-                success=False,
-                output=None,
-                errors=[policy_error],
-            )
 
         secured_step = replace(step, params=trusted_params, envelope=envelope)
         try:
@@ -1475,6 +1476,43 @@ class DareAgent(BaseAgent):
                         "error": trust_error,
                         "output": {},
                     }
+            before_tool_dispatch = await self._emit_hook(
+                HookPhase.BEFORE_TOOL,
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": request.capability_id,
+                    "attempt": attempts,
+                    "risk_level": risk_level,
+                    "requires_approval": requires_approval,
+                },
+            )
+            if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+                policy_error = (
+                    "tool invocation requires hook approval"
+                    if before_tool_dispatch.decision is HookDecision.ASK
+                    else "tool invocation denied by hook policy"
+                )
+                await self._emit_hook(
+                    HookPhase.AFTER_TOOL,
+                    {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "capability_id": request.capability_id,
+                        "attempt": attempts,
+                        "success": False,
+                        "error": policy_error,
+                        "approved": True,
+                        "evidence_collected": False,
+                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                        "budget_stats": self._budget_stats(),
+                    },
+                )
+                return {
+                    "success": False,
+                    "error": policy_error,
+                    "output": {},
+                }
             # Descriptor-gated approvals are enforced by the governed gateway.
             # Policy-only and step-metadata approvals must be re-evaluated for
             # each retry attempt in this loop.
@@ -1519,43 +1557,6 @@ class DareAgent(BaseAgent):
                         "error": approval_error_text,
                         "output": {},
                     }
-            before_tool_dispatch = await self._emit_hook(
-                HookPhase.BEFORE_TOOL,
-                {
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_call_id,
-                    "capability_id": request.capability_id,
-                    "attempt": attempts,
-                    "risk_level": risk_level,
-                    "requires_approval": requires_approval,
-                },
-            )
-            if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
-                policy_error = (
-                    "tool invocation requires hook approval"
-                    if before_tool_dispatch.decision is HookDecision.ASK
-                    else "tool invocation denied by hook policy"
-                )
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": False,
-                        "error": policy_error,
-                        "approved": True,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "error": policy_error,
-                    "output": {},
-                }
             await self._log_event("tool.invoke", {
                 "tool_name": tool_name,
                 "tool_call_id": tool_call_id,

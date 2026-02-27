@@ -748,3 +748,40 @@ async def test_step_driven_custom_executor_respects_before_tool_hook_policy() ->
     assert step_executor.step_ids == []
     assert HookPhase.BEFORE_TOOL in hook.phases
     assert HookPhase.AFTER_TOOL in hook.phases
+
+
+@pytest.mark.asyncio
+async def test_step_driven_custom_executor_hook_block_precedes_metadata_approval() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    step_executor = _RecordingStepExecutor()
+    hook = _BlockingBeforeToolHook()
+    agent = _build_agent(
+        model=model,
+        step_executor=step_executor,
+        execution_mode="step_driven",
+        boundary=_AllowBoundary(),
+        context=context,
+        hooks=[hook],
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(
+                step_id="s1",
+                capability_id="tool.one",
+                risk_level=RiskLevel.READ_ONLY,
+                metadata={"requires_approval": True},
+            ),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is False
+    assert any("hook policy" in error for error in result.get("errors", []))
+    assert all("approval manager" not in error for error in result.get("errors", []))
+    assert step_executor.step_ids == []
+    assert HookPhase.BEFORE_TOOL in hook.phases
+    assert HookPhase.AFTER_TOOL in hook.phases

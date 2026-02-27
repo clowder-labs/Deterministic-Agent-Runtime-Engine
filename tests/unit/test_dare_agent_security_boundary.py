@@ -230,6 +230,22 @@ class _RecordingPhaseHook:
         return HookResult(decision=HookDecision.ALLOW)
 
 
+class _BlockingBeforeToolHook:
+    @property
+    def name(self) -> str:
+        return "blocking-before-tool-hook"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.HOOK
+
+    async def invoke(self, phase: HookPhase, *args: Any, **kwargs: Any) -> HookResult:
+        _ = (args, kwargs)
+        if phase is HookPhase.BEFORE_TOOL:
+            return HookResult(decision=HookDecision.BLOCK)
+        return HookResult(decision=HookDecision.ALLOW)
+
+
 class _PendingAllowApprovalManager:
     def __init__(self) -> None:
         self.evaluate_calls = 0
@@ -371,6 +387,29 @@ async def test_tool_loop_approve_required_without_execution_control_fails() -> N
 
     assert result["success"] is False
     assert "approval manager" in str(result["error"])
+    assert tool_gateway.invoke_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_before_tool_hook_blocks_before_metadata_approval_resolution() -> None:
+    tool_gateway = _RecordingToolGateway()
+    hook = _BlockingBeforeToolHook()
+    agent = _build_agent(
+        boundary=_AllowBoundary(),
+        tool_gateway=tool_gateway,
+        hooks=[hook],
+    )
+
+    result = await agent._run_tool_loop(  # noqa: SLF001
+        ToolLoopRequest(capability_id="tool.echo", params={"value": 1}),
+        tool_name="echo",
+        tool_call_id="tc-security-hook-before-approval",
+        requires_approval_override=True,
+    )
+
+    assert result["success"] is False
+    assert "hook policy" in str(result["error"])
+    assert "approval manager" not in str(result["error"])
     assert tool_gateway.invoke_calls == 0
 
 
