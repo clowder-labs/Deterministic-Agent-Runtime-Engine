@@ -34,7 +34,7 @@ async def handle_approvals_tokens(
         request_id = tokens[1]
         _positional, options = parse_key_value_args(tokens[2:])
         params: dict[str, Any] = {"request_id": request_id}
-        for key in ("scope", "matcher", "matcher_value"):
+        for key in ("scope", "matcher", "matcher_value", "session_id"):
             if key in options and options[key]:
                 params[key] = options[key]
         action = (
@@ -57,7 +57,7 @@ def approvals_usage_lines() -> list[str]:
     return [
         "/approvals list",
         "/approvals poll [timeout_ms=30000]",
-        "/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]",
-        "/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]",
+        "/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...] [session_id=...]",
+        "/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...] [session_id=...]",
         "/approvals revoke <rule_id>",
     ]

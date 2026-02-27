@@ -164,6 +164,18 @@ class _MissingEventTypeApprovalClient:
         )
 
 
+class _UnexpectedEventTypeApprovalClient:
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
+        _ = timeout
+        return TransportEnvelope(
+            id=f"resp-{req.id}",
+            reply_to=req.id,
+            kind=EnvelopeKind.MESSAGE,
+            event_type="tool.result",
+            payload={"resp": {"result": {"request": None}}},
+        )
+
+
 @pytest.mark.asyncio
 async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
     manager = ToolApprovalManager(
@@ -207,6 +219,19 @@ async def test_handle_approvals_command_list_and_grant(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_approvals_command_grant_forwards_session_id() -> None:
+    display = _CaptureDisplay()
+    approval_client = _CaptureApprovalClient()
+    await cli._handle_approvals_command(  # type: ignore[attr-defined]
+        ["grant", "req-1", "scope=workspace", "matcher=exact_params", "session_id=session-42"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert approval_client.last_meta is not None
+    assert approval_client.last_meta["session_id"] == "session-42"
+
+
+@pytest.mark.asyncio
 async def test_handle_approvals_poll_forwards_session_filter() -> None:
     display = _CaptureDisplay()
     approval_client = _CaptureApprovalClient()
@@ -242,6 +267,22 @@ async def test_handle_approvals_command_requires_event_type_in_response() -> Non
         display=display,
     )
     assert any("missing event_type" in msg for level, msg in display.messages if level == "error")
+
+
+@pytest.mark.asyncio
+async def test_handle_approvals_command_requires_result_event_type() -> None:
+    display = _CaptureDisplay()
+    approval_client = _UnexpectedEventTypeApprovalClient()
+    await cli._handle_approvals_command(  # type: ignore[attr-defined]
+        ["list"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert any(
+        "invalid action response event_type" in msg
+        for level, msg in display.messages
+        if level == "error"
+    )
 
 
 @pytest.mark.asyncio
