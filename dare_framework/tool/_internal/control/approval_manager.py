@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from dare_framework.tool._internal.runtime_context_override import (
+    RUNTIME_CONTEXT_PARAM,
+    RuntimeContextOverride,
+)
+
 
 class ApprovalDecision(StrEnum):
     """Approval decisions returned by approval policies."""
@@ -285,8 +290,9 @@ class ToolApprovalManager:
         session_id: str | None,
         reason: str,
     ) -> ApprovalEvaluation:
-        params_hash = _params_hash(params)
-        command = _extract_command(params)
+        approval_params = _sanitize_approval_params(params)
+        params_hash = _params_hash(approval_params)
+        command = _extract_command(approval_params)
         fingerprint = _request_fingerprint(capability_id, params_hash)
 
         # Use the condition lock consistently for pending-state mutations.
@@ -317,7 +323,7 @@ class ToolApprovalManager:
                 request = PendingApprovalRequest(
                     request_id=uuid4().hex,
                     capability_id=capability_id,
-                    params=dict(params),
+                    params=dict(approval_params),
                     params_hash=params_hash,
                     command=command,
                     session_id=session_id,
@@ -377,6 +383,7 @@ class ToolApprovalManager:
         scope: ApprovalScope,
         matcher: ApprovalMatcherKind,
         matcher_value: str | None = None,
+        actor_session_id: str | None = None,
     ) -> ApprovalRule | None:
         return await self._resolve_request(
             request_id=request_id,
@@ -384,6 +391,7 @@ class ToolApprovalManager:
             scope=scope,
             matcher=matcher,
             matcher_value=matcher_value,
+            actor_session_id=actor_session_id,
         )
 
     async def deny(
@@ -393,6 +401,7 @@ class ToolApprovalManager:
         scope: ApprovalScope,
         matcher: ApprovalMatcherKind,
         matcher_value: str | None = None,
+        actor_session_id: str | None = None,
     ) -> ApprovalRule | None:
         return await self._resolve_request(
             request_id=request_id,
@@ -400,6 +409,7 @@ class ToolApprovalManager:
             scope=scope,
             matcher=matcher,
             matcher_value=matcher_value,
+            actor_session_id=actor_session_id,
         )
 
     async def revoke(self, rule_id: str) -> bool:
@@ -417,6 +427,7 @@ class ToolApprovalManager:
         scope: ApprovalScope,
         matcher: ApprovalMatcherKind,
         matcher_value: str | None,
+        actor_session_id: str | None = None,
     ) -> ApprovalRule | None:
         # Keep pending-state transitions on the condition lock to avoid mixed styles.
         async with self._pending_state_changed:
@@ -431,6 +442,7 @@ class ToolApprovalManager:
                 scope=scope,
                 matcher=matcher,
                 matcher_value=matcher_value,
+                actor_session_id=actor_session_id,
             )
             if rule is not None:
                 self._append_rule(rule)
@@ -462,6 +474,7 @@ class ToolApprovalManager:
         scope: ApprovalScope,
         matcher: ApprovalMatcherKind,
         matcher_value: str | None,
+        actor_session_id: str | None,
     ) -> ApprovalRule | None:
         # ONCE only applies to the current pending request, no reusable rule needed.
         if scope == ApprovalScope.ONCE:
@@ -485,7 +498,7 @@ class ToolApprovalManager:
             matcher=matcher,
             matcher_value=normalized_value,
             created_at=self._time_fn(),
-            session_id=request.session_id if scope == ApprovalScope.SESSION else None,
+            session_id=(actor_session_id or request.session_id) if scope == ApprovalScope.SESSION else None,
         )
 
     def _persist_rules_for_scope(self, scope: ApprovalScope) -> None:
@@ -605,6 +618,20 @@ def _extract_command(params: dict[str, Any]) -> str | None:
     if isinstance(command, str) and command.strip():
         return command.strip()
     return None
+
+
+def _sanitize_approval_params(params: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, value in params.items():
+        if key == RUNTIME_CONTEXT_PARAM:
+            # Internal override transport never participates in approval matching.
+            # It is internal runtime control data that should not affect dedupe.
+            continue
+        if isinstance(value, RuntimeContextOverride):
+            # Defensive: collapse internal marker to raw context when seen.
+            value = value.context
+        normalized[key] = value
+    return normalized
 
 
 def _request_fingerprint(capability_id: str, params_hash: str) -> str:

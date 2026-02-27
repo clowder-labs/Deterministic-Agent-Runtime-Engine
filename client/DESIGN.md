@@ -102,8 +102,8 @@ dare script --file demo.txt
 
 dare approvals list
 dare approvals poll [--timeout-ms 30000]
-dare approvals grant <request_id> [--scope workspace] [--matcher exact_params] [--matcher-value ...]
-dare approvals deny  <request_id> [--scope once]      [--matcher exact_params] [--matcher-value ...]
+dare approvals grant <request_id> [--scope workspace] [--matcher exact_params] [--matcher-value ...] [--session-id ...]
+dare approvals deny  <request_id> [--scope once]      [--matcher exact_params] [--matcher-value ...] [--session-id ...]
 dare approvals revoke <rule_id>
 
 dare mcp list

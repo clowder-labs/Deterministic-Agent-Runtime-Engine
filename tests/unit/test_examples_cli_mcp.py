@@ -129,6 +129,18 @@ class _MissingEventTypeApprovalClient:
         )
 
 
+class _UnexpectedEventTypeApprovalClient:
+    async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
+        _ = timeout
+        return TransportEnvelope(
+            id=f"resp-{req.id}",
+            reply_to=req.id,
+            kind=EnvelopeKind.MESSAGE,
+            event_type="tool.result",
+            payload={"resp": {"result": {"request": None}}},
+        )
+
+
 @pytest.mark.asyncio
 async def test_handle_approvals_command_list_and_grant_mcp_cli(tmp_path: Path) -> None:
     cli_mcp = _load_cli_module(
@@ -172,6 +184,23 @@ async def test_handle_approvals_command_list_and_grant_mcp_cli(tmp_path: Path) -
         display=display,
     )
     assert await wait_task == ApprovalDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_handle_approvals_command_grant_forwards_session_id_mcp_cli() -> None:
+    cli_mcp = _load_cli_module(
+        "examples_06_cli_grant_session_id",
+        "examples/06-dare-coding-agent-mcp/cli.py",
+    )
+    display = _CaptureDisplay()
+    approval_client = _CaptureApprovalClient()
+    await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
+        ["grant", "req-1", "scope=workspace", "matcher=exact_params", "session_id=session-42"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert approval_client.last_meta is not None
+    assert approval_client.last_meta["session_id"] == "session-42"
 
 
 @pytest.mark.asyncio
@@ -222,6 +251,26 @@ async def test_handle_approvals_command_requires_event_type_in_response_mcp_cli(
         display=display,
     )
     assert any("missing event_type" in msg for level, msg in display.messages if level == "error")
+
+
+@pytest.mark.asyncio
+async def test_handle_approvals_command_requires_result_event_type_mcp_cli() -> None:
+    cli_mcp = _load_cli_module(
+        "examples_06_cli_invalid_event_type",
+        "examples/06-dare-coding-agent-mcp/cli.py",
+    )
+    display = _CaptureDisplay()
+    approval_client = _UnexpectedEventTypeApprovalClient()
+    await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
+        ["list"],
+        approval_client=approval_client,
+        display=display,
+    )
+    assert any(
+        "invalid action response event_type" in msg
+        for level, msg in display.messages
+        if level == "error"
+    )
 
 
 @pytest.mark.asyncio
