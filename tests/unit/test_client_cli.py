@@ -329,6 +329,34 @@ async def test_main_run_plan_preview_failure_returns_one(monkeypatch, tmp_path) 
     assert rc == 1
 
 
+@pytest.mark.asyncio
+async def test_main_invalid_workspace_path_returns_two(tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace_file = tmp_path / "workspace_file"
+    workspace_file.write_text("occupied", encoding="utf-8")
+    user_dir = tmp_path / "user"
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace_file),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "doctor",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+
+
 def test_output_facade_json_schema(capsys) -> None:
     client_main = importlib.import_module("client.main")
     output = client_main.OutputFacade("json")

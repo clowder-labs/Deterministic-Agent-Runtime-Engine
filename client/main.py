@@ -825,7 +825,11 @@ async def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     output = OutputFacade(args.output)
-    options = _build_runtime_options(args)
+    try:
+        options = _build_runtime_options(args)
+    except OSError as exc:
+        output.error(f"invalid runtime path: {exc}")
+        return 2
     runtime = None
     exit_code = 0
     try:
