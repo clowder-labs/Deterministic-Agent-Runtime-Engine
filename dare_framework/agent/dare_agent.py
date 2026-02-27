@@ -1140,6 +1140,35 @@ class DareAgent(BaseAgent):
         transport: AgentChannel | None = None,
     ) -> StepResult:
         """Execute custom step executors behind the same security gates."""
+        _ = transport
+        tool_name = step.capability_id
+        tool_call_id = f"step-{step.step_id}"
+        attempt = 1
+        tool_start = time.perf_counter()
+
+        async def _emit_after_tool(
+            *,
+            success: bool,
+            error: str | None,
+            approved: bool,
+            evidence_collected: bool,
+        ) -> None:
+            await self._emit_hook(
+                HookPhase.AFTER_TOOL,
+                {
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "capability_id": step.capability_id,
+                    "attempt": attempt,
+                    "success": success,
+                    "error": error,
+                    "approved": approved,
+                    "evidence_collected": evidence_collected,
+                    "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                    "budget_stats": self._budget_stats(),
+                },
+            )
+
         step_context = self._build_step_context_from_previous(previous_results)
         descriptor = self._find_capability_descriptor(step.capability_id)
         envelope = step.envelope or Envelope(risk_level=step.risk_level)
@@ -1156,16 +1185,23 @@ class DareAgent(BaseAgent):
             trusted_params, trust_error = await self._resolve_tool_security(
                 capability_id=step.capability_id,
                 params={**step.params, **step_context},
-                tool_name=step.capability_id,
+                tool_name=tool_name,
                 risk_level=risk_level,
                 requires_approval=requires_approval,
             )
         except Exception as exc:
+            error_text = str(exc)
+            await _emit_after_tool(
+                success=False,
+                error=error_text,
+                approved=False,
+                evidence_collected=False,
+            )
             return StepResult(
                 step_id=step.step_id,
                 success=False,
                 output=None,
-                errors=[str(exc)],
+                errors=[error_text],
             )
 
         approval_required_by_policy = trust_error == "tool invocation requires security approval"
@@ -1179,24 +1215,67 @@ class DareAgent(BaseAgent):
                 capability_id=step.capability_id,
                 params=trusted_params,
                 session_id=self._session_state.run_id if self._session_state is not None else None,
-                tool_name=step.capability_id,
-                tool_call_id=f"step-{step.step_id}",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
                 transport=transport,
             )
             if not approved:
+                approval_error_text = approval_error or "tool invocation requires security approval"
+                await _emit_after_tool(
+                    success=False,
+                    error=approval_error_text,
+                    approved=False,
+                    evidence_collected=False,
+                )
                 return StepResult(
                     step_id=step.step_id,
                     success=False,
                     output=None,
-                    errors=[approval_error or "tool invocation requires security approval"],
+                    errors=[approval_error_text],
                 )
 
         if trust_error is not None:
+            await _emit_after_tool(
+                success=False,
+                error=trust_error,
+                approved=False,
+                evidence_collected=False,
+            )
             return StepResult(
                 step_id=step.step_id,
                 success=False,
                 output=None,
                 errors=[trust_error],
+            )
+
+        before_tool_dispatch = await self._emit_hook(
+            HookPhase.BEFORE_TOOL,
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": step.capability_id,
+                "attempt": attempt,
+                "risk_level": risk_level,
+                "requires_approval": requires_approval,
+            },
+        )
+        if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+            policy_error = (
+                "tool invocation requires hook approval"
+                if before_tool_dispatch.decision is HookDecision.ASK
+                else "tool invocation denied by hook policy"
+            )
+            await _emit_after_tool(
+                success=False,
+                error=policy_error,
+                approved=True,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[policy_error],
             )
 
         secured_step = replace(step, params=trusted_params, envelope=envelope)
@@ -1218,21 +1297,44 @@ class DareAgent(BaseAgent):
                 ),
             )
         except Exception as exc:
+            error_text = str(exc)
+            await _emit_after_tool(
+                success=False,
+                error=error_text,
+                approved=True,
+                evidence_collected=False,
+            )
             return StepResult(
                 step_id=step.step_id,
                 success=False,
                 output=None,
-                errors=[str(exc)],
+                errors=[error_text],
             )
 
         if isinstance(result, StepResult):
+            result_error = None
+            if not result.success:
+                result_error = result.errors[0] if result.errors else f"step {step.step_id} failed"
+            await _emit_after_tool(
+                success=result.success,
+                error=result_error,
+                approved=True,
+                evidence_collected=bool(result.evidence),
+            )
             return result
 
+        invalid_error = "step executor returned invalid StepResult"
+        await _emit_after_tool(
+            success=False,
+            error=invalid_error,
+            approved=True,
+            evidence_collected=False,
+        )
         return StepResult(
             step_id=step.step_id,
             success=False,
             output=None,
-            errors=["step executor returned invalid StepResult"],
+            errors=[invalid_error],
         )
 
     def _build_step_context_from_previous(

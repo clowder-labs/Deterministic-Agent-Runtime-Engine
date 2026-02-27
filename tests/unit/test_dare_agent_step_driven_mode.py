@@ -7,6 +7,8 @@ import pytest
 from dare_framework.agent import BaseAgent, DareAgent
 from dare_framework.config import Config
 from dare_framework.context import Context
+from dare_framework.hook.types import HookDecision, HookPhase, HookResult
+from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.plan.types import StepResult, ValidatedPlan, ValidatedStep
 from dare_framework.security.types import PolicyDecision, RiskLevel, TrustedInput
@@ -148,6 +150,26 @@ class _RecordingStepExecutor:
         )
 
 
+class _BlockingBeforeToolHook:
+    def __init__(self) -> None:
+        self.phases: list[HookPhase] = []
+
+    @property
+    def name(self) -> str:
+        return "blocking-before-tool-hook"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.HOOK
+
+    async def invoke(self, phase: HookPhase, *args: Any, **kwargs: Any) -> HookResult:
+        _ = (args, kwargs)
+        self.phases.append(phase)
+        if phase is HookPhase.BEFORE_TOOL:
+            return HookResult(decision=HookDecision.BLOCK)
+        return HookResult(decision=HookDecision.ALLOW)
+
+
 class _NoOpPlanner:
     async def plan(self, context: Any) -> Any:
         _ = context
@@ -219,6 +241,7 @@ def _build_agent(
     planner: Any | None = None,
     validator: Any | None = None,
     approval_manager: Any | None = None,
+    hooks: list[Any] | None = None,
     auto_wire_step_driven_defaults: bool = True,
 ) -> DareAgent:
     normalized_execution_mode = execution_mode.strip().lower()
@@ -237,6 +260,7 @@ def _build_agent(
         execution_mode=execution_mode,
         security_boundary=boundary,
         approval_manager=approval_manager,
+        hooks=hooks,
     )
 
 
@@ -621,3 +645,34 @@ async def test_step_driven_custom_executor_approve_required_with_metadata_routes
     assert approval_manager.wait_calls == 1
     assert context.budget.used_tool_calls == 1
     assert model.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_step_driven_custom_executor_respects_before_tool_hook_policy() -> None:
+    model = _RecordingModel()
+    context = Context(config=Config())
+    step_executor = _RecordingStepExecutor()
+    hook = _BlockingBeforeToolHook()
+    agent = _build_agent(
+        model=model,
+        step_executor=step_executor,
+        execution_mode="step_driven",
+        boundary=_AllowBoundary(),
+        context=context,
+        hooks=[hook],
+    )
+    validated_plan = ValidatedPlan(
+        success=True,
+        plan_description="step plan",
+        steps=[
+            ValidatedStep(step_id="s1", capability_id="tool.one", risk_level=RiskLevel.READ_ONLY),
+        ],
+    )
+
+    result = await agent._run_execute_loop(validated_plan)  # noqa: SLF001 - runtime unit boundary test
+
+    assert result["success"] is False
+    assert any("hook policy" in error for error in result.get("errors", []))
+    assert step_executor.step_ids == []
+    assert HookPhase.BEFORE_TOOL in hook.phases
+    assert HookPhase.AFTER_TOOL in hook.phases
