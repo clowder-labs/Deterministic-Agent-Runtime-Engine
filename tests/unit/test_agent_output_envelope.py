@@ -69,6 +69,31 @@ class _UniqueToolCallModelWithUsage:
         )
 
 
+class _ToolThenFinalWithoutUsageModel:
+    def __init__(self) -> None:
+        self._responses = [
+            ModelResponse(
+                content="calling tool",
+                tool_calls=[
+                    {
+                        "id": "tc_1",
+                        "name": "tool:echo",
+                        "arguments": {"value": "ping"},
+                    }
+                ],
+                usage={"total_tokens": 5},
+            ),
+            ModelResponse(content="final response", tool_calls=[], usage=None),
+        ]
+        self._idx = 0
+
+    async def generate(self, model_input: ModelInput, *, options: Any = None) -> ModelResponse:
+        _ = (model_input, options)
+        response = self._responses[self._idx]
+        self._idx += 1
+        return response
+
+
 def _assert_output_envelope(result: RunResult) -> dict[str, Any]:
     assert isinstance(result.output, dict)
     envelope = result.output
@@ -155,6 +180,21 @@ async def test_react_agent_max_rounds_preserves_usage_in_output_envelope() -> No
     envelope = _assert_output_envelope(result)
     assert "达到最大轮次" in envelope["content"]
     assert envelope["usage"] == {"total_tokens": 2}
+
+
+@pytest.mark.asyncio
+async def test_react_agent_final_reply_without_usage_keeps_latest_usage() -> None:
+    agent = ReactAgent(
+        name="react-output-envelope-final-no-usage",
+        model=_ToolThenFinalWithoutUsageModel(),
+        context=Context(config=Config()),
+        tool_gateway=_ToolGateway(),
+    )
+
+    result = await agent("hello")
+    envelope = _assert_output_envelope(result)
+    assert envelope["content"] == "final response"
+    assert envelope["usage"] == {"total_tokens": 5}
 
 
 @pytest.mark.asyncio

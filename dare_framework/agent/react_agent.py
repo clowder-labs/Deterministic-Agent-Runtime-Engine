@@ -125,7 +125,7 @@ class ReactAgent(BaseAgent):
                 self._context.stm_add(assistant_message)
                 output = build_output_envelope(
                     final_text,
-                    usage=response.usage if isinstance(response.usage, dict) else None,
+                    usage=latest_usage,
                 )
                 return RunResult(
                     success=True,
