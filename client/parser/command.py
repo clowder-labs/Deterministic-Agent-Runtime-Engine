@@ -39,7 +39,12 @@ def parse_command(user_input: str) -> Command | tuple[None, str]:
     if not stripped.startswith("/"):
         return (None, stripped)
 
-    parts = stripped[1:].split(maxsplit=1)
+    command_text = stripped[1:].strip()
+    if not command_text:
+        # Keep bare slash input recoverable instead of crashing command parsing.
+        return (None, stripped)
+
+    parts = command_text.split(maxsplit=1)
     name = parts[0].lower()
     args = parts[1].split() if len(parts) > 1 else []
 

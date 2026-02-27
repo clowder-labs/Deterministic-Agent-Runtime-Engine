@@ -134,6 +134,14 @@ def _load_script_lines(path: Path) -> list[str]:
     return lines
 
 
+def _load_script_lines_with_handling(path: Path, *, output: OutputFacade) -> list[str] | None:
+    try:
+        return _load_script_lines(path)
+    except OSError as exc:
+        output.error(f"failed to load script file: {exc}")
+        return None
+
+
 def _is_execution_running(state: CLISessionState) -> bool:
     task = state.active_execution_task
     return task is not None and not task.done()
@@ -860,7 +868,11 @@ async def main(argv: list[str] | None = None) -> int:
         action_client = TransportActionClient(runtime.client_channel, timeout_seconds=args.timeout)
 
         if command == "chat":
-            lines = _load_script_lines(Path(args.script)) if args.script else None
+            lines = None
+            if args.script:
+                lines = _load_script_lines_with_handling(Path(args.script), output=output)
+                if lines is None:
+                    return 2
             return await _run_chat(
                 runtime=runtime,
                 action_client=action_client,
@@ -929,7 +941,9 @@ async def main(argv: list[str] | None = None) -> int:
             return 0 if success else 1
 
         if command == "script":
-            lines = _load_script_lines(Path(args.file))
+            lines = _load_script_lines_with_handling(Path(args.file), output=output)
+            if lines is None:
+                return 2
             return await _run_chat(
                 runtime=runtime,
                 action_client=action_client,

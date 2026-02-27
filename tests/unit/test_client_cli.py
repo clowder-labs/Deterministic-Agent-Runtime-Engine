@@ -30,6 +30,13 @@ def test_parse_command_plain_text() -> None:
     assert parsed[1] == "build one file"
 
 
+def test_parse_command_single_slash_is_safe_plain_text() -> None:
+    parsed = parse_command("/")
+    assert isinstance(parsed, tuple)
+    assert parsed[0] is None
+    assert parsed[1] == "/"
+
+
 def test_parse_key_value_args() -> None:
     positional, options = parse_key_value_args(["req-1", "scope=workspace", "matcher=exact_params"])
     assert positional == ["req-1"]
@@ -346,6 +353,132 @@ async def test_main_invalid_workspace_path_returns_two(tmp_path, capsys) -> None
             "--output",
             "json",
             "doctor",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_main_chat_script_missing_file_returns_two(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.agent = object()
+            self.channel = object()
+            self.model = object()
+            self.config = config
+            self.client_channel = object()
+
+        async def close(self) -> None:
+            return None
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return _FakeRuntime()
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    missing_script = tmp_path / "missing.script.txt"
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "chat",
+            "--script",
+            str(missing_script),
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_main_script_command_missing_file_returns_two(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.agent = object()
+            self.channel = object()
+            self.model = object()
+            self.config = config
+            self.client_channel = object()
+
+        async def close(self) -> None:
+            return None
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return _FakeRuntime()
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    missing_script = tmp_path / "missing.script.txt"
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "script",
+            "--file",
+            str(missing_script),
         ]
     )
 
