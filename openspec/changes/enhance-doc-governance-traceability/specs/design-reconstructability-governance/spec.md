@@ -22,7 +22,7 @@
 ## ADDED Requirements
 
 ### Requirement: 可重建性治理必须维护文档生命周期依赖链
-可重建性治理 MUST 明确并执行 `standards -> feature aggregation -> design -> gap analysis -> TODO -> execution evidence -> archive` 的生命周期依赖关系。
+可重建性治理 MUST 明确并执行 `standards -> design update -> gap analysis -> master TODO -> feature aggregation -> execution evidence -> review/merge gate -> archive` 的生命周期依赖关系。
 
 #### Scenario: 治理任务可按依赖链追溯
 - **WHEN** 评审者抽查任一治理 change
@@ -30,7 +30,7 @@
 - **AND** 依赖链中每个阶段都有状态与证据锚点
 
 ### Requirement: 可重建性治理门禁必须提供自动化检查
-可重建性治理流程 MUST 将以下门禁纳入自动化检查：文档先行更新、gap 分析存在性、TODO 到 OpenSpec task 的映射完整性。
+可重建性治理流程 MUST 将以下门禁纳入自动化检查：文档先行更新、gap 分析存在性、TODO 到 OpenSpec task 的映射完整性、frontmatter 必填字段（按 OpenSpec/fallback 模式）、聚合文档链接可解析性、证据块完整性（命令/结果/风险/回滚/review links）。
 
 #### Scenario: 缺失治理门禁资产时自动阻断
 - **WHEN** 提交包含治理相关实现或文档变更但未补齐 gap/TODO 映射
@@ -43,7 +43,7 @@
 #### Scenario: 评审者可验证 SOP skill 化覆盖
 - **WHEN** 评审者检查治理流程资产
 - **THEN** 能定位到关键 checkpoint 对应的 skill 名称与路径（至少包含 `documentation-management` 与 `development-workflow`）
-- **AND** 能确认该映射与 CI 检查项一致
+- **AND** 能确认该映射与 CI 检查项一致（且 CI 门禁不局限于 skill 映射）
 
 ### Requirement: 特性聚合文档必须作为状态单一真相源
 治理 change 的生命周期状态 MUST 以 `docs/features/<change-id>.md` 聚合文档为单一真相源，其他关联文档不得维护与其冲突的主状态。

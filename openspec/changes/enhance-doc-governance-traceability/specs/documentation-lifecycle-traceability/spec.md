@@ -33,7 +33,7 @@
 - **AND** 归档索引中可追溯到该条目的历史记录与证据路径
 
 ### Requirement: 治理 checkpoint 必须具备自动校验能力
-治理流程中的关键门禁（文档更新、gap/TODO 映射、聚合入口完整性）MUST 有自动校验脚本并接入 CI gate。
+治理流程中的关键门禁（文档更新、gap/TODO 映射、聚合入口完整性、frontmatter 合约、证据块完整性、链接可解析性）MUST 有自动校验脚本并接入 CI gate；该 CI 闭环 MUST NOT 仅限 skill 文件存在性校验。
 
 #### Scenario: PR 在缺少治理资产时被 gate 阻断
 - **WHEN** 变更触达治理范围文件但缺失聚合入口或 frontmatter 关键字段
@@ -47,6 +47,14 @@
 - **WHEN** 维护者或 agent 执行治理类变更
 - **THEN** 可定位到 `documentation-management` 与 `development-workflow` 的 skill 入口与使用说明
 - **AND** 能从映射关系中确认该阶段对应的 gate/checkpoint
+
+### Requirement: 治理流程必须保留 review/merge gate 审计证据
+治理流程 MUST 为每个活跃变更保留 review request、关键 review 线程处理记录、merge gate 决策证据，并在聚合文档中可追溯链接这些证据。
+
+#### Scenario: 合入决策可审计
+- **WHEN** 评审者回溯一个已完成治理变更
+- **THEN** 可以在聚合文档中定位 review 请求、关键评论修复记录与 merge gate 结果
+- **AND** 对应 mailbox 审计证据文档仍可访问
 
 ### Requirement: 协作流程必须声明 OpenSpec 默认与回退模式
 治理流程 MUST 明确 OpenSpec 为默认协作模式，并定义无 OpenSpec 场景下的 TODO-driven 回退流程及后续迁移要求。

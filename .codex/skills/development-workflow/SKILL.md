@@ -27,6 +27,15 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 - create dated gap/TODO pair in `docs/todos/`
 - once OpenSpec is available, migrate fallback assets into one or more OpenSpec slice changes
 
+## Required evidence block in feature aggregation doc
+
+Each active feature aggregation doc MUST contain an `## Evidence` section with at least:
+- commands executed (exact commands)
+- command results (pass/fail + key output summary)
+- behavior verification (happy path + changed error branch)
+- risks and rollback notes
+- review/merge-gate evidence links (review request, key review threads, merge gate result)
+
 ## Lifecycle checkpoints
 
 1. kickoff
@@ -36,6 +45,7 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 - build/update a master TODO backlog that covers the full scope
 - update `docs/design/**` first (no implementation before design update)
 - create or refresh feature aggregation doc as the status source
+- initialize/refresh the required evidence block in feature aggregation doc before execution
 - for OpenSpec mode, select one TODO slice as current change scope
 - run `documentation-management` to validate type/path/frontmatter baseline
 
@@ -44,6 +54,7 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 - TODO fallback mode: execute in small increments `TODO item -> implementation -> evidence`, and record pending OpenSpec migration mapping
 - keep master TODO status and feature aggregation evidence aligned in all modes
 - after each completed task, update linked design/gap/TODO docs and implementation evidence
+- append command outputs and behavior-check results to the feature evidence block at task granularity
 - for large initiatives, continue by opening the next TODO slice in a new OpenSpec change instead of overloading one change
 
 3. verification
@@ -53,8 +64,16 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 - verify coverage of interface contracts and error branches for changed behavior
 - verify status consistency: feature doc is source of truth, linked docs are non-conflicting
 - verify `docs/**` can stand alone as the current-state record without depending on OpenSpec internals
+- verify governance CI scope is complete (frontmatter by mode, link resolution, evidence block completeness, TODO->change mapping, checkpoint mapping)
+- verify feature evidence block includes commands, results, behavior verification, risks, rollback, and review links
 
-4. completion-archive
+4. review-merge-gate
+- request review with explicit evidence links from the feature aggregation doc
+- process review feedback thread-by-thread and keep evidence section updated with fix commits
+- require explicit non-blocking merge gate signal (approval or equivalent repo policy signal) before archive
+- keep mailbox records linked: temporary coordination notes vs retained audit evidence
+
+5. completion-archive
 - mark work done in feature aggregation and related ledgers
 - run `documentation-management` archive actions
 - update TODO/archive indexes (for example `docs/todos/README.md` when applicable)
@@ -66,7 +85,9 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 ## Output expectations
 For each workflow run, report:
 - mode used (`openspec` or `todo_fallback`)
-- checkpoint completion (`kickoff`, `execution-sync`, `verification`, `completion-archive`)
+- checkpoint completion (`kickoff`, `execution-sync`, `verification`, `review-merge-gate`, `completion-archive`)
 - evidence commands executed
+- evidence results summary (including changed happy path + error branch checks)
 - evidence file updates (design, TODO, OpenSpec tasks, feature aggregation)
+- review and merge-gate status
 - unresolved risks or migration debt
