@@ -325,6 +325,38 @@ def test_context_assemble_rebalances_budget_when_ltm_retrieval_fails():
     assert assembled.metadata["retrieval"]["degrade_reason"] == "ltm_retrieval_failed"
 
 
+def test_context_assemble_skips_zero_budget_source_retrieval_call() -> None:
+    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
+    knowledge = _FakeRetrieval([Message(role="assistant", content="knowledge-hit")])
+    config = Config(
+        long_term_memory={
+            "assemble_top_k": 1,
+            "assemble_ratio": 0.0,
+            "assemble_reserve_tokens": 0,
+        },
+        knowledge={
+            "assemble_top_k": 1,
+            "assemble_ratio": 1.0,
+            "assemble_reserve_tokens": 0,
+        },
+    )
+    ctx = Context(
+        config=config,
+        budget=Budget(max_tokens=60),
+        long_term_memory=ltm,
+        knowledge=knowledge,
+    )
+    ctx.stm_add(Message(role="user", content="q"))
+
+    assembled = ctx.assemble()
+
+    contents = [message.content for message in assembled.messages]
+    assert contents == ["q", "knowledge-hit"]
+    assert ltm.calls == []
+    assert len(knowledge.calls) == 1
+    assert assembled.metadata["retrieval"]["degraded"] is False
+
+
 def test_context_assemble_handles_overflowing_numeric_retrieval_config() -> None:
     ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
     config = Config(

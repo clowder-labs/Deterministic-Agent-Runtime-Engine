@@ -348,15 +348,18 @@ class DefaultAssembledContext(IAssembleContext):
 
             ltm_retrieval_failed = False
             if ltm_active:
-                try:
-                    ltm_candidates = context.long_term_memory.get(query=query, top_k=ltm_top_k)
-                    ltm_messages = self._take_with_budget(ltm_candidates, ltm_budget)
-                    if len(ltm_messages) < len(ltm_candidates):
-                        self._set_degrade(retrieval_metadata, reason="token_budget_low")
-                except Exception:
-                    ltm_retrieval_failed = True
-                    self._set_degrade(retrieval_metadata, reason="ltm_retrieval_failed")
+                if ltm_budget <= 0:
                     ltm_messages = []
+                else:
+                    try:
+                        ltm_candidates = context.long_term_memory.get(query=query, top_k=ltm_top_k)
+                        ltm_messages = self._take_with_budget(ltm_candidates, ltm_budget)
+                        if len(ltm_messages) < len(ltm_candidates):
+                            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+                    except Exception:
+                        ltm_retrieval_failed = True
+                        self._set_degrade(retrieval_metadata, reason="ltm_retrieval_failed")
+                        ltm_messages = []
 
             if knowledge_active:
                 try:
@@ -367,10 +370,13 @@ class DefaultAssembledContext(IAssembleContext):
                         and ltm_retrieval_failed
                     ):
                         effective_knowledge_budget = retrieval_budget
-                    knowledge_candidates = context.knowledge.get(query=query, top_k=knowledge_top_k)
-                    knowledge_messages = self._take_with_budget(knowledge_candidates, effective_knowledge_budget)
-                    if len(knowledge_messages) < len(knowledge_candidates):
-                        self._set_degrade(retrieval_metadata, reason="token_budget_low")
+                    if effective_knowledge_budget <= 0:
+                        knowledge_messages = []
+                    else:
+                        knowledge_candidates = context.knowledge.get(query=query, top_k=knowledge_top_k)
+                        knowledge_messages = self._take_with_budget(knowledge_candidates, effective_knowledge_budget)
+                        if len(knowledge_messages) < len(knowledge_candidates):
+                            self._set_degrade(retrieval_metadata, reason="token_budget_low")
                 except Exception:
                     if not retrieval_metadata["degraded"]:
                         self._set_degrade(retrieval_metadata, reason="knowledge_retrieval_failed")
