@@ -27,6 +27,54 @@ search_has_match() {
   fi
 }
 
+extract_frontmatter() {
+  local file="$1"
+  awk '
+    NR == 1 && $0 == "---" {in_fm=1; next}
+    in_fm && $0 == "---" {exit}
+    in_fm {print}
+  ' "$file"
+}
+
+frontmatter_scalar() {
+  local block="$1"
+  local key="$2"
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key ":[[:space:]]*" {
+      sub("^[[:space:]]*" key ":[[:space:]]*", "", $0)
+      print
+      exit
+    }
+  ' <<<"$block"
+}
+
+trim_quotes() {
+  local value="$1"
+  value="${value#\"}"
+  value="${value%\"}"
+  value="${value#\'}"
+  value="${value%\'}"
+  echo "$value"
+}
+
+frontmatter_has_change_ids() {
+  local block="$1"
+  if grep -Eq '^[[:space:]]*change_ids:[[:space:]]*\[[^]]+\][[:space:]]*$' <<<"$block"; then
+    return 0
+  fi
+
+  # Support multiline YAML list form:
+  # change_ids:
+  #   - id-a
+  #   - id-b
+  awk '
+    /^[[:space:]]*change_ids:[[:space:]]*$/ {in_list=1; next}
+    in_list && /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*/ {in_list=0}
+    in_list && /^[[:space:]]*-[[:space:]]*.+$/ {found=1}
+    END {exit(found ? 0 : 1)}
+  ' <<<"$block"
+}
+
 require_pattern() {
   local pattern="$1"
   local file="$2"
@@ -60,6 +108,27 @@ extract_subsection() {
 
 check_feature_doc() {
   local file="$1"
+  local frontmatter status mode topic_slug
+
+  frontmatter="$(extract_frontmatter "$file")"
+  if [[ -z "$frontmatter" ]]; then
+    log "missing frontmatter block in $file"
+    failures=$((failures + 1))
+    return
+  fi
+
+  status="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "status")")"
+  if [[ -z "$status" ]]; then
+    log "missing status frontmatter in $file"
+    failures=$((failures + 1))
+    return
+  fi
+
+  # Evidence requirements are enforced for active feature docs only.
+  if [[ "$status" != "active" ]]; then
+    log "skip non-active feature doc $file (status=$status)"
+    return
+  fi
 
   log "checking $file"
 
@@ -70,15 +139,23 @@ check_feature_doc() {
   require_pattern "^### Risks and Rollback$" "$file" "Risks and Rollback subsection"
   require_pattern "^### Review and Merge Gate Links$" "$file" "Review and Merge Gate Links subsection"
 
-  if search_has_match '^mode:\s*todo_fallback\s*$' "$file"; then
-    require_pattern '^topic_slug:\s*.+$' "$file" "topic_slug frontmatter (fallback mode)"
+  mode="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "mode")")"
+  if [[ "$mode" == "todo_fallback" ]]; then
+    topic_slug="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "topic_slug")")"
+    if [[ -z "$topic_slug" ]]; then
+      log "missing topic_slug frontmatter (fallback mode) in $file"
+      failures=$((failures + 1))
+    fi
   else
-    require_pattern '^change_ids:\s*\[[^]]+\]\s*$' "$file" "change_ids frontmatter (OpenSpec mode)"
+    if ! frontmatter_has_change_ids "$frontmatter"; then
+      log "missing change_ids frontmatter (OpenSpec mode) in $file"
+      failures=$((failures + 1))
+    fi
   fi
 
   # Ensure OpenSpec artifact references are resolvable from repository root.
   while IFS= read -r path; do
-    if [[ -n "$path" && "$path" =~ ^(openspec|docs)/ ]]; then
+    if [[ -n "$path" ]]; then
       if [[ ! -f "$path" ]]; then
         log "unresolvable artifact path in $file: $path"
         failures=$((failures + 1))

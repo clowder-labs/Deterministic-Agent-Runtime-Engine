@@ -147,6 +147,7 @@ SOP 关键阶段必须有可调用技能承载，并保持 checkpoint 与 skill 
 - kickoff
 - execution-sync
 - verification
+- review-merge-gate
 - completion-archive
 
 当前双技能分工：
