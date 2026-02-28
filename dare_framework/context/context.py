@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -182,6 +183,88 @@ class Context(IContext):
 
 
 class DefaultAssembledContext(IAssembleContext):
+    """Default context assembly strategy.
+
+    Baseline behavior:
+    - Use STM as primary conversation state.
+    - Optionally fuse LTM/Knowledge retrieval messages.
+    - Degrade retrieval under low remaining token budget.
+    """
+
+    _DEFAULT_TOP_K = 3
+    _DEFAULT_RESERVE_TOKENS = 256
+    _DEFAULT_SOURCE_RATIO = 0.5
+
+    def _safe_int(self, value: Any, default: int, *, minimum: int | None = None) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError, OverflowError):
+            parsed = default
+        if minimum is not None:
+            parsed = max(minimum, parsed)
+        return parsed
+
+    def _safe_ratio(self, value: Any) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return self._DEFAULT_SOURCE_RATIO
+        if not math.isfinite(parsed) or parsed < 0:
+            return self._DEFAULT_SOURCE_RATIO
+        return parsed
+
+    def _estimate_tokens(self, messages: list[Message]) -> int:
+        """Rough token estimate using character count heuristic."""
+        total = 0
+        for message in messages:
+            # Roughly 4 chars/token + small per-message overhead.
+            content_tokens = max(1, len((message.content or "").strip()) // 4)
+            total += content_tokens + 8
+        return total
+
+    def _take_with_budget(self, messages: list[Message], budget_tokens: float) -> list[Message]:
+        if budget_tokens == float("inf"):
+            return list(messages)
+        if budget_tokens <= 0:
+            return []
+
+        kept: list[Message] = []
+        used = 0
+        for message in messages:
+            message_tokens = self._estimate_tokens([message])
+            if used + message_tokens > budget_tokens:
+                # Skip oversized candidates so smaller later hits can still fit.
+                continue
+            kept.append(message)
+            used += message_tokens
+        return kept
+
+    def _derive_query(self, messages: list[Message]) -> str:
+        for message in reversed(messages):
+            if message.role == "user" and message.content.strip():
+                return message.content.strip()
+        for message in reversed(messages):
+            if message.content.strip():
+                return message.content.strip()
+        return ""
+
+    def _load_source_options(self, config_map: dict[str, Any]) -> tuple[int, float]:
+        top_k = self._safe_int(
+            config_map.get("assemble_top_k"),
+            self._DEFAULT_TOP_K,
+            minimum=0,
+        )
+        ratio = self._safe_ratio(config_map.get("assemble_ratio", self._DEFAULT_SOURCE_RATIO))
+        return top_k, ratio
+
+    def _set_degrade(
+        self,
+        retrieval_metadata: dict[str, Any],
+        *,
+        reason: str,
+    ) -> None:
+        retrieval_metadata["degraded"] = True
+        retrieval_metadata["degrade_reason"] = reason
 
     def assemble(self, context: IContext) -> AssembledContext:
         messages = context.stm_get()
@@ -191,12 +274,125 @@ class DefaultAssembledContext(IAssembleContext):
             from dare_framework.skill._internal.prompt_enricher import enrich_prompt_with_skill
 
             sys_prompt = enrich_prompt_with_skill(sys_prompt, context.sys_skill)
+
+        query = self._derive_query(messages)
+        ltm_config = context.config.long_term_memory if isinstance(context.config.long_term_memory, dict) else {}
+        knowledge_config = context.config.knowledge if isinstance(context.config.knowledge, dict) else {}
+        ltm_top_k, ltm_ratio = self._load_source_options(ltm_config)
+        knowledge_top_k, knowledge_ratio = self._load_source_options(knowledge_config)
+        ltm_active = context.long_term_memory is not None and ltm_top_k > 0
+        knowledge_active = context.knowledge is not None and knowledge_top_k > 0
+
+        if ltm_active and not knowledge_active:
+            reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+        elif knowledge_active and not ltm_active:
+            reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
+        else:
+            reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+            if reserve_tokens_raw is None:
+                reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
+        reserve_tokens = self._safe_int(
+            reserve_tokens_raw,
+            self._DEFAULT_RESERVE_TOKENS,
+            minimum=0,
+        )
+
+        retrieval_metadata: dict[str, Any] = {
+            "query": query,
+            "stm_count": len(messages),
+            "ltm_requested": ltm_top_k,
+            "knowledge_requested": knowledge_top_k,
+            "ltm_count": 0,
+            "knowledge_count": 0,
+            "degraded": False,
+            "degrade_reason": None,
+        }
+
+        remaining_tokens = context.budget_remaining("tokens")
+        stm_token_estimate = self._estimate_tokens(messages)
+        retrieval_budget: float = float("inf")
+        if remaining_tokens != float("inf"):
+            retrieval_budget = max(0.0, float(remaining_tokens) - float(stm_token_estimate) - float(reserve_tokens))
+
+        ltm_messages: list[Message] = []
+        knowledge_messages: list[Message] = []
+
+        if retrieval_budget <= 0 and (ltm_active or knowledge_active):
+            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+        else:
+            ratio_total = 0.0
+            if ltm_active:
+                ratio_total += ltm_ratio
+            if knowledge_active:
+                ratio_total += knowledge_ratio
+            if ratio_total <= 0:
+                # Fallback only across active retrieval sources.
+                ratio_total = 0.0
+                if ltm_active:
+                    ltm_ratio = self._DEFAULT_SOURCE_RATIO
+                    ratio_total += ltm_ratio
+                if knowledge_active:
+                    knowledge_ratio = self._DEFAULT_SOURCE_RATIO
+                    ratio_total += knowledge_ratio
+
+            normalized_ltm_ratio = (ltm_ratio / ratio_total) if ltm_active and ratio_total > 0 else 0.0
+            normalized_knowledge_ratio = (
+                (knowledge_ratio / ratio_total) if knowledge_active and ratio_total > 0 else 0.0
+            )
+
+            ltm_budget = float("inf")
+            knowledge_budget = float("inf")
+            if retrieval_budget != float("inf"):
+                ltm_budget = retrieval_budget * normalized_ltm_ratio
+                knowledge_budget = retrieval_budget * normalized_knowledge_ratio
+
+            ltm_retrieval_failed = False
+            if ltm_active:
+                if ltm_budget <= 0:
+                    ltm_messages = []
+                else:
+                    try:
+                        ltm_candidates = context.long_term_memory.get(query=query, top_k=ltm_top_k)
+                        ltm_messages = self._take_with_budget(ltm_candidates, ltm_budget)
+                        if len(ltm_messages) < len(ltm_candidates):
+                            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+                    except Exception:
+                        ltm_retrieval_failed = True
+                        self._set_degrade(retrieval_metadata, reason="ltm_retrieval_failed")
+                        ltm_messages = []
+
+            if knowledge_active:
+                try:
+                    effective_knowledge_budget = knowledge_budget
+                    if (
+                        retrieval_budget != float("inf")
+                        and ltm_active
+                        and ltm_retrieval_failed
+                    ):
+                        effective_knowledge_budget = retrieval_budget
+                    if effective_knowledge_budget <= 0:
+                        knowledge_messages = []
+                    else:
+                        knowledge_candidates = context.knowledge.get(query=query, top_k=knowledge_top_k)
+                        knowledge_messages = self._take_with_budget(knowledge_candidates, effective_knowledge_budget)
+                        if len(knowledge_messages) < len(knowledge_candidates):
+                            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+                except Exception:
+                    if not retrieval_metadata["degraded"]:
+                        self._set_degrade(retrieval_metadata, reason="knowledge_retrieval_failed")
+                    knowledge_messages = []
+
+        merged_messages = [*messages, *ltm_messages, *knowledge_messages]
+        retrieval_metadata["ltm_count"] = len(ltm_messages)
+        retrieval_metadata["knowledge_count"] = len(knowledge_messages)
+
         return AssembledContext(
-            messages=messages,
+            messages=merged_messages,
             sys_prompt=sys_prompt,
             tools=tools,
             metadata={
                 "context_id": context.id,
+                "retrieval": retrieval_metadata,
             },
         )
 

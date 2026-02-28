@@ -22,7 +22,7 @@ from dare_framework.execution.impl.event.local_event_log import LocalEventLog
 from dare_framework.execution.impl.hook.default_extension_point import DefaultExtensionPoint
 from dare_framework.execution.impl.orchestrator.default_orchestrator import DefaultLoopOrchestrator
 from dare_framework.execution.impl.run_loop.default_run_loop import DefaultRunLoop
-from dare_framework.security.impl.default_security_boundary import DefaultSecurityBoundary
+from dare_framework.security import DefaultSecurityBoundary
 from dare_framework.tool.impl.default_tool_gateway import DefaultToolGateway
 from dare_framework.tool.types import RunContext
 from dare_framework.plan.planning import ProposedStep

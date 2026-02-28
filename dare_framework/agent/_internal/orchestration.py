@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from dare_framework.config.types import Config
-from dare_framework.plan.types import Milestone, MilestoneSummary, SessionSummary
+from dare_framework.plan.types import Milestone, MilestoneSummary, SessionSummary, VerifyResult
 
 
 @dataclass
@@ -67,4 +67,14 @@ class SessionState:
         return None
 
 
-__all__ = ["MilestoneState", "SessionContext", "SessionState"]
+@dataclass
+class MilestoneResult:
+    """Result from a milestone loop execution."""
+
+    success: bool
+    outputs: list[Any] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    verify_result: VerifyResult | None = None
+
+
+__all__ = ["MilestoneResult", "MilestoneState", "SessionContext", "SessionState"]

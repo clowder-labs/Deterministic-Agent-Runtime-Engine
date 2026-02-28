@@ -61,15 +61,20 @@ ToolManager SHALL maintain the trusted capability registry for tools. It MUST:
 - Use `tool.name` as the `capability_id` and reject duplicate names
 - Track enable/disable state per capability
 - Persist trusted metadata (`risk_level`, `requires_approval`, `timeout_seconds`, `is_work_unit`, `capability_kind`)
-- Serve as the source of truth for runtime tool activation and invocation
+- Serve as the source of truth for runtime tool activation
 
-#### Scenario: Duplicate tool name is rejected
-- **GIVEN** a tool named `write_file` is registered
-- **WHEN** another tool with name `write_file` is registered
-- **THEN** ToolManager rejects the registration with a clear error
+Capability `input_schema` and `output_schema` MUST be derived from each tool's `execute` contract (signature, type annotations, and doc comments for descriptions), rather than manually duplicated schema literals.
+
+#### Scenario: Registry schema follows execute signature
+- **GIVEN** a registered tool with explicit execute keyword parameters
+- **WHEN** ToolManager builds a capability descriptor
+- **THEN** descriptor schemas match execute parameter and return annotations
+- **AND** schema field descriptions reflect execute doc comments when provided
 
 ### Requirement: Tool manager aggregates providers and exports tool defs
-ToolManager SHALL aggregate `IToolProvider` instances and refresh their capabilities into the registry. It MUST provide prompt tool definitions derived from the registry and MUST NOT execute tool side-effects; invocation is owned by `IToolGateway` (implemented by ToolManager).
+ToolManager SHALL aggregate `IToolProvider` instances and refresh their capabilities into the registry. It MUST provide prompt tool definitions derived from the registry and MUST NOT execute tool side-effects; invocation is owned by `IToolGateway` (implemented by `ToolGateway`).
+
+Provider-derived metadata coercion MUST be robust: malformed provider metadata values MUST NOT crash registry aggregation.
 
 #### Scenario: Provider capabilities are visible in the registry
 - **GIVEN** a provider is registered with the ToolManager
@@ -79,7 +84,8 @@ ToolManager SHALL aggregate `IToolProvider` instances and refresh their capabili
 #### Scenario: Tool manager does not invoke tools
 - **GIVEN** a tool capability is registered
 - **WHEN** an invocation is needed
-- **THEN** the system routes the call through `IToolGateway.invoke(...)` (ToolManager implements the gateway)
+- **THEN** the system routes the call through `ToolGateway.invoke(...)`
+- **AND** `ToolGateway` resolves the callable tool via the manager registry
 
 ### Requirement: Skill store builder composes loaders deterministically
 The skill domain SHALL provide a `SkillStoreBuilder` that deterministically composes skill loaders and filtering rules before constructing an `ISkillStore`.
@@ -101,4 +107,27 @@ The skill domain SHALL provide a `SkillStoreBuilder` that deterministically comp
 - **WHEN** `build()` is called
 - **THEN** `list_skills()` excludes `b`
 - **AND** `get_skill("b")` returns `None`
+
+### Requirement: DareAgentBuilder exposes execution-mode wiring
+
+`DareAgentBuilder` SHALL expose explicit builder APIs for execution strategy wiring so callers can deterministically select runtime behavior.
+
+#### Scenario: Builder sets execution mode explicitly
+
+- **GIVEN** a `DareAgentBuilder`
+- **WHEN** caller configures `with_execution_mode("step_driven")`
+- **THEN** built `DareAgent` runs with `execution_mode="step_driven"`
+
+#### Scenario: Builder injects custom step executor
+
+- **GIVEN** a custom `IStepExecutor` implementation
+- **WHEN** caller configures `with_step_executor(custom_executor)`
+- **THEN** built `DareAgent` uses that executor in step-driven mode
+
+#### Scenario: Builder default remains model-driven
+
+- **GIVEN** a `DareAgentBuilder` with no execution-mode customization
+- **WHEN** the agent is built
+- **THEN** `execution_mode` remains `model_driven`
+- **AND** existing model-driven runtime behavior is unchanged
 

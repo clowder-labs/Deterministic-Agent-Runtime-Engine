@@ -12,15 +12,21 @@ def test_build_output_envelope_uses_empty_content_for_missing_output() -> None:
     assert envelope["content"] == ""
 
 
-def test_build_output_envelope_preserves_raw_string_content() -> None:
+def test_build_output_envelope_normalizes_serialized_list_string_content() -> None:
     raw_output = '["a","b"]'
     envelope = build_output_envelope(raw_output)
-    assert envelope["content"] == raw_output
+    assert envelope["content"] == "ab"
 
 
-def test_build_output_envelope_preserves_raw_string_content_from_dict_text_field() -> None:
+def test_build_output_envelope_normalizes_dict_text_field_when_no_fallback_fields() -> None:
     raw_output = '["a","b"]'
     envelope = build_output_envelope({"content": raw_output})
+    assert envelope["content"] == "ab"
+
+
+def test_build_output_envelope_preserves_raw_dict_text_with_diagnostics() -> None:
+    raw_output = '["a","b"]'
+    envelope = build_output_envelope({"content": raw_output, "error": "timeout"})
     assert envelope["content"] == raw_output
 
 

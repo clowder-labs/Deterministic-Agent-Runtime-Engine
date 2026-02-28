@@ -129,13 +129,17 @@ def build_output_envelope(
     - metadata: dict
     - usage: dict | None
     """
-    # Preserve exact model text when available; normalizer is intentionally
-    # display-oriented and may parse serialized containers.
     if isinstance(output, str):
-        content = output
+        content = normalize_run_output(output) or ""
     elif isinstance(output, dict):
         raw_text = _extract_raw_text_field(output)
-        if isinstance(raw_text, str) and raw_text.strip():
+        text_keys = {"content", "text", "output", "message", "result"}
+        has_non_text_fallback = any(
+            _has_meaningful_fallback_value(value)
+            for key, value in output.items()
+            if key not in text_keys
+        )
+        if isinstance(raw_text, str) and raw_text.strip() and has_non_text_fallback:
             content = raw_text
         else:
             content = normalize_run_output(output) or ""

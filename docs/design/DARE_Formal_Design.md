@@ -1,9 +1,9 @@
 # DARE Framework 正式设计文档（基于现有实现）
 
 > 版本: 1.0  
-> 日期: 2026-02-04  
+> 日期: 2026-02-27  
 > 范围: `dare_framework/` 现有实现 + `docs/design/` 现状设计对齐文档  
-> 状态: 现状版（与代码对齐，保留 TODO 说明）
+> 状态: full review 对齐版（与代码对齐，保留未闭环 TODO 说明）
 
 ---
 
@@ -58,8 +58,8 @@ flowchart TB
     Ctx["Context / Budget"]
     ToolGW["ToolGateway / ToolManager"]
     ExecCtl["ExecutionControl (HITL)"]
-    Sec["SecurityBoundary (TODO)"]
-    EventLog["EventLog (TODO)"]
+    Sec["SecurityBoundary (baseline)"]
+    EventLog["EventLog (baseline)"]
     HookEP["Hook ExtensionPoint"]
     Cfg["ConfigProvider"]
   end
@@ -306,7 +306,7 @@ sequenceDiagram
 | **验证阶段** | Validator | `IValidator.verify_milestone` | 以证据判定完成 |
 | **生命周期** | Hooks | `IHook` / `HookPhase` | BEFORE/AFTER_* 插入观测或策略 |
 | **审计与观测** | EventLog / Telemetry | `IEventLog` / `ITelemetryProvider` | 审计链与 traces/metrics |
-| **安全与审批** | SecurityBoundary (TODO) | `ISecurityBoundary` | Trust/Policy/Sandbox 闭环 |
+| **安全与审批** | SecurityBoundary (baseline) | `ISecurityBoundary` | Trust/Policy/Sandbox 闭环 |
 
 ### 4.2 扩展点位置示意
 
@@ -341,16 +341,16 @@ flowchart LR
 - **文档结构**：每个 agent 一份详细设计 + 单一 TODO 清单。
   参考：`docs/design/modules/agent/DareAgent_Detailed.md`, `docs/design/modules/agent/ReactAgent_Detailed.md`, `docs/design/modules/agent/SimpleChatAgent_Detailed.md`, `docs/design/modules/agent/TODO.md`。
 - **扩展点**：自定义编排策略、执行控制（HITL）、Hook/Telemetry。
-- **现状限制**：ValidatedPlan.steps 未驱动执行；Hook payload schema 仍在收敛；SecurityBoundary 未接入。
+- **现状限制**：step-driven 执行基线已落地但覆盖仍需扩展；Hook payload schema 仍在收敛；SecurityBoundary 已接入主流程。
 
 ### 5.2 context
 详细设计：`docs/design/modules/context/README.md`。
 - **职责**：上下文核心实体，负责 STM/LTM/Knowledge 组织与组装。
 - **关键类型**：`Message` / `Budget` / `AssembledContext`。
 - **核心接口**：`IContext` / `IRetrievalContext`。
-- **默认实现**：`Context`（`dare_framework/context/_internal/context.py`）。
+- **默认实现**：`Context`（`dare_framework/context/context.py`）。
 - **扩展点**：自定义检索融合、压缩策略、工具快照/审计。
-- **现状限制**：默认 assemble 仅合入 STM；LTM/Knowledge 需扩展实现。
+- **现状限制**：默认 assemble 已融合 STM/LTM/Knowledge 基线；高级重排与分级压缩策略仍待扩展。
 
 ### 5.3 plan
 详细设计：`docs/design/modules/plan/README.md`。
@@ -359,7 +359,7 @@ flowchart LR
 - **核心接口**：`IPlanner` / `IValidator` / `IRemediator`。
 - **默认实现**：`DefaultPlanner` / `RegistryPlanValidator` / `DefaultRemediator`。
 - **扩展点**：自定义证据策略、步骤执行器、计划沙箱。
-- **现状限制**：ValidatedPlan.steps 未驱动执行；证据闭环仍在收敛。
+- **现状限制**：step-driven 执行基线已落地；证据闭环仍在收敛。
 
 ### 5.4 tool
 详细设计：`docs/design/modules/tool/README.md`。
@@ -368,7 +368,7 @@ flowchart LR
 - **核心接口**：`ITool` / `IToolProvider` / `IToolGateway` / `IToolManager`。
 - **默认实现**：`ToolManager` + 内置工具集（`dare_framework/tool/_internal`）。
 - **扩展点**：新增 Tool/Provider；MCP 适配；运行上下文工厂。
-- **现状限制**：policy gate 未闭环；allowlist 未强制执行（Config 侧 TODO）。
+- **现状限制**：policy gate 基线已接入；plan/tool 审批语义仍需进一步统一与增强。
 
 ### 5.5 mcp
 详细设计：`docs/design/modules/mcp/README.md`。
@@ -434,13 +434,13 @@ flowchart LR
 详细设计：`docs/design/modules/event/README.md`。
 - **职责**：WORM Event Log，审计与重放。
 - **关键类型**：`Event` / `RuntimeSnapshot`。
-- **现状**：接口已定义，默认实现缺失。
+- **现状**：默认 SQLite + hash-chain 实现已提供，跨系统治理策略仍待完善。
 
 ### 5.14 security
 详细设计：`docs/design/modules/security/README.md`。
 - **职责**：Trust/Policy/Sandbox 统一边界。
 - **关键类型**：`RiskLevel` / `PolicyDecision` / `TrustedInput`。
-- **现状**：仅接口定义，未接入主流程。
+- **现状**：接口与默认实现已接入主流程，生产策略与审批桥接仍待完善。
 
 ### 5.15 transport（设计占位）
 详细设计：`docs/design/modules/transport/Transport_Domain_Design.md`。
