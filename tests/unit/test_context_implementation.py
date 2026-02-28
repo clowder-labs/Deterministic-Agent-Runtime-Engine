@@ -263,6 +263,68 @@ def test_context_assemble_reserve_tokens_respects_knowledge_only_config():
     assert assembled.metadata["retrieval"]["degraded"] is False
 
 
+def test_context_assemble_ignores_inactive_ltm_reserve_tokens_for_knowledge_only_retrieval():
+    knowledge = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    config = Config(
+        long_term_memory={
+            "assemble_top_k": 0,
+            "assemble_reserve_tokens": 10_000,
+        },
+        knowledge={
+            "assemble_top_k": 1,
+            "assemble_ratio": 1.0,
+            "assemble_reserve_tokens": 0,
+        },
+    )
+    ctx = Context(
+        config=config,
+        budget=Budget(max_tokens=40),
+        long_term_memory=None,
+        knowledge=knowledge,
+    )
+    ctx.stm_add(Message(role="user", content="q"))
+
+    assembled = ctx.assemble()
+
+    contents = [message.content for message in assembled.messages]
+    assert contents == ["q", "x" * 64]
+    assert assembled.metadata["retrieval"]["knowledge_count"] == 1
+    assert assembled.metadata["retrieval"]["degraded"] is False
+
+
+def test_context_assemble_rebalances_budget_when_ltm_retrieval_fails():
+    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")], fail=True)
+    knowledge = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    config = Config(
+        long_term_memory={
+            "assemble_top_k": 1,
+            "assemble_ratio": 0.5,
+            "assemble_reserve_tokens": 0,
+        },
+        knowledge={
+            "assemble_top_k": 1,
+            "assemble_ratio": 0.5,
+            "assemble_reserve_tokens": 0,
+        },
+    )
+    ctx = Context(
+        config=config,
+        budget=Budget(max_tokens=34),
+        long_term_memory=ltm,
+        knowledge=knowledge,
+    )
+    ctx.stm_add(Message(role="user", content="q"))
+
+    assembled = ctx.assemble()
+
+    contents = [message.content for message in assembled.messages]
+    assert contents == ["q", "x" * 64]
+    assert assembled.metadata["retrieval"]["ltm_count"] == 0
+    assert assembled.metadata["retrieval"]["knowledge_count"] == 1
+    assert assembled.metadata["retrieval"]["degraded"] is True
+    assert assembled.metadata["retrieval"]["degrade_reason"] == "ltm_retrieval_failed"
+
+
 def test_context_assemble_handles_overflowing_numeric_retrieval_config() -> None:
     ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
     config = Config(

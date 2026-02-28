@@ -280,9 +280,17 @@ class DefaultAssembledContext(IAssembleContext):
         knowledge_config = context.config.knowledge if isinstance(context.config.knowledge, dict) else {}
         ltm_top_k, ltm_ratio = self._load_source_options(ltm_config)
         knowledge_top_k, knowledge_ratio = self._load_source_options(knowledge_config)
-        reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
-        if reserve_tokens_raw is None:
+        ltm_active = context.long_term_memory is not None and ltm_top_k > 0
+        knowledge_active = context.knowledge is not None and knowledge_top_k > 0
+
+        if ltm_active and not knowledge_active:
+            reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+        elif knowledge_active and not ltm_active:
             reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
+        else:
+            reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+            if reserve_tokens_raw is None:
+                reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
         reserve_tokens = self._safe_int(
             reserve_tokens_raw,
             self._DEFAULT_RESERVE_TOKENS,
@@ -308,8 +316,6 @@ class DefaultAssembledContext(IAssembleContext):
 
         ltm_messages: list[Message] = []
         knowledge_messages: list[Message] = []
-        ltm_active = context.long_term_memory is not None and ltm_top_k > 0
-        knowledge_active = context.knowledge is not None and knowledge_top_k > 0
 
         if retrieval_budget <= 0 and (ltm_active or knowledge_active):
             self._set_degrade(retrieval_metadata, reason="token_budget_low")
@@ -340,6 +346,7 @@ class DefaultAssembledContext(IAssembleContext):
                 ltm_budget = retrieval_budget * normalized_ltm_ratio
                 knowledge_budget = retrieval_budget * normalized_knowledge_ratio
 
+            ltm_retrieval_failed = False
             if ltm_active:
                 try:
                     ltm_candidates = context.long_term_memory.get(query=query, top_k=ltm_top_k)
@@ -347,13 +354,21 @@ class DefaultAssembledContext(IAssembleContext):
                     if len(ltm_messages) < len(ltm_candidates):
                         self._set_degrade(retrieval_metadata, reason="token_budget_low")
                 except Exception:
+                    ltm_retrieval_failed = True
                     self._set_degrade(retrieval_metadata, reason="ltm_retrieval_failed")
                     ltm_messages = []
 
             if knowledge_active:
                 try:
+                    effective_knowledge_budget = knowledge_budget
+                    if (
+                        retrieval_budget != float("inf")
+                        and ltm_active
+                        and ltm_retrieval_failed
+                    ):
+                        effective_knowledge_budget = retrieval_budget
                     knowledge_candidates = context.knowledge.get(query=query, top_k=knowledge_top_k)
-                    knowledge_messages = self._take_with_budget(knowledge_candidates, knowledge_budget)
+                    knowledge_messages = self._take_with_budget(knowledge_candidates, effective_knowledge_budget)
                     if len(knowledge_messages) < len(knowledge_candidates):
                         self._set_degrade(retrieval_metadata, reason="token_budget_low")
                 except Exception:
