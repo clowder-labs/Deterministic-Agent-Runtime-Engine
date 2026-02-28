@@ -14,6 +14,10 @@ from dare_framework.tool._internal.control.approval_manager import (
     JsonApprovalRuleStore,
     ToolApprovalManager,
 )
+from dare_framework.tool._internal.runtime_context_override import (
+    RUNTIME_CONTEXT_PARAM,
+    RuntimeContextOverride,
+)
 
 
 @pytest.fixture
@@ -305,3 +309,31 @@ async def test_poll_pending_session_waiter_wakes_when_dedup_adds_matching_sessio
 async def test_poll_pending_timeout_returns_none(manager) -> None:
     polled = await manager.poll_pending(timeout_seconds=0.05)
     assert polled is None
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_ignores_runtime_context_internal_param(manager) -> None:
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={
+            "command": "echo should-match",
+            RUNTIME_CONTEXT_PARAM: RuntimeContextOverride(context="ctx-a"),
+        },
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    second = await manager.evaluate(
+        capability_id="run_command",
+        params={
+            "command": "echo should-match",
+            RUNTIME_CONTEXT_PARAM: RuntimeContextOverride(context="ctx-b"),
+        },
+        session_id="session-b",
+        reason="Tool run_command requires approval",
+    )
+
+    assert first.request is not None
+    assert second.request is not None
+    assert second.request.request_id == first.request.request_id
+    assert RUNTIME_CONTEXT_PARAM not in first.request.params
+    assert RUNTIME_CONTEXT_PARAM not in second.request.params

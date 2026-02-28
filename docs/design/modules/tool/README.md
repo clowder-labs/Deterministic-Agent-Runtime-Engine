@@ -1,6 +1,6 @@
 # Module: tool
 
-> Status: aligned to `dare_framework/tool` (2026-01-31). TODO indicates gaps vs desired architecture.
+> Status: full review aligned to `dare_framework/tool` + `dare_framework/agent` runtime path (2026-02-27).
 
 ## 1. 定位与职责
 
@@ -63,7 +63,7 @@ Tool 定义对外输出为 OpenAI function-call 兼容结构，由 `ToolManager.
 - `ToolGateway.invoke(...)` 实际执行工具并返回 `ToolResult`。
 - `DonePredicate`：检查 `ToolResult.output` 中 required_keys；不满足则继续循环。
 
-> 现状说明：ValidatedPlan.steps 不驱动工具调用；工具调用由模型响应决定（TODO）。
+> 现状说明：默认模式仍由模型响应驱动工具调用；当 `DareAgent.execution_mode="step_driven"` 时，工具调用改由 `ValidatedPlan.steps` 驱动。
 
 ## 5. 异常、权限与可靠性
 
@@ -77,7 +77,7 @@ Tool 定义对外输出为 OpenAI function-call 兼容结构，由 `ToolManager.
 - `Envelope.allowed_capability_ids` 提供 allow-list 控制。
 - `risk_level/requires_approval` 来源于 ToolRegistry metadata。
 
-> 现状说明：policy/hitl 未自动执行（`ISecurityBoundary` 未接入），需要上层集成（TODO）。
+> 现状说明：`DareAgent` ToolLoop 已接入 `ISecurityBoundary`（`verify_trust` + `check_policy` + `execute_safe`）；`APPROVE_REQUIRED` 的完整跨阶段审批语义仍待持续完善。
 
 ### 5.3 可靠性与资源限制
 
@@ -101,7 +101,7 @@ Tool 定义对外输出为 OpenAI function-call 兼容结构，由 `ToolManager.
 - Kernel：`ITool`, `IToolProvider`, `IToolGateway`, `IToolManager`（`dare_framework/tool/kernel.py`）
 - Interfaces：`IExecutionControl`（`dare_framework/tool/interfaces.py`）
 - MCP：`IMCPClient`（`dare_framework/mcp/kernel.py`），`MCPToolProvider`（`dare_framework/mcp/defaults.py`）
-- 默认 registry：`ToolManager`（`dare_framework/tool/default_tool_manager.py`，`dare_framework.tool` 也 re-export）
+- 默认 registry：`ToolManager`（`dare_framework/tool/tool_manager.py`，`dare_framework.tool` 也 re-export）
 
 ## 8. 扩展点
 
@@ -112,10 +112,10 @@ Tool 定义对外输出为 OpenAI function-call 兼容结构，由 `ToolManager.
 
 ## 9. TODO / 未决问题
 
-- TODO: 将 policy/hitl gate 接入 ToolLoop（与 `ISecurityBoundary` 结合）。
 - TODO: 工具调用审计快照（capability hash / tool defs snapshot）。
 - TODO: 能力等级与审批策略统一（risk_level ↔ approval policy）。
 - TODO: 统一 tool defs schema（跨模型 adapter 一致性）。
+- TODO: 统一 ToolLoop 中 `APPROVE_REQUIRED` 在 plan/tool 两个入口的行为语义（fail-fast vs wait/resume）。
 
 ## 10. Design Clarifications (2026-02-03)
 
@@ -152,3 +152,26 @@ flowchart TD
   D --> E["ToolResult(success/output/error/evidence)"]
   E --> F["Context + Event + Hook update"]
 ```
+
+## 能力状态（landed / partial / planned）
+
+- `landed`: 见文档头部 Status 所述的当前已落地基线能力。
+- `partial`: 当前实现可用但仍有 TODO/限制（见“约束与限制”与“TODO / 未决问题”）。
+- `planned`: 当前文档中的未来增强项，以 TODO 条目为准，未纳入当前实现承诺。
+
+## 最小标准补充（2026-02-27）
+
+### 总体架构
+- 模块实现主路径：`dare_framework/tool/`。
+- 分层契约遵循 `types.py` / `kernel.py` / `interfaces.py` / `_internal/` 约定；对外语义以本 README 的“对外接口/关键字段/关键流程”章节为准。
+- 与全局架构关系：作为 `docs/design/Architecture.md` 中对应 domain 的实现落点，通过 builder 与运行时编排接入。
+
+### 异常与错误处理
+- 参数或配置非法时，MUST 显式返回错误（抛出异常或返回失败结果），禁止静默吞错。
+- 外部依赖失败（模型/存储/网络/工具）时，优先执行可观测降级策略：记录结构化错误上下文，并在调用边界返回可判定失败。
+- 涉及副作用或策略判定的失败路径，MUST 保留审计线索（事件日志或 Hook/Telemetry 记录），以支持回放和排障。
+
+### 测试锚点（Test Anchor）
+
+- `tests/unit/test_tool_manager.py`（tool registry 管理能力）
+- `tests/unit/test_tool_gateway.py`（invoke/list_capabilities 边界行为）

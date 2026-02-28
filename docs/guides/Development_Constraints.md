@@ -8,6 +8,13 @@
 - 状态外化：所有进度、决策、证据写入文件/EventLog，避免依赖模型“记忆”。
 - 最小必要变更：新增功能时优先扩展现有组件/接口，避免跨层耦合或绕过 `IToolGateway`/`ISecurityBoundary`。
 
+## 文档先行硬门禁（新增，强制）
+- Agent 开发必须先遵循 `docs/guides/` 约束，最低要求：`Development_Constraints.md` + `Documentation_First_Development_SOP.md`。
+- 所有代码开发以 `docs/design/` 全量最新设计为准；若实现与文档冲突，必须先更新文档再改代码。
+- 设计文档必须可独立重建实现：至少显式描述总体架构、核心流程、数据结构、关键接口、异常错误处理（详见 `docs/design/Design_Doc_Minimum_Standard.md`）。
+- 任何 Bug/新增 Feature/重构，必须先执行“文档更新 + gap 分析 + TODO 拆解”，再按 OpenSpec 流程逐项落地。
+- 禁止“先写代码后补文档”；除紧急止血修复外，文档缺失视为任务未开始。紧急修复需在 24 小时内补齐文档与 gap 分析。
+
 ## 设计准则（高内聚、低耦合）
 - 模块边界：`core` 定义不可变 Kernel contract 与控制面（Layer 0，并在各 domain package 内提供最小默认实现），`components` 提供可插拔组件实现（Layer 2，含 entrypoints 机制），`protocols` 提供协议适配（Layer 1），`builder` 提供组装 API（Layer 3），业务/示例放在 `examples/`；避免跨层耦合与“绕过内核边界”的捷径。
 - 接口优先：先定义/复用抽象接口，后实现；遵循 SOLID/DRY/KISS，小函数、小对象，避免静态全局单例。默认使用 `ABC` 定义框架接口；仅在确需结构化子类型匹配时使用 `Protocol`（当前优先用于 Model 相关抽象）。
@@ -46,3 +53,4 @@
 - 新增/修改能力对应的测试齐全且可重复。
 - 代码通过 `ruff`/`black`/`mypy`/`pytest`，接口/公共函数有 docstring，命名清晰。
 - 日志/审计点到位，敏感数据已脱敏，EventLog 记录关键操作。
+- 代码改动前已完成设计文档更新；存在对应 gap 分析文档与 TODO 清单，并与 OpenSpec 任务一一对应。

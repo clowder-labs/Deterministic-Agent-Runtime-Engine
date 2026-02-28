@@ -89,11 +89,15 @@ class ApprovalsActionHandler(IActionHandler):
             scope = _parse_scope(params.get("scope"), default=ApprovalScope.WORKSPACE)
             matcher = _parse_matcher(params.get("matcher"), default=ApprovalMatcherKind.EXACT_PARAMS)
             matcher_value = _optional_matcher_value(params.get("matcher_value"))
+            actor_session_id = _optional_session_id(params.get("session_id"))
+            if actor_session_id is not None and scope != ApprovalScope.SESSION:
+                raise ValueError("session_id is only valid for scope=session")
             rule = await self._approval_manager.grant(
                 request_id,
                 scope=scope,
                 matcher=matcher,
                 matcher_value=matcher_value,
+                actor_session_id=actor_session_id,
             )
             return {
                 "request_id": request_id,
@@ -108,11 +112,15 @@ class ApprovalsActionHandler(IActionHandler):
             scope = _parse_scope(params.get("scope"), default=ApprovalScope.ONCE)
             matcher = _parse_matcher(params.get("matcher"), default=ApprovalMatcherKind.EXACT_PARAMS)
             matcher_value = _optional_matcher_value(params.get("matcher_value"))
+            actor_session_id = _optional_session_id(params.get("session_id"))
+            if actor_session_id is not None and scope != ApprovalScope.SESSION:
+                raise ValueError("session_id is only valid for scope=session")
             rule = await self._approval_manager.deny(
                 request_id,
                 scope=scope,
                 matcher=matcher,
                 matcher_value=matcher_value,
+                actor_session_id=actor_session_id,
             )
             return {
                 "request_id": request_id,

@@ -7,6 +7,7 @@ import pytest
 from dare_framework.tool.action_handler import ApprovalsActionHandler
 from dare_framework.tool._internal.control.approval_manager import (
     ApprovalDecision,
+    ApprovalEvaluationStatus,
     ApprovalMatcherKind,
     ApprovalScope,
     JsonApprovalRuleStore,
@@ -151,3 +152,42 @@ async def test_approvals_action_handler_poll_matches_deduplicated_pending_across
     request = polled["request"]
     assert isinstance(request, dict)
     assert request["request_id"] == first.request.request_id
+
+
+@pytest.mark.asyncio
+async def test_approvals_action_handler_grant_session_scope_respects_actor_session_id(manager) -> None:
+    handler = ApprovalsActionHandler(manager)
+
+    first = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo hello"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    assert first.request is not None
+
+    wait_task = asyncio.create_task(manager.wait_for_resolution(first.request.request_id))
+    _ = await handler.invoke(
+        ResourceAction.APPROVALS_GRANT,
+        request_id=first.request.request_id,
+        scope=ApprovalScope.SESSION.value,
+        matcher=ApprovalMatcherKind.CAPABILITY.value,
+        session_id="session-b",
+    )
+    assert await wait_task == ApprovalDecision.ALLOW
+
+    session_a = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo hello"},
+        session_id="session-a",
+        reason="Tool run_command requires approval",
+    )
+    assert session_a.status == ApprovalEvaluationStatus.PENDING
+
+    session_b = await manager.evaluate(
+        capability_id="run_command",
+        params={"command": "echo hello"},
+        session_id="session-b",
+        reason="Tool run_command requires approval",
+    )
+    assert session_b.status == ApprovalEvaluationStatus.ALLOW

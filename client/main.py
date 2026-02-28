@@ -962,11 +962,13 @@ def _build_parser() -> argparse.ArgumentParser:
     grant.add_argument("--scope", default="workspace")
     grant.add_argument("--matcher", default="exact_params")
     grant.add_argument("--matcher-value", default=None)
+    grant.add_argument("--session-id", default=None, help="optional request session_id scope")
     deny = approvals_sub.add_parser("deny")
     deny.add_argument("request_id")
     deny.add_argument("--scope", default="once")
     deny.add_argument("--matcher", default="exact_params")
     deny.add_argument("--matcher-value", default=None)
+    deny.add_argument("--session-id", default=None, help="optional request session_id scope")
     revoke = approvals_sub.add_parser("revoke")
     revoke.add_argument("rule_id")
 
@@ -1170,6 +1172,8 @@ async def main(argv: list[str] | None = None) -> int:
                 tokens.append(f"matcher={args.matcher}")
                 if args.matcher_value:
                     tokens.append(f"matcher_value={args.matcher_value}")
+                if args.session_id:
+                    tokens.append(f"session_id={args.session_id}")
             elif args.approvals_cmd == "revoke":
                 tokens.append(args.rule_id)
             payload = await handle_approvals_tokens(tokens, action_client=action_client)
@@ -1229,7 +1233,11 @@ async def main(argv: list[str] | None = None) -> int:
         exit_code = 130
     finally:
         if runtime is not None:
-            await runtime.close()
+            close = getattr(runtime, "close", None)
+            if callable(close):
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
     return exit_code
 
 

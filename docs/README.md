@@ -22,8 +22,8 @@
    ├── design/DARE_alignment.md
    └── design/DARE_evidence.yaml
 
-5. 代码实现（以代码为准）
-   └── dare_framework/（当前实现；可能与权威设计存在差异）
+5. 代码实现（以权威设计文档为准）
+   └── dare_framework/（当前实现；若与权威设计不一致，需先修订设计并执行 gap 分析）
 
 6. 示例实现
    ├── /examples/04-dare-coding-agent/ (五层循环示例 Agent)
@@ -39,7 +39,9 @@
 
 8. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
-   └── guides/Development_Constraints.md (开发约束清单)
+   ├── guides/Development_Constraints.md (开发约束清单)
+   ├── guides/Documentation_First_Development_SOP.md (文档先行 SOP，Bug/Feature/Refactor 必走)
+   └── design/Design_Doc_Minimum_Standard.md (设计文档最小完备标准)
 ```
 
 ### 历史参考（v1.3）
@@ -64,10 +66,11 @@
 | `design/Interfaces.md` | **接口设计**<br/>按 domain 的接口位与数据结构（权威签名/类型） | ⭐ 权威接口 |
 | `design/DARE_Formal_Design.md` | **正式设计文档**<br/>面向整体架构与核心流程的最终设计 | ⭐ 最终设计 |
 | `design/modules/README.md` | **模块级设计索引**<br/>按 Agent/模块分区的详细设计入口（含 Agent 示例） | ✅ 详细设计 |
+| `design/Design_Doc_Minimum_Standard.md` | **设计文档最小完备标准**<br/>约束每份设计文档必须覆盖架构/流程/结构/接口/异常 | ✅ 治理标准 |
 | `design/DARE_alignment.md` | **对齐清单**<br/>当前架构/接口的 claim → 证据/实现映射 | ✅ 对齐与追溯 |
 | `design/DARE_evidence.yaml` | **证据索引**<br/>claims + sources + anchors（用于文档一致性与回归） | ✅ 对齐与追溯 |
 
-### 2️⃣ 代码与工程入口（实现以代码为准）
+### 2️⃣ 代码与工程入口（实现必须对齐设计）
 
 | 文档/目录 | 作用 | 状态 |
 |---|---|---|
@@ -87,6 +90,7 @@
 | `appendix/Appendix_Industrial_Security_and_Auditing.md` | 工业级安全与审计附录：WORM、Merkle 批次密封、审计复验 |
 | `guides/Engineering_Practice_Guide_Sandbox_and_WORM.md` | 工程实践指南：沙箱执行隔离（seccomp/网络/镜像）、WORM 落地与核查 |
 | `guides/Development_Constraints.md` | 开发约束：架构不破坏、测试必备、日志/命名/复用/信任边界等硬性要求 |
+| `guides/Documentation_First_Development_SOP.md` | 文档先行 SOP：先设计文档、再 gap 分析、再 TODO、再 OpenSpec 修复、再归档 |
 | `guides/Tool_Approval_Memory.md` | 工具审批记忆使用指南：pending/grant/deny/revoke、scope/matcher、持久化与接线方式 |
 
 ---
@@ -254,7 +258,7 @@ Phase 6: 架构设计（当前权威）
 - **接口**：`design/Interfaces.md`
 - **对齐/证据**：`design/DARE_alignment.md` + `design/DARE_evidence.yaml`
 
-> 说明：实现侧仍以代码为准；若发现实现与权威设计不一致，请优先在对齐清单中记录差异并补齐证据/迁移计划。
+> 说明：实现必须对齐权威设计；若发现差异，请先更新设计文档并执行 gap 分析，再推进代码修复与迁移计划。
 
 ### Q: 为什么会看到两个 “v2.0”？
 

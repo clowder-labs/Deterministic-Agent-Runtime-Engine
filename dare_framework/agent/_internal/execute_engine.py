@@ -20,6 +20,7 @@ class ExecuteEngineAgent(Protocol):
     """Minimal DareAgent contract required by execute-loop execution."""
 
     _context: Any
+    _execution_mode: str
     _exec_ctl: Any
     _max_tool_iterations: int
     _model: Any
@@ -38,6 +39,14 @@ class ExecuteEngineAgent(Protocol):
         tool_name: str,
         tool_call_id: str,
         descriptor: Any | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def _run_step_driven_execute_loop(
+        self,
+        plan: Any,
+        execute_start: float,
+        *,
+        transport: Any | None = None,
     ) -> dict[str, Any]: ...
 
     async def _finalize_execute(self, start_time: float, result: dict[str, Any]) -> dict[str, Any]: ...
@@ -79,6 +88,12 @@ async def run_execute_loop(
     await agent._emit_hook(HookPhase.BEFORE_EXECUTE, {
         "plan_present": plan is not None,
     })
+    if agent._execution_mode == "step_driven":
+        return await agent._run_step_driven_execute_loop(
+            plan,
+            execute_start,
+            transport=transport,
+        )
     agent._context.budget_check()
 
     before_context_dispatch = await agent._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})

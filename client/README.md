@@ -40,7 +40,7 @@
 # 审批控制
 .venv/bin/python -m client approvals list
 .venv/bin/python -m client approvals poll --timeout-ms 30000
-.venv/bin/python -m client approvals grant <request_id> --scope workspace --matcher exact_params
+.venv/bin/python -m client approvals grant <request_id> --scope workspace --matcher exact_params [--session-id session-id]
 
 # MCP 控制
 .venv/bin/python -m client mcp list

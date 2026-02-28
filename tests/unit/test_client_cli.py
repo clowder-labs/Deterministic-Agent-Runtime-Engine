@@ -109,7 +109,105 @@ async def test_handle_approvals_tokens_grant() -> None:
     ]
 
 
-def test_build_doctor_report_warns_on_missing_api_key() -> None:
+@pytest.mark.asyncio
+async def test_handle_approvals_tokens_grant_with_session_id() -> None:
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    class _ActionClient:
+        async def invoke_action(self, action, **params):  # noqa: ANN001
+            action_id = action.value if hasattr(action, "value") else str(action)
+            calls.append((action_id, {k: str(v) for k, v in params.items()}))
+            return {"ok": True}
+
+    payload = await handle_approvals_tokens(
+        ["grant", "req-1", "scope=workspace", "matcher=exact_params", "session_id=session-42"],
+        action_client=_ActionClient(),  # type: ignore[arg-type]
+    )
+    assert payload == {"ok": True}
+    assert calls == [
+        (
+            "approvals:grant",
+            {
+                "request_id": "req-1",
+                "scope": "workspace",
+                "matcher": "exact_params",
+                "session_id": "session-42",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_main_approvals_grant_forwards_session_id(monkeypatch, tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+            "mcp_paths": [],
+        }
+    )
+
+    captured_tokens: list[str] = []
+
+    async def _fake_handle_approvals_tokens(tokens, *, action_client):  # noqa: ANN001
+        captured_tokens[:] = tokens
+        return {"ok": True}
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.client_channel = object()
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return _FakeRuntime()
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "handle_approvals_tokens", _fake_handle_approvals_tokens)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "approvals",
+            "grant",
+            "req-1",
+            "--scope",
+            "workspace",
+            "--matcher",
+            "exact_params",
+            "--session-id",
+            "session-42",
+        ]
+    )
+
+    assert rc == 0
+    assert captured_tokens == [
+        "grant",
+        "req-1",
+        "scope=workspace",
+        "matcher=exact_params",
+        "session_id=session-42",
+    ]
+
+
+def test_build_doctor_report_warns_on_missing_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     config = Config.from_dict(
         {
             "workspace_dir": ".",

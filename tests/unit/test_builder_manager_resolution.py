@@ -167,7 +167,7 @@ class DummyConfigProvider:
 @pytest.mark.asyncio
 async def test_simple_chat_builder_resolves_model_via_manager() -> None:
     manager_model = DummyModelAdapter("from-manager")
-    agent = (
+    agent = await (
         BaseAgent.simple_chat_agent_builder("test")
         .with_managers(model_adapter_manager=FixedModelAdapterManager(manager_model))
         .build()
@@ -181,7 +181,7 @@ async def test_simple_chat_builder_resolves_model_via_manager() -> None:
 async def test_simple_chat_builder_explicit_model_overrides_manager() -> None:
     explicit = DummyModelAdapter("explicit")
     manager_model = DummyModelAdapter("from-manager")
-    agent = (
+    agent = await (
         BaseAgent.simple_chat_agent_builder("test")
         .with_model(explicit)
         .with_managers(model_adapter_manager=FixedModelAdapterManager(manager_model))
@@ -192,9 +192,10 @@ async def test_simple_chat_builder_explicit_model_overrides_manager() -> None:
     assert result.output == "explicit"
 
 
-def test_simple_chat_builder_resolves_config_via_provider_when_config_missing() -> None:
+@pytest.mark.asyncio
+async def test_simple_chat_builder_resolves_config_via_provider_when_config_missing() -> None:
     provided = Config(workspace_dir="/from-provider", user_dir="/from-provider")
-    agent = (
+    agent = await (
         BaseAgent.simple_chat_agent_builder("config-provider-test")
         .with_model(DummyModelAdapter("ok"))
         .with_config_provider(DummyConfigProvider(provided))
@@ -205,10 +206,11 @@ def test_simple_chat_builder_resolves_config_via_provider_when_config_missing() 
     assert agent.context.config.user_dir == "/from-provider"
 
 
-def test_simple_chat_builder_explicit_config_overrides_provider() -> None:
+@pytest.mark.asyncio
+async def test_simple_chat_builder_explicit_config_overrides_provider() -> None:
     explicit = Config(workspace_dir="/explicit", user_dir="/explicit")
     provider = DummyConfigProvider(Config(workspace_dir="/from-provider", user_dir="/from-provider"))
-    agent = (
+    agent = await (
         BaseAgent.simple_chat_agent_builder("config-override-test")
         .with_model(DummyModelAdapter("ok"))
         .with_config_provider(provider)
@@ -220,7 +222,8 @@ def test_simple_chat_builder_explicit_config_overrides_provider() -> None:
     assert agent.context.config.user_dir == "/explicit"
 
 
-def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:
+@pytest.mark.asyncio
+async def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:
     explicit_tool = DummyTool("explicit_tool")
     enabled_tool = DummyTool("enabled_tool")
     disabled_tool = DummyTool("disabled_tool")
@@ -235,7 +238,7 @@ def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:
             )
         }
     )
-    agent = (
+    agent = await (
         BaseAgent.simple_chat_agent_builder("test")
         .with_model(DummyModelAdapter("ok"))
         .with_config(config)
@@ -245,7 +248,7 @@ def test_simple_chat_builder_tools_extend_and_config_boundary() -> None:
     )
 
     tool_defs = agent.context.list_tools()
-    names = {tool_def.get("metadata", {}).get("display_name") for tool_def in tool_defs}
+    names = {tool_def.name for tool_def in tool_defs}
     assert "explicit_tool" in names
     assert "enabled_tool" in names
     assert "disabled_tool" not in names
@@ -275,7 +278,7 @@ async def test_five_layer_builder_validators_extend_and_config_boundary() -> Non
             )
         }
     )
-    agent = (
+    agent = await (
         BaseAgent.dare_agent_builder("test")
         .with_model(DummyModelAdapter("ok"))
         .with_config(config)
@@ -291,7 +294,8 @@ async def test_five_layer_builder_validators_extend_and_config_boundary() -> Non
     assert calls == ["explicit_validator", "enabled_manager_validator"]
 
 
-def test_five_layer_builder_hooks_extend_and_config_boundary() -> None:
+@pytest.mark.asyncio
+async def test_five_layer_builder_hooks_extend_and_config_boundary() -> None:
     explicit_hook = RecordingHook("explicit_hook")
     enabled_hook = RecordingHook("enabled_manager_hook")
     disabled_hook = RecordingHook("disabled_manager_hook")
@@ -306,7 +310,7 @@ def test_five_layer_builder_hooks_extend_and_config_boundary() -> None:
             )
         }
     )
-    agent = (
+    agent = await (
         BaseAgent.dare_agent_builder("test")
         .with_model(DummyModelAdapter("ok"))
         .with_config(config)

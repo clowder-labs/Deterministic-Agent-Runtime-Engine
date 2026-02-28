@@ -437,8 +437,12 @@ async def _handle_mcp_command(
 def _approvals_usage(display: CLIDisplay) -> None:
     display.info("/approvals list")
     display.info("/approvals poll [timeout_ms=30000] [session_id=...]")
-    display.info("/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...]")
-    display.info("/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...]")
+    display.info(
+        "/approvals grant <request_id> [scope=workspace] [matcher=exact_params] [matcher_value=...] [session_id=...]"
+    )
+    display.info(
+        "/approvals deny <request_id> [scope=once] [matcher=exact_params] [matcher_value=...] [session_id=...]"
+    )
     display.info("/approvals revoke <rule_id>")
 
 
@@ -466,8 +470,10 @@ async def _invoke_approval_action(
     event_type = response.event_type
     if not isinstance(event_type, str) or not event_type:
         raise RuntimeError("invalid action response: missing event_type")
-    if event_type == "error":
-        raise RuntimeError(str(payload.get("reason") or payload.get("error") or "action failed"))
+    if event_type != "result":
+        if event_type == "error":
+            raise RuntimeError(str(payload.get("reason") or payload.get("error") or "action failed"))
+        raise RuntimeError(f"invalid action response event_type: {event_type}")
 
     resp = payload.get("resp")
     if not isinstance(resp, dict):
@@ -477,6 +483,42 @@ async def _invoke_approval_action(
     if not isinstance(result, dict):
         raise RuntimeError(f"unexpected action result shape: {payload!r}")
     return result
+
+
+def _parse_key_value_args(tokens: list[str]) -> tuple[list[str], dict[str, str]]:
+    positional: list[str] = []
+    options: dict[str, str] = {}
+    for token in tokens:
+        if "=" in token:
+            key, value = token.split("=", 1)
+            normalized = key.strip()
+            if normalized:
+                options[normalized] = value.strip()
+            continue
+        positional.append(token)
+    return positional, options
+
+
+def _build_approval_action_params(
+    *,
+    request_id: str,
+    trailing_args: list[str],
+) -> dict[str, Any]:
+    _positional, options = _parse_key_value_args(trailing_args)
+    params: dict[str, Any] = {"request_id": request_id}
+    for key in ("scope", "matcher", "matcher_value", "session_id"):
+        if key in options and options[key]:
+            params[key] = options[key]
+    return params
+
+
+def _build_approval_poll_params(trailing_args: list[str]) -> dict[str, Any]:
+    _positional, options = _parse_key_value_args(trailing_args)
+    params: dict[str, Any] = {}
+    for key in ("timeout_ms", "timeout_seconds", "session_id"):
+        if key in options and options[key]:
+            params[key] = options[key]
+    return params
 
 
 def _approval_action_timeout_seconds(action: ResourceAction, params: dict[str, Any]) -> float:
@@ -505,42 +547,6 @@ def _parse_poll_timeout_seconds(params: dict[str, Any]) -> float | None:
             raise ValueError("timeout_ms must be >= 0")
         return millis / 1000.0
     return None
-
-
-def _parse_key_value_args(tokens: list[str]) -> tuple[list[str], dict[str, str]]:
-    positional: list[str] = []
-    options: dict[str, str] = {}
-    for token in tokens:
-        if "=" in token:
-            key, value = token.split("=", 1)
-            normalized = key.strip()
-            if normalized:
-                options[normalized] = value.strip()
-            continue
-        positional.append(token)
-    return positional, options
-
-
-def _build_approval_action_params(
-    *,
-    request_id: str,
-    trailing_args: list[str],
-) -> dict[str, Any]:
-    _positional, options = _parse_key_value_args(trailing_args)
-    params: dict[str, Any] = {"request_id": request_id}
-    for key in ("scope", "matcher", "matcher_value"):
-        if key in options and options[key]:
-            params[key] = options[key]
-    return params
-
-
-def _build_approval_poll_params(trailing_args: list[str]) -> dict[str, Any]:
-    _positional, options = _parse_key_value_args(trailing_args)
-    params: dict[str, Any] = {}
-    for key in ("timeout_ms", "timeout_seconds", "session_id"):
-        if key in options and options[key]:
-            params[key] = options[key]
-    return params
 
 
 async def _handle_approvals_command(

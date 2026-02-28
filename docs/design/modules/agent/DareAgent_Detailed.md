@@ -101,6 +101,6 @@ Event：
 
 ## 7. 当前已知设计待补齐点（详见 TODO）
 
-1. step-driven 执行引擎尚未打通完整闭环。
+1. step-driven 执行基线已落地，需继续补齐复杂场景（多步依赖/失败补救组合）的覆盖与验证。
 2. 文件体量偏大，需按 loop 职责拆分 orchestrator。
 3. output 形状跨 agent 仍需进一步收敛。
