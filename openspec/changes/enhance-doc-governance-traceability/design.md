@@ -29,7 +29,8 @@ PR #113 已明确把“文档治理哲学互学”拆分为独立变更执行。
 - 理由：A 与现有治理流程天然对齐，避免并行编号体系导致维护成本上升。
 
 ### Decision 2: frontmatter 合约采用“最小必填 + 可扩展字段”
-- 必填：`feature_ids`（或 `change_ids`）、`topics`、`doc_kind`、`created`。
+- 必填（OpenSpec mode）：`change_ids`、`topics`、`doc_kind`、`created`。
+- 必填（TODO fallback mode）：`topic_slug`、`mode: todo_fallback`、`topics`、`doc_kind`、`created`（迁移后补 `change_ids`）。
 - 可选：`debt_ids`、`related_specs`、`status`。
 - 理由：先保证可检索与可追踪，再逐步扩展，避免一次性要求过重。
 

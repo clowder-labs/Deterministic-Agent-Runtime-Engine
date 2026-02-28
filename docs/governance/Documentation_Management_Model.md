@@ -32,7 +32,10 @@ The documentation system MUST satisfy both goals:
 
 1. Design docs: place under `docs/design/**`; must align with current implementation contract.
 2. Analysis docs: place under `docs/todos/` as dated gap analysis and TODO pairs.
-3. Feature docs: place under `docs/features/<change-id>.md`; this is the single source for feature/change status.
+3. Feature docs:
+   - OpenSpec mode: place under `docs/features/<change-id>.md`
+   - TODO fallback mode: place under `docs/features/<topic-slug>.md` with `mode: todo_fallback` + `topic_slug`
+   - this aggregation doc remains the single source for feature/change status in either mode.
 4. Standards docs: place under `docs/guides/` or top-level governance rule files.
 5. Temporary docs: place under `docs/mailbox/`; must be linked to an owner thread and cleanup plan.
 

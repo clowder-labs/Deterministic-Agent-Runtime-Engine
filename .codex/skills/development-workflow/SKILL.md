@@ -23,7 +23,7 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 
 2. TODO fallback mode (only if OpenSpec unavailable)
 - still start from analysis + master TODO + updated design docs
-- create `docs/features/<topic-slug>.md` with `mode: todo_fallback`
+- create `docs/features/<topic-slug>.md` with `mode: todo_fallback` and required `topic_slug` frontmatter
 - create dated gap/TODO pair in `docs/todos/`
 - once OpenSpec is available, migrate fallback assets into one or more OpenSpec slice changes
 

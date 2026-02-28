@@ -129,7 +129,7 @@
 
 仅在 OpenSpec 不可用（工具/环境受限）时使用：
 1. 先完成分析 + 总体 TODO 主清单 + docs 基线更新。
-2. 创建 `docs/features/<topic-slug>.md`，并在 frontmatter 声明 `mode: todo_fallback`。
+2. 创建 `docs/features/<topic-slug>.md`，并在 frontmatter 声明 `mode: todo_fallback` 与 `topic_slug`。
 3. 以 TODO 清单推进并持续回写 evidence（不阻塞于 OpenSpec 工具可用性）。
 4. OpenSpec 可用后，按 TODO 切片补迁移：将 fallback 资产映射到一个或多个新的 `openspec/changes/<change-id>/` 并记录迁移证据。
 
