@@ -13,7 +13,7 @@
 
 ## 3. Verification and regression protection
 
-- [ ] 3.1 Add/adjust targeted unit tests for extracted execution units (success/failure/approval/policy/retry branches).
+- [x] 3.1 Add/adjust targeted unit tests for extracted execution units (success/failure/approval/policy/retry branches).
 - [x] 3.2 Run affected unit test suites for agent execute/tool/milestone paths and fix regressions.
 - [x] 3.3 Run design-doc drift and compile checks to ensure governance and structural integrity remain green.
 
@@ -34,7 +34,6 @@
   - `dare_framework/agent/_internal/orchestration.py`
 - New targeted tests:
   - `tests/unit/test_dare_agent_orchestration_split.py`
-  - Current scope verifies facade-to-internal delegation wiring; branch-level success/failure/approval/policy/retry coverage remains pending under task 3.1.
 - Regression suites executed:
   - `/Users/lang/workspace/github/Deterministic-Agent-Runtime-Engine/.venv/bin/pytest -q tests/unit/test_five_layer_agent.py tests/unit/test_dare_agent_hook_governance.py tests/unit/test_dare_agent_hook_transport_boundary.py tests/unit/test_dare_agent_orchestration_split.py`
   - `PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m compileall -q dare_framework tests`
