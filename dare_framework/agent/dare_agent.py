@@ -15,12 +15,17 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
+from dare_framework.agent._internal.output_normalizer import build_output_envelope
+from dare_framework.agent._internal.execute_engine import run_execute_loop
+from dare_framework.agent._internal.milestone_orchestrator import run_milestone_loop
+from dare_framework.agent._internal.orchestration import MilestoneResult, SessionState
+from dare_framework.agent._internal.session_orchestrator import run_session_loop
+from dare_framework.agent._internal.tool_executor import run_tool_loop
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import AssembledContext, Message
 from dare_framework.hook._internal.hook_extension_point import HookExtensionPoint
@@ -63,7 +68,6 @@ from dare_framework.security import (
     TrustedInput,
 )
 from dare_framework.tool._internal.governed_tool_gateway import (
-    ApprovalInvokeContext,
     GovernedToolGateway,
 )
 from dare_framework.tool._internal.control.approval_manager import (
@@ -82,16 +86,6 @@ from dare_framework.transport.types import (
     new_envelope_id,
 )
 
-
-@dataclass
-class MilestoneResult:
-    """Result from a milestone loop execution."""
-    success: bool
-    outputs: list[Any] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    verify_result: VerifyResult | None = None
-
-
 @dataclass(frozen=True)
 class SecurityPreflightResult:
     """Outcome of tool security preflight checks."""
@@ -99,8 +93,6 @@ class SecurityPreflightResult:
     trusted_input: TrustedInput
     decision: PolicyDecision
     reason: str | None = None
-
-
 if TYPE_CHECKING:
     from dare_framework.config.types import Config
     from dare_framework.context.kernel import IContext
@@ -260,7 +252,12 @@ class DareAgent(BaseAgent):
         # Runtime state (set during execution)
         self._session_state: SessionState | None = None
         self._conversation_id: str | None = None
-        self._token_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
+        self._token_usage: dict[str, int] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
 
     @property
     def context(self) -> IContext:
@@ -349,7 +346,12 @@ class DareAgent(BaseAgent):
         if task_obj.task_id is None:
             task_obj = replace(task_obj, task_id=uuid4().hex[:8])
         self._session_state = SessionState(task_id=task_obj.task_id)
-        self._token_usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
+        self._token_usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
         execution_mode = "five_layer"
         await self._emit_hook(
             HookPhase.BEFORE_RUN,
@@ -364,6 +366,7 @@ class DareAgent(BaseAgent):
         error: Exception | None = None
         try:
             result = await self._run_session_loop(task_obj, transport=transport)
+            result = self._with_output_envelope(result)
             return self._with_normalized_output_text(result)
         except Exception as exc:
             error = exc
@@ -379,8 +382,7 @@ class DareAgent(BaseAgent):
             token_usage = {
                 "input_tokens": self._token_usage.get("input_tokens", 0),
                 "output_tokens": self._token_usage.get("output_tokens", 0),
-                "total_tokens": self._token_usage.get("input_tokens", 0)
-                + self._token_usage.get("output_tokens", 0),
+                "total_tokens": self._token_usage.get("total_tokens", 0),
                 "cached_tokens": self._token_usage.get("cached_tokens", 0),
             }
             payload = {
@@ -403,106 +405,7 @@ class DareAgent(BaseAgent):
         transport: AgentChannel | None = None,
     ) -> RunResult:
         """Run the session loop - top-level task lifecycle."""
-        # Initialize session state
-        if self._session_state is None:
-            self._session_state = SessionState(
-                task_id=task.task_id or uuid4().hex[:8],
-            )
-        session_start = time.perf_counter()
-        await self._emit_hook(HookPhase.BEFORE_SESSION, {
-            "task_id": self._session_state.task_id,
-            "run_id": self._session_state.run_id,
-        })
-
-        # Log session start
-        await self._log_event("session.start", {
-            "task_id": self._session_state.task_id,
-            "run_id": self._session_state.run_id,
-        })
-
-        # Add user message to STM
-        user_message = Message(role="user", content=task.description)
-        self._context.stm_add(user_message)
-
-        # Get or decompose milestones
-        if task.milestones:
-            # Use pre-defined milestones
-            milestones = list(task.milestones)
-            await self._log_event("session.milestones_predefined", {
-                "count": len(milestones),
-            })
-        elif self._planner is not None:
-            # Decompose task into milestones using planner
-            self._log("Decomposing task into milestones...")
-            decomposition = await self._planner.decompose(task, self._context)
-            milestones = decomposition.milestones
-            await self._log_event("session.milestones_decomposed", {
-                "count": len(milestones),
-                "reasoning": decomposition.reasoning,
-            })
-        else:
-            # Fall back to single milestone
-            milestones = task.to_milestones()
-            await self._log_event("session.milestones_default", {
-                "count": len(milestones),
-            })
-
-        # Initialize milestone states
-        for milestone in milestones:
-            self._session_state.milestone_states.append(
-                MilestoneState(milestone=milestone)
-            )
-
-        # Run milestone loop for each milestone
-        milestone_results = []
-        errors: list[str] = []
-
-        for idx, milestone in enumerate(milestones):
-            self._session_state.current_milestone_idx = idx
-            self._log(f"Starting milestone {idx + 1}/{len(milestones)}: {milestone.milestone_id}")
-
-            # Check budget before each milestone
-            # TODO(@mahaichuan-qq): Confirm exception type for budget_check()
-            self._context.budget_check()
-
-            # Check execution control
-            # TODO(@bouillipx): Confirm poll_or_raise() exists
-            if self._exec_ctl is not None:
-                self._poll_or_raise()
-
-            result = await self._run_milestone_loop(milestone, transport=transport)
-            milestone_results.append(result)
-            self._log(f"Milestone {idx + 1} result: success={result.success}")
-
-            if not result.success:
-                errors.extend(result.errors or ["milestone failed"])
-                break
-
-        # Log session complete
-        success = not errors
-        await self._log_event("session.complete", {
-            "task_id": self._session_state.task_id,
-            "run_id": self._session_state.run_id,
-            "success": success,
-        })
-        await self._emit_hook(HookPhase.AFTER_SESSION, {
-            "success": success,
-            "duration_ms": (time.perf_counter() - session_start) * 1000.0,
-            "budget_stats": self._budget_stats(),
-        })
-
-        # Get output from last milestone
-        output = None
-        if milestone_results:
-            last_result = milestone_results[-1]
-            if last_result.outputs:
-                output = last_result.outputs[-1]
-
-        return RunResult(
-            success=success,
-            output=output,
-            errors=errors,
-        )
+        return await run_session_loop(self, task, transport=transport)
 
     # =========================================================================
     # Milestone Loop (Layer 2)
@@ -515,160 +418,7 @@ class DareAgent(BaseAgent):
         transport: AgentChannel | None = None,
     ) -> MilestoneResult:
         """Run the milestone loop - sub-goal tracking."""
-        milestone_start = time.perf_counter()
-        await self._emit_hook(HookPhase.BEFORE_MILESTONE, {
-            "milestone_id": milestone.milestone_id,
-            "milestone_index": self._session_state.current_milestone_idx if self._session_state else None,
-        })
-        await self._log_event("milestone.start", {
-            "milestone_id": milestone.milestone_id,
-        })
-
-        milestone_state = self._session_state.current_milestone_state
-
-        for attempt in range(self._max_milestone_attempts):
-            if milestone_state is not None:
-                milestone_state.attempts = attempt + 1
-            self._log(f"Milestone attempt {attempt + 1}/{self._max_milestone_attempts}")
-            # Budget check
-            self._context.budget_check()
-
-            # Create snapshot for plan attempt isolation
-            snapshot_id = None
-            if self._sandbox is not None:
-                snapshot_id = self._sandbox.create_snapshot(self._context)
-                self._log(f"Created STM snapshot: {snapshot_id}")
-
-            # Run plan loop (if planner available)
-            self._log("Running plan loop...")
-            validated_plan = await self._run_plan_loop(milestone)
-            self._log(f"Plan loop done, validated_plan={validated_plan is not None}")
-
-            plan_policy_error: str | None = None
-            plan_policy_decision = "not_applicable"
-            if validated_plan is not None:
-                try:
-                    plan_policy_error, plan_policy_decision = await self._check_plan_policy(
-                        milestone,
-                        validated_plan,
-                    )
-                except Exception as exc:
-                    # Preserve milestone-level failure semantics when policy backends
-                    # are unavailable instead of aborting the whole run.
-                    plan_policy_error = f"plan policy evaluation failed: {exc}"
-                    plan_policy_decision = "error"
-            if plan_policy_error is not None:
-                if self._sandbox is not None and snapshot_id:
-                    self._sandbox.rollback(self._context, snapshot_id)
-                    self._log(f"Rolled back STM snapshot: {snapshot_id}")
-                await self._log_event(
-                    "security.plan.policy",
-                    {
-                        "milestone_id": milestone.milestone_id,
-                        "decision": plan_policy_decision,
-                        "error": plan_policy_error,
-                    },
-                )
-                await self._log_event(
-                    "milestone.failed",
-                    {
-                        "milestone_id": milestone.milestone_id,
-                        "attempts": attempt + 1,
-                        "reason": "plan_policy",
-                    },
-                )
-                await self._emit_hook(
-                    HookPhase.AFTER_MILESTONE,
-                    {
-                        "milestone_id": milestone.milestone_id,
-                        "success": False,
-                        "attempts": attempt + 1,
-                        "errors": [plan_policy_error],
-                        "duration_ms": (time.perf_counter() - milestone_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return MilestoneResult(
-                    success=False,
-                    outputs=[],
-                    errors=[plan_policy_error],
-                    verify_result=VerifyResult(success=False, errors=[plan_policy_error]),
-                )
-
-            # Run execute loop
-            self._log("Running execute loop...")
-            execute_result = await self._run_execute_loop(validated_plan, transport=transport)
-            self._log(f"Execute loop done, result keys={list(execute_result.keys())}")
-
-            # Handle plan tool encountered
-            if execute_result.get("encountered_plan_tool", False):
-                if milestone_state:
-                    milestone_state.add_reflection(
-                        f"plan tool encountered: {execute_result.get('plan_tool_name')}"
-                    )
-                # Rollback on plan tool encounter
-                if self._sandbox is not None and snapshot_id:
-                    self._sandbox.rollback(self._context, snapshot_id)
-                    self._log(f"Rolled back STM snapshot: {snapshot_id}")
-                continue
-
-            # Verify milestone (if validator available); pass plan so validator can use step criteria (e.g. expected_files)
-            verify_result = await self._verify_milestone(execute_result, validated_plan)
-
-            if verify_result.success:
-                # Commit snapshot on success (discard, keep current state)
-                if self._sandbox is not None and snapshot_id:
-                    self._sandbox.commit(snapshot_id)
-                    self._log(f"Committed STM snapshot: {snapshot_id}")
-
-                await self._log_event("milestone.success", {
-                    "milestone_id": milestone.milestone_id,
-                    "attempts": attempt + 1,
-                })
-                await self._emit_hook(HookPhase.AFTER_MILESTONE, {
-                    "milestone_id": milestone.milestone_id,
-                    "success": True,
-                    "attempts": attempt + 1,
-                    "duration_ms": (time.perf_counter() - milestone_start) * 1000.0,
-                    "budget_stats": self._budget_stats(),
-                })
-                return MilestoneResult(
-                    success=True,
-                    outputs=execute_result.get("outputs", []),
-                    errors=[],
-                    verify_result=verify_result,
-                )
-
-            # Rollback on verification failure
-            if self._sandbox is not None and snapshot_id:
-                self._sandbox.rollback(self._context, snapshot_id)
-                self._log(f"Rolled back STM snapshot: {snapshot_id}")
-
-            # Remediate if available (reflection survives rollback)
-            if self._remediator is not None and milestone_state:
-                reflection = await self._remediator.remediate(
-                    verify_result,
-                    ctx=self._context,
-                )
-                milestone_state.add_reflection(reflection)
-
-        # All attempts exhausted
-        await self._log_event("milestone.failed", {
-            "milestone_id": milestone.milestone_id,
-        })
-        await self._emit_hook(HookPhase.AFTER_MILESTONE, {
-            "milestone_id": milestone.milestone_id,
-            "success": False,
-            "attempts": self._max_milestone_attempts,
-            "duration_ms": (time.perf_counter() - milestone_start) * 1000.0,
-            "budget_stats": self._budget_stats(),
-        })
-        return MilestoneResult(
-            success=False,
-            outputs=[],
-            errors=["milestone failed after max attempts"],
-            verify_result=None,
-        )
+        return await run_milestone_loop(self, milestone, transport=transport)
 
     # =========================================================================
     # Plan Loop (Layer 3)
@@ -786,238 +536,7 @@ class DareAgent(BaseAgent):
         transport: AgentChannel | None = None,
     ) -> dict[str, Any]:
         """Run the execute loop - model-driven execution."""
-        self._log("Starting execute loop")
-        execute_start = time.perf_counter()
-        await self._emit_hook(HookPhase.BEFORE_EXECUTE, {
-            "plan_present": plan is not None,
-        })
-        if self._execution_mode == "step_driven":
-            return await self._run_step_driven_execute_loop(
-                plan,
-                execute_start,
-                transport=transport,
-            )
-
-        # Budget check
-        self._context.budget_check()
-
-        # Assemble context for execution
-        before_context_dispatch = await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
-        assembled = self._context.assemble()
-        assembled_messages, assembled_tools, assembled_metadata = self._apply_context_patch(
-            assembled,
-            before_context_dispatch,
-        )
-        await self._emit_hook(
-            HookPhase.AFTER_CONTEXT_ASSEMBLE,
-            {
-                **self._context_stats(assembled_messages, len(assembled_tools)),
-                "budget_stats": self._budget_stats(),
-            },
-        )
-
-        # Create prompt
-        model_input = ModelInput(
-            messages=assembled_messages,
-            tools=assembled_tools,
-            metadata=assembled_metadata,
-        )
-
-        outputs: list[Any] = []
-        errors: list[str] = []
-
-        for iteration in range(self._max_tool_iterations):
-            # Budget check each iteration
-            self._context.budget_check()
-
-            # Check execution control
-            if self._exec_ctl is not None:
-                self._poll_or_raise()
-
-            # Generate model response
-            self._log(f"Execute iteration {iteration + 1}/{self._max_tool_iterations}")
-            self._log_model_messages(model_input.messages, stage=f"execute:{iteration + 1}")
-            before_model_dispatch = await self._emit_hook(HookPhase.BEFORE_MODEL, {
-                "iteration": iteration + 1,
-                "model_name": getattr(self._model, "name", None),
-                "model_input": model_input,
-            })
-            if before_model_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
-                policy_error = (
-                    "model invocation requires hook approval"
-                    if before_model_dispatch.decision is HookDecision.ASK
-                    else "model invocation denied by hook policy"
-                )
-                errors.append(policy_error)
-                return await self._finalize_execute(
-                    execute_start,
-                    {"success": False, "outputs": outputs, "errors": errors},
-                )
-            model_input = self._apply_model_input_patch(model_input, before_model_dispatch)
-            model_start = time.perf_counter()
-            response = await self._model.generate(model_input)
-            model_latency_ms = (time.perf_counter() - model_start) * 1000.0
-
-            if response.usage:
-                self._record_token_usage(response.usage)
-                total_tokens = self._total_tokens_from_usage(response.usage)
-                if total_tokens:
-                    self._context.budget_use("tokens", total_tokens)
-
-            # Log model response
-            if response.content:
-                content_preview = response.content[:200] + "..." if len(response.content) > 200 else response.content
-                self._log(f"LLM Response: {content_preview}")
-            self._log(f"Tool calls: {len(response.tool_calls)}")
-
-            await self._log_event("model.response", {
-                "iteration": iteration + 1,
-                "has_tool_calls": bool(response.tool_calls),
-            })
-            await self._emit_hook(HookPhase.AFTER_MODEL, {
-                "iteration": iteration + 1,
-                "model_name": getattr(self._model, "name", None),
-                "has_tool_calls": bool(response.tool_calls),
-                "model_usage": response.usage or {},
-                "duration_ms": model_latency_ms,
-                "budget_stats": self._budget_stats(),
-                "model_output": {
-                    "content": response.content,
-                    "tool_calls": response.tool_calls,
-                    "metadata": response.metadata,
-                },
-            })
-
-            # No tool calls: we're done
-            if not response.tool_calls:
-                # Add response to STM
-                assistant_message = Message(role="assistant", content=response.content)
-                self._context.stm_add(assistant_message)
-
-                outputs.append({"content": response.content})
-                return await self._finalize_execute(execute_start, {
-                    "success": True,
-                    "outputs": outputs,
-                    "errors": errors,
-                })
-
-            # Process tool calls
-            capability_index = await self._capability_index() if response.tool_calls else {}
-
-            # Add assistant message with tool_calls to STM (so LLM can see what it called)
-            import json
-            assistant_msg = Message(
-                role="assistant",
-                content=response.content or "",
-                metadata={"tool_calls": response.tool_calls} if response.tool_calls else {},
-            )
-            self._context.stm_add(assistant_msg)
-
-            for tool_call in response.tool_calls:
-                name = tool_call.get("name") or ""
-                capability_id = tool_call.get("capability_id") or name
-                tool_call_id = tool_call.get("id") or f"{capability_id}_{iteration + 1}_{uuid4().hex[:6]}"
-                descriptor = capability_index.get(capability_id) or capability_index.get(name)
-
-                # Check for plan tool (registry kind preferred, prefix supported)
-                if self._is_plan_tool_call(name, descriptor):
-                    return await self._finalize_execute(execute_start, {
-                        "success": False,
-                        "outputs": outputs,
-                        "errors": errors,
-                        "encountered_plan_tool": True,
-                        "plan_tool_name": name,
-                    })
-
-                # Run tool loop
-                # Get actual tool name for logging (not internal ID)
-                tool_name = name or capability_id
-                args = tool_call.get('arguments', {})
-                # Log tool call with readable format
-                if 'path' in args:
-                    self._log(f"🔧 Calling [{tool_name}] path={args.get('path')}")
-                elif 'command' in args:
-                    self._log(f"🔧 Calling [{tool_name}] command={args.get('command', '')[:50]}")
-                elif 'query' in args:
-                    self._log(f"🔧 Calling [{tool_name}] query={args.get('query', '')[:50]}")
-                else:
-                    self._log(f"🔧 Calling [{tool_name}] params={list(args.keys())}")
-
-                tool_result = await self._run_tool_loop(
-                    ToolLoopRequest(
-                        capability_id=capability_id,
-                        params=tool_call.get("arguments", {}),
-                    ),
-                    transport=transport,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    descriptor=descriptor,
-                )
-
-                # Log result
-                result_success = tool_result.get("success", False)
-                result_output = tool_result.get("output", {})
-                result_error = tool_result.get("error", "")
-                # Keep explicit result categories for downstream policy-aware handling.
-                result_status = tool_result.get("status", "success" if result_success else "fail")
-
-                if result_success and self._is_skill_tool_call(descriptor):
-                    self._mount_skill_from_result(result_output)
-                
-                if result_success:
-                    self._log(f"   ✅ Success: {result_output}")
-                else:
-                    self._log(f"   ❌ Failed({result_status}): {result_error}")
-
-                # Add tool result as message to STM (CRITICAL: LLM needs to see result!)
-                tool_result_content = json.dumps(
-                    {
-                        "success": result_success,
-                        "status": result_status,
-                        "output": result_output,
-                        "error": None if result_success else result_error,
-                    },
-                    default=str,
-                )
-                tool_msg = Message(
-                    role="tool",
-                    name=tool_call_id or capability_id,  # Use tool_call_id for OpenAI API format
-                    content=tool_result_content,
-                )
-                self._context.stm_add(tool_msg)
-
-                outputs.append(tool_result)
-
-                if not result_success:
-                    errors.append(result_error or ("tool not allowed" if result_status == "not_allow" else "tool failed"))
-
-            # Reassemble context with new messages for next iteration
-            before_context_dispatch = await self._emit_hook(HookPhase.BEFORE_CONTEXT_ASSEMBLE, {})
-            assembled = self._context.assemble()
-            assembled_messages, assembled_tools, assembled_metadata = self._apply_context_patch(
-                assembled,
-                before_context_dispatch,
-            )
-            await self._emit_hook(
-                HookPhase.AFTER_CONTEXT_ASSEMBLE,
-                {
-                    **self._context_stats(assembled_messages, len(assembled_tools)),
-                    "budget_stats": self._budget_stats(),
-                },
-            )
-            model_input = ModelInput(
-                messages=assembled_messages,
-                tools=assembled_tools,
-                metadata=assembled_metadata,
-            )
-
-        # Max iterations reached
-        errors.append("max tool iterations reached")
-        return await self._finalize_execute(execute_start, {
-            "success": False,
-            "outputs": outputs,
-            "errors": errors,
-        })
+        return await run_execute_loop(self, plan, transport=transport)
 
     async def _run_step_driven_execute_loop(
         self,
@@ -1424,368 +943,20 @@ class DareAgent(BaseAgent):
         trusted_risk_level_override: RiskLevel | None = None,
     ) -> dict[str, Any]:
         """Run the tool loop - single tool invocation."""
-        # Budget check
-        self._context.budget_check()
-
-        done_predicate = request.envelope.done_predicate
-        max_calls = self._tool_loop_max_calls(request.envelope)
-        attempts = 0
-        # Use the strictest risk level from descriptor metadata and envelope
-        # constraints to avoid downgrading policy checks when descriptor data
-        # is missing/stale (e.g. step-driven validated steps).
-        risk_level = max(
-            self._risk_level_value(descriptor),
-            self._risk_level_value_from_envelope(request.envelope),
+        extra_kwargs: dict[str, Any] = {}
+        if requires_approval_override is not None:
+            extra_kwargs["requires_approval_override"] = requires_approval_override
+        if trusted_risk_level_override is not None:
+            extra_kwargs["trusted_risk_level_override"] = trusted_risk_level_override
+        return await run_tool_loop(
+            self,
+            request,
+            transport=transport,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            descriptor=descriptor,
+            **extra_kwargs,
         )
-        descriptor_requires_approval = self._requires_approval(descriptor)
-        metadata_requires_approval = requires_approval_override is True
-        requires_approval = descriptor_requires_approval
-        session_id = self._session_state.run_id if self._session_state is not None else None
-
-        while True:
-            attempts += 1
-            self._context.budget_check()
-            self._context.budget_use("tool_calls", 1)
-            tool_start = time.perf_counter()
-            before_tool_dispatch = await self._emit_hook(
-                HookPhase.BEFORE_TOOL,
-                {
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_call_id,
-                    "capability_id": request.capability_id,
-                    "attempt": attempts,
-                    "risk_level": risk_level,
-                    "requires_approval": requires_approval,
-                },
-            )
-            if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
-                policy_error = (
-                    "tool invocation requires hook approval"
-                    if before_tool_dispatch.decision is HookDecision.ASK
-                    else "tool invocation denied by hook policy"
-                )
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": False,
-                        "error": policy_error,
-                        "approved": True,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "error": policy_error,
-                    "output": {},
-                }
-            try:
-                preflight = await self._evaluate_tool_security(
-                    request=request,
-                    descriptor=descriptor,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    attempt=attempts,
-                    requires_approval_override=requires_approval_override,
-                    trusted_risk_level_override=trusted_risk_level_override,
-                )
-            except SecurityBoundaryError as exc:
-                denied_error = str(exc).strip() or "security policy denied tool invocation"
-                await self._log_event(
-                    "security.policy_denied",
-                    {
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "capability_id": request.capability_id,
-                        "code": exc.code,
-                        "reason": exc.reason,
-                        "error": denied_error,
-                    },
-                )
-                denied_status = "not_allow"
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": False,
-                        "error": denied_error,
-                        "approved": False,
-                        "policy_decision": PolicyDecision.DENY.value,
-                        "security_code": exc.code,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "status": denied_status,
-                    "error": denied_error,
-                    "output": {
-                        "status": denied_status,
-                        "code": exc.code,
-                        "message": denied_error,
-                    },
-                }
-
-            trusted_input = preflight.trusted_input
-            risk_level = self._risk_level_from_trusted_input(trusted_input)
-            effective_params = dict(trusted_input.params)
-            policy_decision = preflight.decision.value
-            force_approval = metadata_requires_approval or preflight.decision is PolicyDecision.APPROVE_REQUIRED
-
-            if preflight.decision is PolicyDecision.DENY:
-                denied_error = preflight.reason or "tool invocation denied by security policy"
-                await self._log_event(
-                    "security.policy_denied",
-                    {
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "capability_id": request.capability_id,
-                        "code": SECURITY_POLICY_DENIED,
-                        "reason": preflight.reason,
-                    },
-                )
-                denied_status = "not_allow"
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": False,
-                        "error": denied_error,
-                        "approved": False,
-                        "policy_decision": policy_decision,
-                        "security_code": SECURITY_POLICY_DENIED,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "status": denied_status,
-                    "error": denied_error,
-                    "output": {
-                        "status": denied_status,
-                        "code": SECURITY_POLICY_DENIED,
-                        "message": denied_error,
-                    },
-                }
-
-            if force_approval and not descriptor_requires_approval and self._approval_manager is None:
-                denied_error = "tool invocation requires approval but no approval manager is configured"
-                await self._log_event(
-                    "security.policy_denied",
-                    {
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "capability_id": request.capability_id,
-                        "code": SECURITY_APPROVAL_MANAGER_MISSING,
-                        "reason": "approval manager missing",
-                    },
-                )
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": False,
-                        "error": denied_error,
-                        "approved": False,
-                        "policy_decision": policy_decision,
-                        "security_code": SECURITY_APPROVAL_MANAGER_MISSING,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "status": "fail",
-                    "error": denied_error,
-                    "output": {
-                        "status": "fail",
-                        "code": SECURITY_APPROVAL_MANAGER_MISSING,
-                        "message": denied_error,
-                    },
-                }
-
-            await self._log_event("tool.invoke", {
-                "tool_name": tool_name,
-                "tool_call_id": tool_call_id,
-                "capability_id": request.capability_id,
-                "attempt": attempts,
-                "policy_decision": policy_decision,
-            })
-
-            try:
-                async def approval_observer(payload: dict[str, Any]) -> None:
-                    await self._log_event(
-                        "security.policy_approval",
-                        {
-                            "tool_name": tool_name,
-                            "tool_call_id": tool_call_id,
-                            "capability_id": request.capability_id,
-                            **payload,
-                        },
-                    )
-
-                approval_ctx = ApprovalInvokeContext(
-                    session_id=session_id,
-                    transport=transport,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    event_logger=self._log_event,
-                    runtime_context=self._context,
-                    force_approval=force_approval,
-                    approval_reason=preflight.reason if preflight.decision is PolicyDecision.APPROVE_REQUIRED else None,
-                    approval_observer=approval_observer,
-                )
-                result = await self._security_boundary.execute_safe(
-                    action="invoke_tool",
-                    fn=lambda: self._governed_tool_gateway.invoke(
-                        request.capability_id,
-                        approval_ctx,
-                        envelope=request.envelope,
-                        **effective_params,
-                    ),
-                    sandbox=SandboxSpec(
-                        mode="tool_gateway",
-                        details={
-                            "capability_id": request.capability_id,
-                            "tool_name": tool_name,
-                        },
-                    ),
-                )
-
-                await self._log_event("tool.result", {
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_call_id,
-                    "capability_id": request.capability_id,
-                    "success": getattr(result, "success", True),
-                    "attempt": attempts,
-                    "policy_decision": policy_decision,
-                })
-
-                tool_success = True
-                if hasattr(result, "success") and not result.success:
-                    tool_success = False
-                evidence_collected = bool(getattr(result, "evidence", []))
-                denied_status = "fail"
-                denied_output = getattr(result, "output", {})
-                approved = True
-                if not tool_success:
-                    if isinstance(denied_output, dict):
-                        candidate_status = denied_output.get("status")
-                        if isinstance(candidate_status, str) and candidate_status:
-                            denied_status = candidate_status
-                    approved = denied_status != "not_allow"
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": tool_success,
-                        "error": result.error if hasattr(result, "error") else None,
-                        "approved": approved,
-                        "policy_decision": policy_decision,
-                        "evidence_collected": evidence_collected,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-
-                if not tool_success:
-                    return {
-                        "success": False,
-                        "status": denied_status,
-                        "error": result.error or "tool failed",
-                        "output": denied_output,
-                        "result": result,
-                    }
-
-                # Collect evidence
-                milestone_state = (
-                    self._session_state.current_milestone_state
-                    if self._session_state is not None
-                    else None
-                )
-                if milestone_state and hasattr(result, "evidence"):
-                    for evidence in result.evidence:
-                        milestone_state.add_evidence(evidence)
-
-                if done_predicate is None or _done_predicate_satisfied(done_predicate, result):
-                    return {
-                        "success": True,
-                        "status": "success",
-                        "output": getattr(result, "output", {}),
-                        "error": getattr(result, "error", None),
-                        "result": result,
-                    }
-
-                if max_calls is not None and attempts >= max_calls:
-                    return {
-                        "success": False,
-                        "status": "fail",
-                        "error": "done predicate not satisfied before budget exhausted",
-                        "output": getattr(result, "output", {}),
-                        "result": result,
-                    }
-
-            except Exception as e:
-                await self._log_event("tool.error", {
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_call_id,
-                    "capability_id": request.capability_id,
-                    "error": str(e),
-                    "attempt": attempts,
-                    "policy_decision": policy_decision,
-                })
-                approved = True
-                try:
-                    from dare_framework.tool.exceptions import HumanApprovalRequired
-
-                    if isinstance(e, HumanApprovalRequired):
-                        approved = False
-                except Exception:
-                    approved = True
-                await self._emit_hook(
-                    HookPhase.AFTER_TOOL,
-                    {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "capability_id": request.capability_id,
-                        "attempt": attempts,
-                        "success": False,
-                        "error": str(e),
-                        "approved": approved,
-                        "policy_decision": policy_decision,
-                        "evidence_collected": False,
-                        "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
-                        "budget_stats": self._budget_stats(),
-                    },
-                )
-                return {
-                    "success": False,
-                    "status": "fail",
-                    "error": str(e),
-                    "output": {},
-                }
 
     async def _check_plan_policy(
         self,
@@ -2336,11 +1507,11 @@ class DareAgent(BaseAgent):
             raw_reason = metadata.get("approval_reason")
             if isinstance(raw_reason, str) and raw_reason.strip():
                 return raw_reason.strip()
-            return f"policy requires approval for capability '{capability_id}'"
+            return f"security policy requires approval for capability '{capability_id}'"
         raw_reason = metadata.get("deny_reason")
         if isinstance(raw_reason, str) and raw_reason.strip():
             return raw_reason.strip()
-        return f"policy denied capability '{capability_id}'"
+        return f"security policy denied capability '{capability_id}'"
 
     def _risk_level_from_trusted_input(self, trusted_input: TrustedInput) -> int:
         mapping = {
@@ -2507,21 +1678,31 @@ class DareAgent(BaseAgent):
     def _record_token_usage(self, usage: dict[str, Any] | None) -> None:
         if not usage:
             return
+
+        def _safe_int(value: Any) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
         input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
         output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
         cached_tokens = usage.get("cached_tokens", 0)
-        try:
-            self._token_usage["input_tokens"] += int(input_tokens or 0)
-        except (TypeError, ValueError):
-            pass
-        try:
-            self._token_usage["output_tokens"] += int(output_tokens or 0)
-        except (TypeError, ValueError):
-            pass
-        try:
-            self._token_usage["cached_tokens"] += int(cached_tokens or 0)
-        except (TypeError, ValueError):
-            pass
+        parsed_input_tokens = _safe_int(input_tokens)
+        parsed_output_tokens = _safe_int(output_tokens)
+        parsed_cached_tokens = _safe_int(cached_tokens)
+        self._token_usage["input_tokens"] += parsed_input_tokens
+        self._token_usage["output_tokens"] += parsed_output_tokens
+        self._token_usage["cached_tokens"] += parsed_cached_tokens
+
+        # Some adapters only report total_tokens; keep that signal so output envelope usage is not dropped.
+        total_tokens = usage.get("total_tokens")
+        parsed_total_tokens = _safe_int(total_tokens)
+        if total_tokens is None or (
+            parsed_total_tokens == 0 and (parsed_input_tokens or parsed_output_tokens)
+        ):
+            parsed_total_tokens = parsed_input_tokens + parsed_output_tokens
+        self._token_usage["total_tokens"] += parsed_total_tokens
 
     def _total_tokens_from_usage(self, usage: dict[str, Any]) -> int:
         total_tokens = usage.get("total_tokens")
@@ -2552,6 +1733,31 @@ class DareAgent(BaseAgent):
             if budget.max_time_seconds is None
             else max(0.0, budget.max_time_seconds - budget.used_time_seconds),
         }
+
+    def _with_output_envelope(self, result: RunResult) -> RunResult:
+        usage = self._run_usage_summary()
+        output = build_output_envelope(
+            result.output,
+            metadata=result.metadata,
+            usage=usage,
+        )
+        return replace(result, output=output, output_text=output["content"])
+
+    def _run_usage_summary(self) -> dict[str, Any] | None:
+        input_tokens = self._token_usage.get("input_tokens", 0)
+        output_tokens = self._token_usage.get("output_tokens", 0)
+        cached_tokens = self._token_usage.get("cached_tokens", 0)
+        total_tokens = self._token_usage.get("total_tokens", input_tokens + output_tokens)
+        if not any((input_tokens, output_tokens, cached_tokens, total_tokens)):
+            return None
+        summary: dict[str, Any] = {"total_tokens": total_tokens}
+        if input_tokens:
+            summary["input_tokens"] = input_tokens
+        if output_tokens:
+            summary["output_tokens"] = output_tokens
+        if cached_tokens:
+            summary["cached_tokens"] = cached_tokens
+        return summary
 
     async def _finalize_execute(self, start_time: float, result: dict[str, Any]) -> dict[str, Any]:
         await self._emit_hook(HookPhase.AFTER_EXECUTE, {
@@ -2614,16 +1820,3 @@ def _format_tool_result(tool_result: dict[str, Any]) -> str:
 
 
 __all__ = ["DareAgent"]
-
-
-def _done_predicate_satisfied(done_predicate: DonePredicate, result: Any) -> bool:
-    required_keys = list(done_predicate.required_keys or [])
-    if not required_keys:
-        return True
-    output = getattr(result, "output", None)
-    if not isinstance(output, dict):
-        return False
-    for key in required_keys:
-        if key not in output:
-            return False
-    return True

@@ -4,6 +4,11 @@
 >
 > 用途：集中查看当前架构/模块设计文档中的 TODO，便于分工与追踪。
 
+## Current Sprint (Agent)
+- [x] A-101 DareAgent 结构化拆分（`session/milestone/execute/tool` 内聚到 `dare_framework/agent/_internal/`，`dare_agent.py` 退化为门面编排）
+- [x] A-102 step-driven 路径策略定稿（已实现最小闭环）
+- [x] A-103 统一输出数据形状（`RunResult.output` envelope: `content/metadata/usage`）
+
 ## agent
 - [ ] DareAgent 按 loop 职责拆分，降低单文件复杂度。(`docs/design/modules/agent/TODO.md`)
 - [ ] 统一跨 agent 的 output 数据形状。(`docs/design/modules/agent/TODO.md`)

@@ -53,6 +53,7 @@ dare_framework/<domain>/
 - `ProposedPlan` vs `ValidatedPlan`
 - `Envelope`: `allowed_capability_ids/budget/done_predicate/risk_level`
 - `RunResult`: `success/output/output_text/errors/metadata/session_id/session_summary`
+  - `output` envelope: `{"content": str, "metadata": dict, "usage": dict | None}`
 
 ### 1.3 能力与调用结果契约（tool/types.py）
 
@@ -599,4 +600,3 @@ flowchart TD
 - `tool` 的 `IToolGateway.list_capabilities()` 为同步方法，`invoke(...)` 为异步。
 - `plan/kernel.py` 当前为空壳，策略接口位于 `plan/interfaces.py`。
 - 新增 `transport`、`observability`、`mcp`、`embedding`、`skill` 的完整契约节。
-

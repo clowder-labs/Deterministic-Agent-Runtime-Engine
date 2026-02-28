@@ -6,6 +6,7 @@ context-centric architecture.
 
 from __future__ import annotations
 
+from dare_framework.agent._internal.output_normalizer import build_output_envelope
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
@@ -127,10 +128,11 @@ class SimpleChatAgent(BaseAgent):
         self._context.budget_check()
 
         # 8. Return model response content
+        output = build_output_envelope(response.content, usage=response.usage)
         return RunResult(
             success=True,
-            output=response.content,
-            output_text=response.content,
+            output=output,
+            output_text=output["content"],
         )
 
 

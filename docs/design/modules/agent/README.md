@@ -32,7 +32,10 @@
 
 - 统一入口：`IAgent.__call__(task, transport=None)`
 - 编排入口：`IAgentOrchestration.execute(task, transport)`
-- 结果契约：统一输出 `RunResult`（含 `output_text`）
+- 结果契约：统一输出 `RunResult`（含 `output_text`），其中 `RunResult.output` 使用 envelope 结构：
+  - `content: str`
+  - `metadata: dict`
+  - `usage: dict | None`
 
 详细签名与约束见：
 - `SimpleChatAgent_Detailed.md`（最小调用链）
@@ -43,6 +46,8 @@
 
 - 统一任务输入：`Task`（`description/task_id/milestones/metadata`）
 - 统一运行输出：`RunResult`（`success/output/output_text/errors/metadata`）
+  - `output.content`：统一可展示文本
+  - `output_text`：与 `output.content` 对齐，供展示与兼容链路消费
 - Five-layer 状态（DareAgent）：
   - `SessionState`: `task_id/run_id/current_milestone_idx/milestone_states`
   - `MilestoneState`: `attempts/attempted_plans/reflections/evidence_collected`

@@ -65,12 +65,49 @@ def extract_text_payload(value: Any) -> str | None:
     return normalized or None
 
 
+def _has_meaningful_fallback_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+def _extract_raw_text_field(output: Any) -> str | None:
+    if not isinstance(output, dict):
+        return None
+    for key in ("content", "text", "output", "message", "result"):
+        value = output.get(key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
 def normalize_run_output(output: Any) -> str | None:
     """Normalize RunResult.output for display/logging channels."""
+    if output is None:
+        return None
     text = extract_text_payload(output)
     if text:
         return text
     if isinstance(output, dict):
+        text_keys = ("content", "text", "output", "message", "result")
+        present_text_keys = [key for key in text_keys if key in output]
+        if present_text_keys:
+            has_non_text_fallback = any(
+                _has_meaningful_fallback_value(value)
+                for key, value in output.items()
+                if key not in text_keys
+            )
+            if not has_non_text_fallback:
+                all_text_fields_empty = all(
+                    extract_text_payload(output.get(key)) is None
+                    for key in present_text_keys
+                )
+                if all_text_fields_empty:
+                    return None
         try:
             return json.dumps(output, ensure_ascii=False, indent=2)
         except TypeError:
@@ -79,4 +116,42 @@ def normalize_run_output(output: Any) -> str | None:
     return normalized or None
 
 
-__all__ = ["extract_text_payload", "normalize_run_output"]
+def build_output_envelope(
+    output: Any,
+    *,
+    metadata: dict[str, Any] | None = None,
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a normalized RunResult.output envelope.
+
+    Envelope schema:
+    - content: str
+    - metadata: dict
+    - usage: dict | None
+    """
+    if isinstance(output, str):
+        content = normalize_run_output(output) or ""
+    elif isinstance(output, dict):
+        raw_text = _extract_raw_text_field(output)
+        text_keys = {"content", "text", "output", "message", "result"}
+        has_non_text_fallback = any(
+            _has_meaningful_fallback_value(value)
+            for key, value in output.items()
+            if key not in text_keys
+        )
+        if isinstance(raw_text, str) and raw_text.strip() and has_non_text_fallback:
+            content = raw_text
+        else:
+            content = normalize_run_output(output) or ""
+    else:
+        content = normalize_run_output(output) or ""
+    envelope_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    envelope_usage = dict(usage) if isinstance(usage, dict) and usage else None
+    return {
+        "content": content,
+        "metadata": envelope_metadata,
+        "usage": envelope_usage,
+    }
+
+
+__all__ = ["build_output_envelope", "extract_text_payload", "normalize_run_output"]

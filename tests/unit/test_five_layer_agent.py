@@ -289,7 +289,7 @@ class TestDareAgentExecution:
         result = await agent("Generate python file")
 
         assert isinstance(result.output, dict)
-        assert result.output.get("content") == serialized
+        assert result.output.get("content") == result.output_text
         assert result.output_text is not None
         assert "任务标题" in result.output_text
         assert 'print("ok")' in result.output_text

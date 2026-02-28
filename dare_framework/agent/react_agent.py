@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from dare_framework.agent._internal.output_normalizer import build_output_envelope
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
@@ -71,6 +72,7 @@ class ReactAgent(BaseAgent):
 
         last_tool_signature: tuple[str, ...] | None = None
         repeated_tool_rounds = 0
+        latest_usage: dict[str, Any] | None = None
 
         for round_idx in range(self._max_tool_rounds):
             print(f"[{self.name}] Round {round_idx + 1}/{self._max_tool_rounds}: 调用模型中...", flush=True)
@@ -104,11 +106,19 @@ class ReactAgent(BaseAgent):
                 metadata=assembled.metadata,
             )
             response = await self._model.generate(model_input)
+            usage = response.usage if isinstance(response.usage, dict) and response.usage else None
+            if usage is not None:
+                usage_total_tokens = _usage_total_tokens(usage)
+                # Keep the latest meaningful usage totals. Some adapters emit
+                # placeholder zero usage in later rounds and should not erase
+                # previously reported non-zero usage.
+                if usage_total_tokens > 0 or latest_usage is None:
+                    latest_usage = usage
             n_tools = len(response.tool_calls) if response.tool_calls else 0
             print(f"[{self.name}] 模型返回, tool_calls={n_tools}", flush=True)
 
-            if response.usage:
-                tokens = response.usage.get("total_tokens", 0)
+            if usage is not None:
+                tokens = _usage_total_tokens(usage)
                 if tokens:
                     self._context.budget_use("tokens", tokens)
             self._context.budget_check()
@@ -119,10 +129,14 @@ class ReactAgent(BaseAgent):
                     final_text = "模型未返回可显示的文本回复。请重试，或明确要求先调用 ask_user 再继续。"
                 assistant_message = Message(role="assistant", content=final_text)
                 self._context.stm_add(assistant_message)
+                output = build_output_envelope(
+                    final_text,
+                    usage=latest_usage,
+                )
                 return RunResult(
                     success=True,
-                    output=final_text,
-                    output_text=final_text,
+                    output=output,
+                    output_text=output["content"],
                 )
 
             current_signature = _tool_calls_signature(response.tool_calls)
@@ -135,7 +149,8 @@ class ReactAgent(BaseAgent):
             if repeated_tool_rounds >= 3:
                 loop_guard = "模型连续重复调用相同工具，已停止自动循环。请换一种描述，或明确要求先调用 ask_user 再继续。"
                 self._context.stm_add(Message(role="assistant", content=loop_guard))
-                return RunResult(success=True, output=loop_guard, output_text=loop_guard)
+                output = build_output_envelope(loop_guard, usage=latest_usage)
+                return RunResult(success=True, output=output, output_text=output["content"])
 
             assistant_msg = Message(
                 role="assistant",
@@ -170,10 +185,11 @@ class ReactAgent(BaseAgent):
                 self._context.stm_add(tool_msg)
 
         final_message = "模型在工具循环中未收敛（达到最大轮次）。请缩小范围，或明确要求先调用 ask_user 再继续。"
+        output = build_output_envelope(final_message, usage=latest_usage)
         return RunResult(
             success=True,
-            output=final_message,
-            output_text=final_message,
+            output=output,
+            output_text=output["content"],
         )
 
 
@@ -187,6 +203,22 @@ def _normalize_tool_args(raw_args: Any) -> dict[str, Any]:
     if isinstance(raw_args, dict):
         return raw_args
     return {}
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _usage_total_tokens(usage: dict[str, Any]) -> int:
+    total_tokens = usage.get("total_tokens")
+    if total_tokens is None:
+        input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+        output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+        return _safe_int(input_tokens) + _safe_int(output_tokens)
+    return _safe_int(total_tokens)
 
 
 def _tool_calls_signature(tool_calls: list[dict[str, Any]]) -> tuple[str, ...]:

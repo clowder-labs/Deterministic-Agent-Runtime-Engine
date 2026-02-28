@@ -63,7 +63,10 @@ async def test_agent_builder_minimal_build() -> None:
     result = await agent("hello")
 
     assert result.success is True
-    assert result.output == "ok"
+    assert isinstance(result.output, dict)
+    assert result.output.get("content") == "ok"
+    assert result.output.get("metadata") == {}
+    assert result.output.get("usage") is None
     assert result.output_text == "ok"
 
 

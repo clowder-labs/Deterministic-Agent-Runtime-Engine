@@ -57,6 +57,21 @@ def test_dare_builder_supports_noop_boundary_from_config() -> None:
     assert isinstance(agent._security_boundary, NoOpSecurityBoundary)
 
 
+def test_dare_builder_treats_null_boundary_as_default_policy_boundary() -> None:
+    builder = BaseAgent.dare_agent_builder("security-null").with_model(_Model())
+    config = Config.from_dict({"security": {"boundary": None}})
+    agent = builder._build_impl(  # noqa: SLF001 - builder contract test
+        config=config,
+        model=_Model(),
+        context=Context(config=config),
+        tool_gateway=_ToolGateway(),
+        approval_manager=None,
+        agent_channel=None,
+    )
+
+    assert isinstance(agent._security_boundary, PolicySecurityBoundary)
+
+
 def test_dare_builder_explicit_security_boundary_overrides_config() -> None:
     explicit = NoOpSecurityBoundary()
     builder = BaseAgent.dare_agent_builder("security-explicit").with_model(_Model())

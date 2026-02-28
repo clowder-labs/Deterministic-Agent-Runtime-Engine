@@ -780,8 +780,14 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
     def _resolve_security_boundary(self, config: Config) -> ISecurityBoundary:
         if self._security_boundary is not None:
             return self._security_boundary
-        raw_mode = config.security.get("boundary", config.security.get("mode", "policy"))
-        mode = str(raw_mode).strip().lower()
+        # Treat null/empty config as "unset" so templated values do not
+        # silently disable security by coercing None -> "none".
+        raw_mode = config.security.get("boundary")
+        if raw_mode is None:
+            raw_mode = config.security.get("mode")
+        if raw_mode is None:
+            raw_mode = "policy"
+        mode = str(raw_mode).strip().lower() or "policy"
         if mode in {"off", "none", "noop", "disabled"}:
             boundary: ISecurityBoundary = NoOpSecurityBoundary()
         else:
