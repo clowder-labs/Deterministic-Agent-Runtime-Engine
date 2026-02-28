@@ -60,7 +60,7 @@ Use only when OpenSpec cannot be used (tooling/environment constraint):
 
 ## 6. Frontmatter Contract (Governance-tracked docs)
 
-Governance-tracked docs SHOULD include frontmatter with:
+Governance-tracked docs MUST include frontmatter with:
 
 ```yaml
 ---
@@ -76,6 +76,7 @@ status: draft|active|done|archived
 Notes:
 - `status` on non-aggregation docs is informational only.
 - Aggregation doc is the status source of truth.
+- Explicit exceptions, if any, must be declared in the governing standard document for that doc family.
 
 ## 7. Checkpoint-to-Skill Mapping
 

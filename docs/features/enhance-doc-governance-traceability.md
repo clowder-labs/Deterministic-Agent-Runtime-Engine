@@ -17,8 +17,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - Proposal: `openspec/changes/enhance-doc-governance-traceability/proposal.md`
 - Design: `openspec/changes/enhance-doc-governance-traceability/design.md`
 - Specs:
-  - `specs/documentation-lifecycle-traceability/spec.md`
-  - `specs/design-reconstructability-governance/spec.md`
+  - `openspec/changes/enhance-doc-governance-traceability/specs/documentation-lifecycle-traceability/spec.md`
+  - `openspec/changes/enhance-doc-governance-traceability/specs/design-reconstructability-governance/spec.md`
 - Tasks: `openspec/changes/enhance-doc-governance-traceability/tasks.md`
 
 ## Governance Anchors
