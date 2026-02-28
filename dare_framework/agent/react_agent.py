@@ -106,7 +106,9 @@ class ReactAgent(BaseAgent):
                 metadata=assembled.metadata,
             )
             response = await self._model.generate(model_input)
-            if isinstance(response.usage, dict):
+            # Preserve the latest non-empty usage; some adapters emit {}
+            # on intermediate/final rounds and should not erase prior totals.
+            if isinstance(response.usage, dict) and response.usage:
                 latest_usage = response.usage
             n_tools = len(response.tool_calls) if response.tool_calls else 0
             print(f"[{self.name}] 模型返回, tool_calls={n_tools}", flush=True)
