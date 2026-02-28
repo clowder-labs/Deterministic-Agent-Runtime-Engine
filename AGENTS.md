@@ -15,8 +15,9 @@
 - Documentation governance tasks SHOULD use:
   - `.codex/skills/documentation-management/SKILL.md`
   - `.codex/skills/development-workflow/SKILL.md`
-- Evidence truth for active governance changes MUST be structured in `docs/features/*.md` and pass:
-  - `./scripts/ci/check_governance_evidence_truth.sh`
+- Evidence truth for active governance changes MUST follow governance contracts and CI gates defined in:
+  - `docs/governance/Documentation_Management_Model.md`
+  - `docs/guides/Evidence_Truth_Implementation_Strategy.md`
 - Code implementation MUST align with `docs/design/` as the latest full design source of truth.
 - If design and implementation diverge, update design docs first, then execute gap analysis before coding.
 - Every design doc that governs implementation MUST explicitly contain:

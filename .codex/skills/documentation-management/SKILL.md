@@ -5,6 +5,11 @@ description: Use when classifying, creating, relocating, or archiving repository
 
 # Documentation Management
 
+## Authoritative inputs
+- `docs/governance/Documentation_Management_Model.md` defines repository governance contracts.
+- `docs/guides/Evidence_Truth_Implementation_Strategy.md` defines evidence-truth rollout and gate strategy.
+- This skill is the single execution entry for both documents; do not split them into a separate evidence-only skill unless responsibilities diverge beyond documentation governance.
+
 ## When to use
 Use this skill for documentation structure operations:
 - create a new governance-tracked document
