@@ -1,6 +1,6 @@
 # DARE Framework 项目总体 TODO
 
-> 更新时间：2026-02-24  
+> 更新时间：2026-02-27  
 > 范围：项目全局演进（非单个 feature 的实现方案）
 
 ## 1. 目标与边界
@@ -122,3 +122,35 @@
   Status: `todo`  
   范围：补齐整体目标架构与 domain 设计文档，至少覆盖关键 API、数据模型、核心流程、异常处理、边界条件与可观测性策略。  
   交付：架构总览文档 + 分 domain 设计文档包 + 设计评审清单与验收标准。
+
+## 8. 文档先行治理专项（2026-02-27）
+
+- [x] T6-1 按基线 gap 分析推进修复与回写
+  Status: `done`
+  范围：基于 `docs/todos/archive/2026-02-27_design_code_gap_analysis.md` 与 `docs/todos/archive/2026-02-27_design_code_gap_todo.md`，逐项按 OpenSpec 执行。
+  交付：DG 系列 TODO 状态回写 + OpenSpec 任务证据 + 文档归档记录。  
+  Evidence：`openspec/changes/archive/2026-02-27-*`，`docs/todos/archive/2026-02-27_design_code_gap_todo.md`
+
+- [x] T6-2 执行一次完整设计文档 review（非最小补充）
+  Status: `done`
+  范围：覆盖 `docs/design/Architecture.md` 与 `docs/design/modules/*/README.md`，修正与实现冲突的状态断言，并收敛 security canonical 导入路径。
+  交付：full review gap 分析 + TODO 清单 + 对应实现/文档修复。  
+  Evidence：`docs/todos/2026-02-27_full_design_review_gap_analysis.md`，`docs/todos/2026-02-27_full_design_review_gap_todo.md`，`dare_framework/security/__init__.py`
+
+- [x] T6-3 推进“按文档可重建”治理闭环（P0/P1）
+  Status: `done`
+  范围：基于可重建性 gap 分析，优先补齐追踪矩阵、审批语义决策表、重建 SOP 三项 P0。
+  交付：`docs/todos/2026-02-27_design_reconstructability_gap_analysis.md` + `docs/todos/2026-02-27_design_reconstructability_gap_todo.md` 对应事项回写完成。  
+  Evidence：`openspec/changes/archive/2026-02-27-close-design-reconstructability-gaps/`，`docs/design/Design_Reconstructability_Traceability_Matrix.md`，`docs/guides/Design_Reconstruction_SOP.md`
+
+- [x] T6-4 补齐模块级测试锚点与 embedding 最小测试基线
+  Status: `done`
+  范围：基于 full review 第二轮结论，为 `docs/design/modules/*/README.md` 补齐测试锚点；为 embedding 域补最小单测并回写文档证据。
+  交付：`docs/todos/2026-02-27_full_design_review_gap_todo.md` 中 FR-009/FR-011 状态闭环。
+  Evidence：`docs/todos/2026-02-27_full_design_review_gap_analysis.md`，`docs/todos/2026-02-27_full_design_review_gap_todo.md`，`tests/unit/test_embedding_openai_adapter.py`
+
+- [x] T6-5 补 memory/knowledge 域直连单测并替换过渡声明
+  Status: `done`
+  范围：关闭 FR-GAP-011，对 `memory/knowledge` 域补齐直连单测，移除当前“组合验证锚点 + 缺失声明”的过渡状态。
+  交付：`docs/todos/2026-02-27_full_design_review_gap_todo.md` 中 FR-012 状态闭环。
+  Evidence：`docs/todos/2026-02-27_full_design_review_gap_analysis.md`，`docs/todos/2026-02-27_full_design_review_gap_todo.md`，`tests/unit/test_memory_knowledge_direct.py`

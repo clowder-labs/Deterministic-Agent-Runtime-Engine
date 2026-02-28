@@ -122,3 +122,13 @@ jobs:
 
       - name: Check lockfile update policy
         run: ./scripts/ci/check_lockfile_policy.sh
+
+  design-doc-drift:
+    name: design-doc-drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check design documentation drift
+        run: ./scripts/ci/check_design_doc_drift.sh

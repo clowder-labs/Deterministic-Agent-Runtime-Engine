@@ -61,11 +61,11 @@ from dare_framework.plan.interfaces import (
     IPlannerManager,
     IRemediator,
     IRemediatorManager,
+    IStepExecutor,
     IValidator,
     IValidatorManager,
 )
-from dare_framework.security.kernel import ISecurityBoundary
-from dare_framework.security.impl import NoOpSecurityBoundary, PolicySecurityBoundary
+from dare_framework.security import ISecurityBoundary, NoOpSecurityBoundary, PolicySecurityBoundary
 from dare_framework.skill import Skill, ISkillLoader, ISkillStore, SkillStoreBuilder
 from dare_framework.skill._internal.action_handler import SkillsActionHandler
 from dare_framework.skill._internal.filesystem_skill_loader import FileSystemSkillLoader
@@ -616,9 +616,11 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
 
         self._event_log: IEventLog | None = None
         self._execution_control: IExecutionControl | None = None
+        self._execution_mode: str = "model_driven"
+        self._step_executor: IStepExecutor | None = None
+        self._security_boundary: ISecurityBoundary | None = None
         self._hooks: list[IHook] = []
         self._telemetry: ITelemetryProvider | None = None
-        self._security_boundary: ISecurityBoundary | None = None
         self._verbose: bool = False
 
     def with_planner(self, planner: IPlanner) -> DareAgentBuilder:
@@ -639,6 +641,17 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
 
     def with_execution_control(self, execution_control: IExecutionControl) -> DareAgentBuilder:
         self._execution_control = execution_control
+        return self
+
+    def with_execution_mode(self, execution_mode: str) -> DareAgentBuilder:
+        normalized = execution_mode.strip().lower()
+        if normalized not in {"model_driven", "step_driven"}:
+            raise ValueError("execution_mode must be 'model_driven' or 'step_driven'")
+        self._execution_mode = normalized
+        return self
+
+    def with_step_executor(self, step_executor: IStepExecutor) -> DareAgentBuilder:
+        self._step_executor = step_executor
         return self
 
     def add_hooks(self, *hooks: IHook) -> DareAgentBuilder:
@@ -757,6 +770,8 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
             hooks=hooks,
             telemetry=telemetry,
             security_boundary=security_boundary,
+            step_executor=self._step_executor,
+            execution_mode=self._execution_mode,
             agent_channel=agent_channel,
             verbose=self._verbose,
             approval_manager=approval_manager,

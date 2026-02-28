@@ -1,15 +1,13 @@
 # Design TODO Index
 
-> Status: generated from module docs (2026-02-05).
+> Status: refreshed after full review (2026-02-27).
 >
 > 用途：集中查看当前架构/模块设计文档中的 TODO，便于分工与追踪。
 
 ## agent
-- [ ] 将 ValidatedPlan.steps 驱动 Execute Loop（计划执行一致性）。(`docs/design/modules/agent/README.md`)
-- [ ] 引入 plan attempt snapshot/rollback，实现失败计划隔离。(`docs/design/modules/agent/README.md`)
-- [ ] 接入 `ISecurityBoundary`（policy gate + trust derivation）。(`docs/design/modules/agent/README.md`)
-- [ ] Hooks 生命周期触发点与默认 hook 管理器。(`docs/design/modules/agent/README.md`)
-- [ ] 对齐 EventLog / HITL 事件链（pause → wait → resume）。(`docs/design/modules/agent/README.md`)
+- [ ] DareAgent 按 loop 职责拆分，降低单文件复杂度。(`docs/design/modules/agent/TODO.md`)
+- [ ] 统一跨 agent 的 output 数据形状。(`docs/design/modules/agent/TODO.md`)
+- [ ] 对齐 Plan 与 Tool 两个入口的审批语义（包含 wait/resume 一致性）。(`docs/design/modules/agent/DareAgent_Detailed.md`)
 
 ## context
 - [ ] 规范 `AssembledContext.metadata` 最小字段（context_id / tool_snapshot_hash）。(`docs/design/modules/context/README.md`)
@@ -17,16 +15,15 @@
 - [ ] 对齐工具快照记录与 EventLog 审计链。(`docs/design/modules/context/README.md`)
 
 ## tool
-- [ ] 将 policy/hitl gate 接入 ToolLoop（与 `ISecurityBoundary` 结合）。(`docs/design/modules/tool/README.md`)
 - [ ] 工具调用审计快照（capability hash / tool defs snapshot）。(`docs/design/modules/tool/README.md`)
 - [ ] 能力等级与审批策略统一（risk_level ↔ approval policy）。(`docs/design/modules/tool/README.md`)
 - [ ] 统一 tool defs schema（跨模型 adapter 一致性）。(`docs/design/modules/tool/README.md`)
+- [ ] 统一 `APPROVE_REQUIRED` 在 plan/tool 两个入口的行为语义。(`docs/design/modules/tool/README.md`)
 
 ## plan
-- [ ] 将 ValidatedPlan.steps 绑定工具执行（计划驱动）。(`docs/design/modules/plan/README.md`)
-- [ ] 计划 attempt 隔离（Context snapshot / rollback）。(`docs/design/modules/plan/README.md`)
-- [ ] 统一证据模型（planner evidence ↔ tool evidence）。(`docs/design/modules/plan/README.md`)
-- [ ] 明确 plan tool 的元数据与 policy gate 语义。(`docs/design/modules/plan/README.md`)
+- [ ] 评估是否将 `DefaultPlanAttemptSandbox` 下沉到 plan domain 默认实现。(`docs/design/modules/plan/README.md`)
+- [ ] 统一证据模型（planner/tool/verify）字段 taxonomy。(`docs/design/modules/plan/README.md`)
+- [ ] 扩展 step-driven 路径端到端覆盖（多步依赖/回滚与补救组合）。(`docs/design/modules/plan/README.md`)
 
 ## model
 - [ ] Prompt 不支持热更新；需重新构造 PromptStore（reload）。(`docs/design/modules/model/README.md`)
@@ -40,13 +37,13 @@
 - [ ] 与上下文预算联动（压缩、摘要策略）。(`docs/design/modules/model/Model_Prompt_Management.md`)
 
 ## security
-- [ ] 提供默认 Policy/Sandbox 实现。(`docs/design/modules/security/README.md`)
-- [ ] 在 Agent 的 Plan→Execute 与 Tool invoke 前接入 policy gate。(`docs/design/modules/security/README.md`)
+- [ ] 提供 production-grade Policy/Sandbox 实现。(`docs/design/modules/security/README.md`)
 - [ ] 与 HITL (`IExecutionControl`) 形成审批闭环。(`docs/design/modules/security/README.md`)
+- [ ] 统一 security 事件 taxonomy（deny/approve_required/allow）。(`docs/design/modules/security/README.md`)
 
 ## event
-- [ ] 提供默认 EventLog 实现（持久化 + hash-chain）。(`docs/design/modules/event/README.md`)
-- [ ] 统一 legacy event bus 与 WORM event log 的关系。(`docs/design/modules/event/README.md`)
+- [ ] 评估大规模场景下的存储后端升级路径（WORM/远端签名/分片归档）。(`docs/design/modules/event/README.md`)
+- [ ] 统一 legacy events 与 event domain 的迁移策略。(`docs/design/modules/event/README.md`)
 - [ ] 定义稳定事件 taxonomy 与 payload schema。(`docs/design/modules/event/README.md`)
 
 ## hook

@@ -2,7 +2,7 @@
 
 本文档定义 AI Agent（Claude、GPT、Gemini 等）在本项目中协作的规则和约定。
 
-> 必读：在任何开发前，请先阅读并遵守 `docs/guides/Development_Constraints.md`（通用开发约束）以及本文件。若你的变更涉及沙箱执行、WORM 审计、Envelope/DonePredicate 强制，请同时遵循 `docs/guides/Engineering_Practice_Guide_Sandbox_and_WORM.md`。
+> 必读：在任何开发前，请先阅读并遵守 `docs/guides/Development_Constraints.md`、`docs/guides/Documentation_First_Development_SOP.md`、`docs/design/Design_Doc_Minimum_Standard.md` 以及本文件。若你的变更涉及沙箱执行、WORM 审计、Envelope/DonePredicate 强制，请同时遵循 `docs/guides/Engineering_Practice_Guide_Sandbox_and_WORM.md`。
 
 ## 核心原则
 
@@ -37,19 +37,19 @@ Agent 不应依赖自己的"记忆"来保持状态：
 
 ## 工作流程
 
-### 使用 OpenSpec 进行重大变更
+### 文档先行 + OpenSpec 执行（强制）
 
-所有以下类型的变更必须通过 OpenSpec：
+所有涉及代码行为变化的变更，必须先走“文档先行 SOP”，再通过 OpenSpec 执行：
 
-| 变更类型 | 需要 OpenSpec? | 说明 |
-|---------|---------------|------|
-| 新增核心接口 | 是 | 七个不可变接口的任何修改 |
-| 新增组件 | 是 | 添加新的核心组件 |
-| 架构调整 | 是 | 三层循环的任何修改 |
-| 新增工具 | 视情况 | 高风险工具需要 |
-| Bug 修复 | 否 | 直接修复并提交 |
-| 重构（不改接口） | 否 | 确保测试通过 |
-| 文档更新 | 否 | 直接提交 |
+| 变更类型 | 文档先行 SOP | OpenSpec 执行 | 说明 |
+|---------|--------------|---------------|------|
+| 新增核心接口 | 是 | 是 | 先补设计，再提案与实现 |
+| 新增组件 | 是 | 是 | 先定义契约与边界，再实现 |
+| 架构调整 | 是 | 是 | 先更新架构文档与影响分析 |
+| 新增工具 | 是 | 是 | 含风险等级、审批策略与错误语义 |
+| Bug 修复 | 是 | 是 | 先定位是否文档约束缺失，再修复 |
+| 重构（不改接口） | 是 | 是 | 先补齐设计约束与迁移策略 |
+| 纯文档更新（无代码） | 是 | 否（可选） | 仅文档修订可不走实现任务 |
 
 #### OpenSpec 工作流
 
@@ -64,26 +64,28 @@ flowchart LR
     F --> G[归档 Proposal]
 ```
 
-1. **创建 Proposal**: 运行 `/openspec:proposal`
-2. **等待评审**: 人类或其他 Agent 评审
-3. **实现代码**: 评审通过后运行 `/openspec:apply`
-4. **归档**: 部署后运行 `/openspec:archive`
+1. **更新设计文档**：先更新 `docs/design/**`，满足最小完备标准。
+2. **生成 Gap 分析**：产出设计-代码差异分析文档。
+3. **生成 TODO 清单**：从 Gap 映射到可执行 TODO。
+4. **创建 Proposal**：运行 `/openspec:proposal`。
+5. **等待评审**：人类或其他 Agent 评审。
+6. **实现代码**：评审通过后运行 `/openspec:apply`，按 TODO 逐项落地。
+7. **回写与归档**：更新 TODO/证据，部署后运行 `/openspec:archive`。
 
 ### 日常开发流程
 
 ```mermaid
 flowchart TB
-    A[接收任务] --> B{需要 OpenSpec?}
-    B -->|是| C[创建 Proposal]
-    B -->|否| D[理解现有代码]
-    C --> E[等待评审]
-    E --> D
-    D --> F[编写代码]
+    A[接收任务] --> B[更新设计文档]
+    B --> C[生成 Gap 分析与 TODO]
+    C --> D[创建 OpenSpec Proposal]
+    D --> E[等待评审]
+    E --> F[编写代码]
     F --> G[运行测试]
     G --> H{测试通过?}
     H -->|否| F
     H -->|是| I[提交代码]
-    I --> J[更新文档]
+    I --> J[回写 TODO 与证据并归档]
 ```
 
 ---

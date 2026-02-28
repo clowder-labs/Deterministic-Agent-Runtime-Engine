@@ -42,27 +42,45 @@ from dare_framework.plan.types import (
     Envelope,
     Milestone,
     RunResult,
+    StepResult,
     Task,
     ToolLoopRequest,
     ValidatedPlan,
+    ValidatedStep,
     VerifyResult,
 )
 from dare_framework.security import (
+    DefaultSecurityBoundary,
     ISecurityBoundary,
-    NoOpSecurityBoundary,
     PolicyDecision,
+    RiskLevel,
+    SandboxSpec,
     SECURITY_APPROVAL_MANAGER_MISSING,
     SECURITY_POLICY_CHECK_FAILED,
     SECURITY_POLICY_DENIED,
     SECURITY_TRUST_DERIVATION_FAILED,
     SecurityBoundaryError,
+    TrustedInput,
 )
-from dare_framework.security.types import TrustedInput
 from dare_framework.tool._internal.governed_tool_gateway import (
     ApprovalInvokeContext,
     GovernedToolGateway,
 )
+from dare_framework.tool._internal.control.approval_manager import (
+    ApprovalDecision,
+    ApprovalEvaluationStatus,
+)
 from dare_framework.tool.types import CapabilityKind
+from dare_framework.transport.interaction.payloads import (
+    build_approval_pending_payload,
+    build_approval_resolved_payload,
+)
+from dare_framework.transport.types import (
+    EnvelopeKind,
+    TransportEnvelope,
+    TransportEventType,
+    new_envelope_id,
+)
 
 
 @dataclass
@@ -91,6 +109,7 @@ if TYPE_CHECKING:
     from dare_framework.mcp.manager import MCPManager
     from dare_framework.observability.kernel import ITelemetryProvider
     from dare_framework.plan.interfaces import IPlanner, IRemediator, IValidator
+    from dare_framework.security.kernel import ISecurityBoundary
     from dare_framework.tool.interfaces import IExecutionControl
     from dare_framework.tool.kernel import IToolGateway, IToolManager, IToolProvider
     from dare_framework.tool._internal.control.approval_manager import ToolApprovalManager
@@ -132,6 +151,7 @@ class DareAgent(BaseAgent):
         tool_gateway: IToolGateway,
         mcp_manager: MCPManager | None = None,
         execution_control: IExecutionControl | None = None,
+        security_boundary: ISecurityBoundary | None = None,
         approval_manager: ToolApprovalManager | None = None,
         # Plan components (optional - enables full five-layer mode)
         planner: IPlanner | None = None,
@@ -141,7 +161,6 @@ class DareAgent(BaseAgent):
         event_log: IEventLog | None = None,
         hooks: list[IHook] | None = None,
         telemetry: ITelemetryProvider | None = None,
-        security_boundary: ISecurityBoundary | None = None,
         # Milestone orchestration components (optional)
         sandbox: IPlanAttemptSandbox | None = None,
         step_executor: IStepExecutor | None = None,
@@ -162,6 +181,7 @@ class DareAgent(BaseAgent):
             context: Pre-configured context (required, provided by builder).
             tool_gateway: Tool gateway for invoking tools (required, provided by builder).
             execution_control: Execution control for HITL (optional).
+            security_boundary: Security boundary for trust/policy/sandbox checks (optional).
             approval_manager: Tool approval manager for persisted approval memory (optional).
             planner: Plan generator (optional, enables full five-layer).
             validator: Plan/milestone validator (optional).
@@ -179,6 +199,15 @@ class DareAgent(BaseAgent):
             execution_mode: "model_driven" (default) or "step_driven".
         """
         super().__init__(name, agent_channel=agent_channel)
+        normalized_execution_mode = execution_mode.strip().lower()
+        if normalized_execution_mode not in {"model_driven", "step_driven"}:
+            raise ValueError("execution_mode must be 'model_driven' or 'step_driven'")
+        if normalized_execution_mode == "step_driven" and planner is None:
+            raise ValueError("step_driven execution requires planner")
+        # Planner output in step-driven mode must pass validator-derived trust/policy metadata.
+        if normalized_execution_mode == "step_driven" and planner is not None and validator is None:
+            raise ValueError("step_driven execution with planner requires validator")
+
         self._model = model
         self._logger = logging.getLogger("dare.agent")
         self._context = context
@@ -193,6 +222,7 @@ class DareAgent(BaseAgent):
         )
         self._mcp_manager = mcp_manager
         self._exec_ctl = execution_control
+        self._security_boundary = security_boundary or DefaultSecurityBoundary()
         self._approval_manager = approval_manager
 
         # Plan components (optional)
@@ -204,7 +234,7 @@ class DareAgent(BaseAgent):
         self._sandbox = sandbox
         self._step_executor = step_executor
         self._evidence_collector = evidence_collector
-        self._execution_mode = execution_mode
+        self._execution_mode = normalized_execution_mode
 
         # Create default sandbox if not provided
         if self._sandbox is None:
@@ -215,7 +245,6 @@ class DareAgent(BaseAgent):
         self._telemetry = telemetry if telemetry is not None else NoOpTelemetryProvider()
         self._event_log = make_trace_aware(event_log)
         self._hooks = list(hooks) if hooks is not None else []
-        self._security_boundary = security_boundary if security_boundary is not None else NoOpSecurityBoundary()
         if isinstance(self._telemetry, OTelTelemetryProvider):
             if not any(isinstance(hook, ObservabilityHook) for hook in self._hooks):
                 self._hooks.append(ObservabilityHook(self._telemetry))
@@ -515,6 +544,57 @@ class DareAgent(BaseAgent):
             validated_plan = await self._run_plan_loop(milestone)
             self._log(f"Plan loop done, validated_plan={validated_plan is not None}")
 
+            plan_policy_error: str | None = None
+            plan_policy_decision = "not_applicable"
+            if validated_plan is not None:
+                try:
+                    plan_policy_error, plan_policy_decision = await self._check_plan_policy(
+                        milestone,
+                        validated_plan,
+                    )
+                except Exception as exc:
+                    # Preserve milestone-level failure semantics when policy backends
+                    # are unavailable instead of aborting the whole run.
+                    plan_policy_error = f"plan policy evaluation failed: {exc}"
+                    plan_policy_decision = "error"
+            if plan_policy_error is not None:
+                if self._sandbox is not None and snapshot_id:
+                    self._sandbox.rollback(self._context, snapshot_id)
+                    self._log(f"Rolled back STM snapshot: {snapshot_id}")
+                await self._log_event(
+                    "security.plan.policy",
+                    {
+                        "milestone_id": milestone.milestone_id,
+                        "decision": plan_policy_decision,
+                        "error": plan_policy_error,
+                    },
+                )
+                await self._log_event(
+                    "milestone.failed",
+                    {
+                        "milestone_id": milestone.milestone_id,
+                        "attempts": attempt + 1,
+                        "reason": "plan_policy",
+                    },
+                )
+                await self._emit_hook(
+                    HookPhase.AFTER_MILESTONE,
+                    {
+                        "milestone_id": milestone.milestone_id,
+                        "success": False,
+                        "attempts": attempt + 1,
+                        "errors": [plan_policy_error],
+                        "duration_ms": (time.perf_counter() - milestone_start) * 1000.0,
+                        "budget_stats": self._budget_stats(),
+                    },
+                )
+                return MilestoneResult(
+                    success=False,
+                    outputs=[],
+                    errors=[plan_policy_error],
+                    verify_result=VerifyResult(success=False, errors=[plan_policy_error]),
+                )
+
             # Run execute loop
             self._log("Running execute loop...")
             execute_result = await self._run_execute_loop(validated_plan, transport=transport)
@@ -711,6 +791,13 @@ class DareAgent(BaseAgent):
         await self._emit_hook(HookPhase.BEFORE_EXECUTE, {
             "plan_present": plan is not None,
         })
+        if self._execution_mode == "step_driven":
+            return await self._run_step_driven_execute_loop(
+                plan,
+                execute_start,
+                transport=transport,
+            )
+
         # Budget check
         self._context.budget_check()
 
@@ -932,6 +1019,395 @@ class DareAgent(BaseAgent):
             "errors": errors,
         })
 
+    async def _run_step_driven_execute_loop(
+        self,
+        plan: ValidatedPlan | None,
+        execute_start: float,
+        *,
+        transport: AgentChannel | None = None,
+    ) -> dict[str, Any]:
+        """Run execute loop using validated steps and a step executor."""
+        outputs: list[Any] = []
+        errors: list[str] = []
+
+        # Step-driven mode is strict: a validated plan with steps is required.
+        if plan is None:
+            return await self._finalize_execute(execute_start, {
+                "success": False,
+                "outputs": outputs,
+                "errors": ["step-driven execution requires a validated plan"],
+            })
+        if not plan.success:
+            return await self._finalize_execute(execute_start, {
+                "success": False,
+                "outputs": outputs,
+                "errors": list(plan.errors) or ["validated plan is not successful"],
+            })
+        if not plan.steps:
+            return await self._finalize_execute(execute_start, {
+                "success": False,
+                "outputs": outputs,
+                "errors": ["step-driven execution requires validated plan steps"],
+            })
+
+        step_executor = self._step_executor
+        use_tool_loop_executor = step_executor is None
+        evidence_collector: Any | None = None
+        if use_tool_loop_executor:
+            from dare_framework.agent._internal.step_executor import DefaultEvidenceCollector
+
+            evidence_collector = self._evidence_collector
+            if evidence_collector is None:
+                evidence_collector = DefaultEvidenceCollector()
+                self._evidence_collector = evidence_collector
+
+        previous_results: list[StepResult] = []
+        for step in plan.steps:
+            self._context.budget_check()
+            if self._exec_ctl is not None:
+                self._poll_or_raise()
+
+            descriptor = self._find_capability_descriptor(step.capability_id)
+            step_capability_kind = None
+            if isinstance(step.metadata, dict):
+                step_capability_kind = step.metadata.get("capability_kind")
+                if hasattr(step_capability_kind, "value"):
+                    step_capability_kind = step_capability_kind.value
+
+            if (
+                self._is_plan_tool_call(step.capability_id, descriptor)
+                or str(step_capability_kind) == CapabilityKind.PLAN_TOOL.value
+            ):
+                return await self._finalize_execute(execute_start, {
+                    "success": False,
+                    "outputs": outputs,
+                    "errors": errors,
+                    "encountered_plan_tool": True,
+                    "plan_tool_name": step.capability_id,
+                })
+
+            if use_tool_loop_executor:
+                step_result = await self._execute_step_via_tool_loop(
+                    step,
+                    previous_results,
+                    transport=transport,
+                    evidence_collector=evidence_collector,
+                )
+            else:
+                # Custom step executors may bypass tool-loop accounting; keep
+                # tool-call budgets aligned with one-step-one-tool execution.
+                self._context.budget_use("tool_calls", 1)
+                step_result = await self._execute_step_via_custom_executor(
+                    step_executor,
+                    step,
+                    previous_results,
+                    transport=transport,
+                )
+            previous_results.append(step_result)
+
+            if step_result.success:
+                outputs.append(step_result.output)
+                continue
+
+            errors.extend(step_result.errors or [f"step {step.step_id} failed"])
+            return await self._finalize_execute(execute_start, {
+                "success": False,
+                "outputs": outputs,
+                "errors": errors,
+            })
+
+        return await self._finalize_execute(execute_start, {
+            "success": True,
+            "outputs": outputs,
+            "errors": errors,
+        })
+
+    async def _execute_step_via_tool_loop(
+        self,
+        step: ValidatedStep,
+        previous_results: list[StepResult],
+        *,
+        transport: AgentChannel | None,
+        evidence_collector: Any,
+    ) -> StepResult:
+        step_context = self._build_step_context_from_previous(previous_results)
+        descriptor = self._find_capability_descriptor(step.capability_id)
+        request = ToolLoopRequest(
+            capability_id=step.capability_id,
+            params={**step.params, **step_context},
+            envelope=step.envelope or Envelope(risk_level=step.risk_level),
+        )
+        metadata_requires_approval = step.metadata.get("requires_approval")
+        requires_approval_override = metadata_requires_approval if isinstance(metadata_requires_approval, bool) else None
+        tool_result = await self._run_tool_loop(
+            request,
+            transport=transport,
+            tool_name=step.capability_id,
+            tool_call_id=f"step-{step.step_id}",
+            descriptor=descriptor,
+            requires_approval_override=requires_approval_override,
+            trusted_risk_level_override=step.risk_level,
+        )
+        if tool_result.get("success"):
+            # Expose plain tool output for step chaining; `result` carries
+            # internal wrapper details and should not leak into step outputs.
+            if "output" in tool_result:
+                # Preserve explicit None payloads; only fallback when output is absent.
+                result_payload = tool_result.get("output")
+            else:
+                result_payload = tool_result.get("result")
+            evidence = evidence_collector.collect(
+                source=step.capability_id,
+                data={"result": result_payload, "params": step.params},
+                evidence_type="tool_result",
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=True,
+                output=result_payload,
+                evidence=[evidence],
+            )
+
+        error = str(tool_result.get("error") or f"step {step.step_id} failed")
+        return StepResult(
+            step_id=step.step_id,
+            success=False,
+            output=tool_result.get("output"),
+            errors=[error],
+        )
+
+    async def _execute_step_via_custom_executor(
+        self,
+        step_executor: IStepExecutor,
+        step: ValidatedStep,
+        previous_results: list[StepResult],
+        *,
+        transport: AgentChannel | None = None,
+    ) -> StepResult:
+        """Execute custom step executors behind the same security gates."""
+        _ = transport
+        tool_name = step.capability_id
+        tool_call_id = f"step-{step.step_id}"
+        attempt = 1
+        tool_start = time.perf_counter()
+
+        async def _emit_after_tool(
+            *,
+            success: bool,
+            error: str | None,
+            approved: bool,
+            evidence_collected: bool,
+        ) -> None:
+            await self._emit_hook(
+                HookPhase.AFTER_TOOL,
+                {
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "capability_id": step.capability_id,
+                    "attempt": attempt,
+                    "success": success,
+                    "error": error,
+                    "approved": approved,
+                    "evidence_collected": evidence_collected,
+                    "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
+                    "budget_stats": self._budget_stats(),
+                },
+            )
+
+        step_context = self._build_step_context_from_previous(previous_results)
+        descriptor = self._find_capability_descriptor(step.capability_id)
+        envelope = step.envelope or Envelope(risk_level=step.risk_level)
+        risk_level = max(
+            self._risk_level_value(descriptor),
+            self._risk_level_value_from_envelope(envelope),
+        )
+        descriptor_requires_approval = self._requires_approval(descriptor)
+        metadata_requires_approval = step.metadata.get("requires_approval")
+        requires_approval = descriptor_requires_approval
+        if isinstance(metadata_requires_approval, bool):
+            requires_approval = requires_approval or metadata_requires_approval
+
+        try:
+            trusted_params, trust_error = await self._resolve_tool_security(
+                capability_id=step.capability_id,
+                params={**step.params, **step_context},
+                tool_name=tool_name,
+                risk_level=risk_level,
+                requires_approval=requires_approval,
+                trusted_risk_level=self._coerce_risk_level(risk_level),
+            )
+        except Exception as exc:
+            error_text = str(exc)
+            await _emit_after_tool(
+                success=False,
+                error=error_text,
+                approved=False,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[error_text],
+            )
+
+        approval_required_by_policy = trust_error == "tool invocation requires security approval"
+        if trust_error is not None and not approval_required_by_policy:
+            await _emit_after_tool(
+                success=False,
+                error=trust_error,
+                approved=False,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[trust_error],
+            )
+        if approval_required_by_policy:
+            trust_error = None
+        effective_requires_approval = requires_approval or approval_required_by_policy
+
+        before_tool_dispatch = await self._emit_hook(
+            HookPhase.BEFORE_TOOL,
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": step.capability_id,
+                "attempt": attempt,
+                "risk_level": risk_level,
+                "requires_approval": effective_requires_approval,
+            },
+        )
+        if before_tool_dispatch.decision in {HookDecision.BLOCK, HookDecision.ASK}:
+            policy_error = (
+                "tool invocation requires hook approval"
+                if before_tool_dispatch.decision is HookDecision.ASK
+                else "tool invocation denied by hook policy"
+            )
+            await _emit_after_tool(
+                success=False,
+                error=policy_error,
+                approved=True,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[policy_error],
+            )
+
+        # Custom step executors bypass governed gateway invocation, so approval
+        # gating must be enforced explicitly in this path.
+        if effective_requires_approval:
+            approved, approval_error = await self._resolve_tool_approval(
+                capability_id=step.capability_id,
+                params=trusted_params,
+                session_id=self._session_state.run_id if self._session_state is not None else None,
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                transport=transport,
+            )
+            if not approved:
+                approval_error_text = approval_error or "tool invocation requires security approval"
+                await _emit_after_tool(
+                    success=False,
+                    error=approval_error_text,
+                    approved=False,
+                    evidence_collected=False,
+                )
+                return StepResult(
+                    step_id=step.step_id,
+                    success=False,
+                    output=None,
+                    errors=[approval_error_text],
+                )
+
+        secured_step = replace(step, params=trusted_params, envelope=envelope)
+        try:
+            result = await self._security_boundary.execute_safe(
+                action="invoke_tool",
+                fn=lambda: step_executor.execute_step(
+                    secured_step,
+                    self._context,
+                    previous_results,
+                ),
+                sandbox=SandboxSpec(
+                    mode="step_executor",
+                    details={
+                        "capability_id": step.capability_id,
+                        "step_id": step.step_id,
+                        "executor": step_executor.__class__.__name__,
+                    },
+                ),
+            )
+        except Exception as exc:
+            error_text = str(exc)
+            await _emit_after_tool(
+                success=False,
+                error=error_text,
+                approved=True,
+                evidence_collected=False,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                success=False,
+                output=None,
+                errors=[error_text],
+            )
+
+        if isinstance(result, StepResult):
+            result_error = None
+            if not result.success:
+                result_error = result.errors[0] if result.errors else f"step {step.step_id} failed"
+            await _emit_after_tool(
+                success=result.success,
+                error=result_error,
+                approved=True,
+                evidence_collected=bool(result.evidence),
+            )
+            return result
+
+        invalid_error = "step executor returned invalid StepResult"
+        await _emit_after_tool(
+            success=False,
+            error=invalid_error,
+            approved=True,
+            evidence_collected=False,
+        )
+        return StepResult(
+            step_id=step.step_id,
+            success=False,
+            output=None,
+            errors=[invalid_error],
+        )
+
+    def _build_step_context_from_previous(
+        self,
+        previous_results: list[StepResult],
+    ) -> dict[str, Any]:
+        if not previous_results:
+            return {}
+
+        last_success = next(
+            (result for result in reversed(previous_results) if result.success),
+            None,
+        )
+        if last_success is None:
+            return {}
+        return {"_previous_output": last_success.output}
+
+    def _find_capability_descriptor(self, capability_id: str) -> Any | None:
+        try:
+            for descriptor in self._tool_gateway.list_capabilities():
+                if getattr(descriptor, "id", None) == capability_id:
+                    return descriptor
+        except Exception:
+            return None
+        return None
+
     # =========================================================================
     # Tool Loop (Layer 5)
     # =========================================================================
@@ -944,6 +1420,8 @@ class DareAgent(BaseAgent):
         tool_name: str,
         tool_call_id: str,
         descriptor: Any | None = None,
+        requires_approval_override: bool | None = None,
+        trusted_risk_level_override: RiskLevel | None = None,
     ) -> dict[str, Any]:
         """Run the tool loop - single tool invocation."""
         # Budget check
@@ -952,15 +1430,22 @@ class DareAgent(BaseAgent):
         done_predicate = request.envelope.done_predicate
         max_calls = self._tool_loop_max_calls(request.envelope)
         attempts = 0
-        risk_level = self._risk_level_value(descriptor)
-        requires_approval = self._requires_approval(descriptor)
+        # Use the strictest risk level from descriptor metadata and envelope
+        # constraints to avoid downgrading policy checks when descriptor data
+        # is missing/stale (e.g. step-driven validated steps).
+        risk_level = max(
+            self._risk_level_value(descriptor),
+            self._risk_level_value_from_envelope(request.envelope),
+        )
+        descriptor_requires_approval = self._requires_approval(descriptor)
+        metadata_requires_approval = requires_approval_override is True
+        requires_approval = descriptor_requires_approval
         session_id = self._session_state.run_id if self._session_state is not None else None
 
         while True:
             attempts += 1
             self._context.budget_check()
             self._context.budget_use("tool_calls", 1)
-
             tool_start = time.perf_counter()
             before_tool_dispatch = await self._emit_hook(
                 HookPhase.BEFORE_TOOL,
@@ -999,7 +1484,6 @@ class DareAgent(BaseAgent):
                     "error": policy_error,
                     "output": {},
                 }
-
             try:
                 preflight = await self._evaluate_tool_security(
                     request=request,
@@ -1007,6 +1491,8 @@ class DareAgent(BaseAgent):
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     attempt=attempts,
+                    requires_approval_override=requires_approval_override,
+                    trusted_risk_level_override=trusted_risk_level_override,
                 )
             except SecurityBoundaryError as exc:
                 denied_error = str(exc).strip() or "security policy denied tool invocation"
@@ -1054,6 +1540,7 @@ class DareAgent(BaseAgent):
             risk_level = self._risk_level_from_trusted_input(trusted_input)
             effective_params = dict(trusted_input.params)
             policy_decision = preflight.decision.value
+            force_approval = metadata_requires_approval or preflight.decision is PolicyDecision.APPROVE_REQUIRED
 
             if preflight.decision is PolicyDecision.DENY:
                 denied_error = preflight.reason or "tool invocation denied by security policy"
@@ -1096,10 +1583,7 @@ class DareAgent(BaseAgent):
                     },
                 }
 
-            if (
-                preflight.decision is PolicyDecision.APPROVE_REQUIRED
-                and self._approval_manager is None
-            ):
+            if force_approval and not descriptor_requires_approval and self._approval_manager is None:
                 denied_error = "tool invocation requires approval but no approval manager is configured"
                 await self._log_event(
                     "security.policy_denied",
@@ -1166,15 +1650,25 @@ class DareAgent(BaseAgent):
                     tool_call_id=tool_call_id,
                     event_logger=self._log_event,
                     runtime_context=self._context,
-                    force_approval=preflight.decision is PolicyDecision.APPROVE_REQUIRED,
-                    approval_reason=preflight.reason,
+                    force_approval=force_approval,
+                    approval_reason=preflight.reason if preflight.decision is PolicyDecision.APPROVE_REQUIRED else None,
                     approval_observer=approval_observer,
                 )
-                result = await self._governed_tool_gateway.invoke(
-                    request.capability_id,
-                    approval_ctx,
-                    envelope=request.envelope,
-                    **effective_params,
+                result = await self._security_boundary.execute_safe(
+                    action="invoke_tool",
+                    fn=lambda: self._governed_tool_gateway.invoke(
+                        request.capability_id,
+                        approval_ctx,
+                        envelope=request.envelope,
+                        **effective_params,
+                    ),
+                    sandbox=SandboxSpec(
+                        mode="tool_gateway",
+                        details={
+                            "capability_id": request.capability_id,
+                            "tool_name": tool_name,
+                        },
+                    ),
                 )
 
                 await self._log_event("tool.result", {
@@ -1226,7 +1720,11 @@ class DareAgent(BaseAgent):
                     }
 
                 # Collect evidence
-                milestone_state = self._session_state.current_milestone_state
+                milestone_state = (
+                    self._session_state.current_milestone_state
+                    if self._session_state is not None
+                    else None
+                )
                 if milestone_state and hasattr(result, "evidence"):
                     for evidence in result.evidence:
                         milestone_state.add_evidence(evidence)
@@ -1289,6 +1787,269 @@ class DareAgent(BaseAgent):
                     "output": {},
                 }
 
+    async def _check_plan_policy(
+        self,
+        milestone: Milestone,
+        validated_plan: ValidatedPlan | None,
+    ) -> tuple[str | None, str]:
+        decision = await self._security_boundary.check_policy(
+            action="execute_plan",
+            resource=milestone.milestone_id,
+            context={
+                "milestone_id": milestone.milestone_id,
+                "plan_present": validated_plan is not None,
+                "plan_success": validated_plan.success if validated_plan is not None else None,
+                "plan_steps_count": len(validated_plan.steps) if validated_plan is not None else 0,
+            },
+        )
+        if decision is PolicyDecision.ALLOW:
+            return None, "allow"
+        if decision is PolicyDecision.APPROVE_REQUIRED:
+            return "execute plan requires security approval", "approve_required"
+        return "execute plan denied by security policy", "deny"
+
+    async def _resolve_tool_security(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        tool_name: str,
+        risk_level: int,
+        requires_approval: bool,
+        trusted_risk_level: RiskLevel | None = None,
+    ) -> tuple[dict[str, Any], str | None]:
+        try:
+            preflight = await self._evaluate_tool_security(
+                request=ToolLoopRequest(
+                    capability_id=capability_id,
+                    params=dict(params),
+                ),
+                descriptor=self._find_capability_descriptor(capability_id),
+                tool_name=tool_name,
+                tool_call_id=f"security-preflight:{capability_id}",
+                attempt=1,
+                requires_approval_override=requires_approval,
+                trusted_risk_level_override=trusted_risk_level,
+            )
+        except SecurityBoundaryError as exc:
+            return {}, str(exc).strip() or "tool invocation denied by security policy"
+
+        if preflight.decision is PolicyDecision.ALLOW:
+            return dict(preflight.trusted_input.params), None
+        if preflight.decision is PolicyDecision.APPROVE_REQUIRED:
+            return dict(preflight.trusted_input.params), "tool invocation requires security approval"
+        return {}, preflight.reason or "tool invocation denied by security policy"
+
+    async def _resolve_tool_approval(
+        self,
+        *,
+        capability_id: str,
+        params: dict[str, Any],
+        session_id: str | None,
+        tool_name: str,
+        tool_call_id: str,
+        transport: AgentChannel | None = None,
+    ) -> tuple[bool, str | None]:
+        if self._approval_manager is None:
+            return False, "tool requires approval but no approval manager is configured"
+
+        try:
+            evaluation = await self._approval_manager.evaluate(
+                capability_id=capability_id,
+                params=params,
+                session_id=session_id,
+                reason=f"Tool {capability_id} requires approval",
+            )
+        except Exception as exc:
+            error = f"tool approval evaluation failed: {exc}"
+            try:
+                await self._log_event(
+                    "tool.approval",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": capability_id,
+                        "status": "error",
+                        "source": "evaluate",
+                        "error": str(exc),
+                    },
+                )
+            except Exception:
+                self._logger.exception("approval evaluation error event emission failed")
+            return False, error
+        if evaluation.status == ApprovalEvaluationStatus.ALLOW:
+            await self._log_event(
+                "tool.approval",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": capability_id,
+                    "status": "allow",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            return True, None
+
+        if evaluation.status == ApprovalEvaluationStatus.DENY:
+            await self._log_event(
+                "tool.approval",
+                {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "capability_id": capability_id,
+                    "status": "deny",
+                    "source": "rule",
+                    "rule_id": evaluation.rule.rule_id if evaluation.rule is not None else None,
+                },
+            )
+            return False, "tool invocation denied by approval rule"
+
+        if evaluation.request is None:
+            return False, "tool invocation requires approval"
+
+        request_id = evaluation.request.request_id
+        await self._emit_approval_pending_message(
+            request=evaluation.request.to_dict(),
+            transport=transport,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        await self._log_event(
+            "exec.waiting_human",
+            {
+                "checkpoint_id": request_id,
+                "reason": evaluation.request.reason,
+                "mode": "approval_memory_wait",
+            },
+        )
+        try:
+            decision = await self._approval_manager.wait_for_resolution(request_id)
+        except Exception as exc:
+            error = f"tool approval resolution failed: {exc}"
+            try:
+                await self._log_event(
+                    "tool.approval",
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "capability_id": capability_id,
+                        "status": "error",
+                        "source": "pending_request",
+                        "request_id": request_id,
+                        "error": str(exc),
+                    },
+                )
+            except Exception:
+                self._logger.exception("approval resolution error event emission failed")
+            return False, error
+        await self._log_event(
+            "exec.resume",
+            {
+                "checkpoint_id": request_id,
+                "decision": decision.value,
+            },
+        )
+        await self._log_event(
+            "tool.approval",
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "capability_id": capability_id,
+                "status": decision.value,
+                "source": "pending_request",
+                "request_id": request_id,
+            },
+        )
+        await self._emit_approval_resolved_message(
+            request_id=request_id,
+            decision=decision.value,
+            transport=transport,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        if decision == ApprovalDecision.ALLOW:
+            return True, None
+        return False, "tool invocation denied by human approval"
+
+    async def _emit_approval_pending_message(
+        self,
+        *,
+        request: dict[str, Any],
+        transport: AgentChannel | None,
+        capability_id: str,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> None:
+        if transport is None:
+            return
+        payload = build_approval_pending_payload(
+            request=request,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        # Approval pending is an explicit user-choice interaction shape.
+        resp = payload.get("resp")
+        if isinstance(resp, dict):
+            resp.setdefault(
+                "options",
+                [
+                    {"label": "allow", "description": "Approve this tool invocation."},
+                    {"label": "deny", "description": "Deny this tool invocation."},
+                ],
+            )
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.SELECT,
+            event_type=TransportEventType.APPROVAL_PENDING.value,
+            payload=payload,
+        )
+        try:
+            await transport.send(envelope)
+        except Exception:
+            self._logger.exception("approval pending transport send failed")
+
+    async def _emit_approval_resolved_message(
+        self,
+        *,
+        request_id: str,
+        decision: str,
+        transport: AgentChannel | None,
+        capability_id: str,
+        tool_name: str,
+        tool_call_id: str,
+    ) -> None:
+        if transport is None:
+            return
+        payload = build_approval_resolved_payload(
+            request_id=request_id,
+            decision=decision,
+            capability_id=capability_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.APPROVAL_RESOLVED.value,
+            payload=payload,
+        )
+        try:
+            await transport.send(envelope)
+        except Exception:
+            self._logger.exception("approval resolved transport send failed")
+
+    def _coerce_risk_level(self, risk_level: int) -> RiskLevel:
+        mapping = {
+            1: RiskLevel.READ_ONLY,
+            2: RiskLevel.IDEMPOTENT_WRITE,
+            3: RiskLevel.NON_IDEMPOTENT_EFFECT,
+            4: RiskLevel.COMPENSATABLE,
+        }
+        return mapping.get(risk_level, RiskLevel.READ_ONLY)
     # =========================================================================
     # Verify
     # =========================================================================
@@ -1442,15 +2203,22 @@ class DareAgent(BaseAgent):
         tool_name: str,
         tool_call_id: str,
         attempt: int,
+        requires_approval_override: bool | None = None,
+        trusted_risk_level_override: RiskLevel | None = None,
     ) -> SecurityPreflightResult:
+        requires_approval = self._requires_approval(descriptor)
+        if isinstance(requires_approval_override, bool):
+            requires_approval = requires_approval or requires_approval_override
         trust_context: dict[str, Any] = {
             "capability_id": request.capability_id,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
             "attempt": attempt,
             "descriptor": descriptor,
-            "requires_approval": self._requires_approval(descriptor),
+            "requires_approval": requires_approval,
         }
+        if trusted_risk_level_override is not None:
+            trust_context["risk_level"] = trusted_risk_level_override
         try:
             trusted_input = await self._security_boundary.verify_trust(
                 input=dict(request.params),
@@ -1587,6 +2355,20 @@ class DareAgent(BaseAgent):
         if descriptor is None or descriptor.metadata is None:
             return 1
         risk_level = descriptor.metadata.get("risk_level", "read_only")
+        if hasattr(risk_level, "value"):
+            risk_level = risk_level.value
+        mapping = {
+            "read_only": 1,
+            "idempotent_write": 2,
+            "non_idempotent_effect": 3,
+            "compensatable": 4,
+        }
+        return mapping.get(str(risk_level), 1)
+
+    def _risk_level_value_from_envelope(self, envelope: Envelope | None) -> int:
+        if envelope is None:
+            return 1
+        risk_level = envelope.risk_level
         if hasattr(risk_level, "value"):
             risk_level = risk_level.value
         mapping = {
