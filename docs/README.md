@@ -41,6 +41,8 @@
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
    ├── guides/Development_Constraints.md (开发约束清单)
    ├── guides/Documentation_First_Development_SOP.md (文档先行 SOP，Bug/Feature/Refactor 必走)
+   ├── governance/Documentation_Management_Model.md (文档目录分层、生命周期、OpenSpec/TODO 双模式协作)
+   ├── features/README.md (特性聚合文档规范与归档规则)
    └── design/Design_Doc_Minimum_Standard.md (设计文档最小完备标准)
 ```
 
@@ -91,6 +93,8 @@
 | `guides/Engineering_Practice_Guide_Sandbox_and_WORM.md` | 工程实践指南：沙箱执行隔离（seccomp/网络/镜像）、WORM 落地与核查 |
 | `guides/Development_Constraints.md` | 开发约束：架构不破坏、测试必备、日志/命名/复用/信任边界等硬性要求 |
 | `guides/Documentation_First_Development_SOP.md` | 文档先行 SOP：先设计文档、再 gap 分析、再 TODO、再 OpenSpec 修复、再归档 |
+| `governance/Documentation_Management_Model.md` | 文档管理模型：目录分层、文档类型规则、生命周期依赖、OpenSpec/无 OpenSpec 协作 |
+| `features/README.md` | 特性聚合文档规范：单一状态源、证据回写与归档迁移 |
 | `guides/Tool_Approval_Memory.md` | 工具审批记忆使用指南：pending/grant/deny/revoke、scope/matcher、持久化与接线方式 |
 
 ---
@@ -290,14 +294,26 @@ docs/
 │       ├── Interface_Layer_Design_v1.1_MCP_and_Builtin.md
 │       ├── ARCHITECTURE_COMPARISON.md
 │       └── ...（更多历史文档）
+├── features/
+│   ├── README.md
+│   ├── <change-id>.md（每个 change 一个聚合文档）
+│   └── archive/
+├── governance/
+│   ├── Documentation_Management_Model.md
+│   └── branch-protection.md
 ├── guides/
 │   ├── Development_Constraints.md
+│   ├── Documentation_First_Development_SOP.md
 │   └── Engineering_Practice_Guide_Sandbox_and_WORM.md
+├── todos/
+│   ├── YYYY-MM-DD_<topic>_design_code_gap_analysis.md
+│   ├── YYYY-MM-DD_<topic>_design_code_gap_todo.md
+│   └── archive/
 └── appendix/
     └── Appendix_Industrial_Security_and_Auditing.md
 ```
 
 ---
 
-*最后更新：2026-02-27*
+*最后更新：2026-02-28*
 *维护者：DARE Framework Team*

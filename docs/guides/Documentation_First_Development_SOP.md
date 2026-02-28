@@ -19,6 +19,7 @@
 ## 2. 产物规范（必须）
 
 - 设计文档：`docs/design/**`
+- 特性聚合文档：`docs/features/<change-id>.md`（状态单一真相源）
 - 设计质量标准：`docs/design/Design_Doc_Minimum_Standard.md`
 - 差异分析：`docs/todos/YYYY-MM-DD_<topic>_design_code_gap_analysis.md`
 - 执行清单：`docs/todos/YYYY-MM-DD_<topic>_design_code_gap_todo.md`
@@ -26,6 +27,7 @@
 - 归档产物：分析文档、TODO 文档在完成后标记 `done/archived`，并补证据链接。
 - 可重建追踪矩阵：`docs/design/Design_Reconstructability_Traceability_Matrix.md`
 - 重建执行 SOP：`docs/guides/Design_Reconstruction_SOP.md`
+- 文档治理模型：`docs/governance/Documentation_Management_Model.md`
 
 ## 3. 标准流程（一步不可省）
 
@@ -96,3 +98,34 @@
    - 归档路径统一使用日期前缀（`YYYY-MM-DD-...`）。
    - 归档条目必须包含对应 OpenSpec change 路径与验证证据。
 4. 若连续两轮发现同类文档漂移，必须新增自动化校验并接入 CI。
+
+## 7. 协作模式（必须显式声明）
+
+### Mode A: OpenSpec 模式（默认）
+
+适用于 OpenSpec 可用场景，执行顺序如下：
+1. 建立/选择 `openspec/changes/<change-id>/`。
+2. 创建或更新 `docs/features/<change-id>.md`，并登记 proposal/design/specs/tasks 链接。
+3. 按 OpenSpec tasks 逐项执行，每个任务回写证据到 feature 聚合文档与 TODO 文档。
+4. 完成后执行 verify + archive，并迁移聚合文档到 `docs/features/archive/`。
+
+### Mode B: 无 OpenSpec 回退（TODO-driven）
+
+仅在 OpenSpec 不可用（工具/环境受限）时使用：
+1. 创建 `docs/features/<topic-slug>.md`，并在 frontmatter 声明 `mode: todo_fallback`。
+2. 创建日期化 gap/todo 文档对（`docs/todos/`）。
+3. 以 TODO 清单推进并持续回写 evidence。
+4. OpenSpec 可用后，必须补迁移：将 fallback 资产映射到新的 `openspec/changes/<change-id>/` 并记录迁移证据。
+
+## 8. SOP Skill 化（必须）
+
+SOP 关键阶段必须有可调用技能承载，并保持 checkpoint 与 skill 映射一致：
+- kickoff
+- execution-sync
+- verification
+- completion-archive
+
+当前统一技能入口：
+- `.codex/skills/documentation-lifecycle-governance/SKILL.md`
+
+若 SOP 与 skill 行为不一致，以规范文档更新 + skill 同步更新为同一任务，禁止只改其一。

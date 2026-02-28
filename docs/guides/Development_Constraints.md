@@ -10,9 +10,12 @@
 
 ## 文档先行硬门禁（新增，强制）
 - Agent 开发必须先遵循 `docs/guides/` 约束，最低要求：`Development_Constraints.md` + `Documentation_First_Development_SOP.md`。
+- 文档管理方式必须遵循 `docs/governance/Documentation_Management_Model.md`（目录分层、文档类型放置、生命周期迁移）。
 - 所有代码开发以 `docs/design/` 全量最新设计为准；若实现与文档冲突，必须先更新文档再改代码。
 - 设计文档必须可独立重建实现：至少显式描述总体架构、核心流程、数据结构、关键接口、异常错误处理（详见 `docs/design/Design_Doc_Minimum_Standard.md`）。
 - 任何 Bug/新增 Feature/重构，必须先执行“文档更新 + gap 分析 + TODO 拆解”，再按 OpenSpec 流程逐项落地。
+- 默认采用 OpenSpec 协作；仅在 OpenSpec 不可用时允许 TODO-driven 回退模式，并必须在 OpenSpec 恢复后完成迁移回写。
+- 任何治理类文档任务必须使用统一技能流程（`.codex/skills/documentation-lifecycle-governance/SKILL.md`）或等价自动化流程。
 - 禁止“先写代码后补文档”；除紧急止血修复外，文档缺失视为任务未开始。紧急修复需在 24 小时内补齐文档与 gap 分析。
 
 ## 设计准则（高内聚、低耦合）

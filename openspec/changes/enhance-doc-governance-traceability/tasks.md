@@ -1,5 +1,6 @@
 ## 1. Governance contract and template baseline
 
+- [ ] 1.0 Publish unified docs directory taxonomy and type-to-path mapping in governance model + docs navigation.
 - [ ] 1.1 Define and publish the frontmatter field contract for governance-tracked documents (required vs optional fields).
 - [ ] 1.2 Create a governance aggregation template keyed by OpenSpec change-id and add one example document.
 - [ ] 1.3 Add an active governance index and archive index format with explicit migration rules.
@@ -9,6 +10,7 @@
 - [ ] 2.1 Update `docs/guides/Documentation_First_Development_SOP.md` with aggregation/frontmatter/checkpoint execution order.
 - [ ] 2.2 Update `docs/guides/Development_Constraints.md` to require governance aggregation entry + machine-checkable mapping.
 - [ ] 2.3 Update `docs/design/Design_Reconstructability_Traceability_Matrix.md` to include links to governance aggregation entries.
+- [ ] 2.4 Update standards to explicitly define OpenSpec default collaboration and TODO-driven fallback collaboration.
 
 ## 3. Automation and CI checkpoint implementation
 
@@ -21,6 +23,7 @@
 - [ ] 4.1 Define and publish a checkpoint-to-skill mapping document for governance lifecycle stages.
 - [ ] 4.2 Add or update governance skills for kickoff/completion/verification stages under repository-managed skills.
 - [ ] 4.3 Add CI validation to ensure required governance checkpoint-skill mappings are present and non-stale.
+- [ ] 4.4 Define reuse contract so governance skills can be reused by both OpenSpec mode and TODO fallback mode.
 
 ## 5. Pilot backfill and closure evidence
 

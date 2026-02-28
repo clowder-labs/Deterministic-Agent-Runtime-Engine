@@ -27,3 +27,11 @@
 1. `Plan->Execute` 的 `APPROVE_REQUIRED` 仍以 fail-fast 为主，需与 ToolLoop 语义统一。
 2. Hook payload schema 跨模块 contract 仍在收敛。
 3. 文档治理链路已建立，但自动化漂移校验需要持续补强。
+
+## Governance 聚合锚点（新增）
+
+> 说明：治理类 change 需要在本矩阵中补充 `feature aggregation` 锚点，确保从能力声明可直接跳转到变更级证据入口。
+
+| Capability | Feature Aggregation Anchor | OpenSpec Change |
+|---|---|---|
+| Documentation-first 治理闭环 | `docs/features/enhance-doc-governance-traceability.md` | `openspec/changes/enhance-doc-governance-traceability/` |

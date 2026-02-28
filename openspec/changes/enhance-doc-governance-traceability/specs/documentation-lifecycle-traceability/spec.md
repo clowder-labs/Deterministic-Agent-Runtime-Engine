@@ -1,5 +1,13 @@
 ## ADDED Requirements
 
+### Requirement: 文档目录结构必须维护统一分层
+系统 MUST 维护统一文档目录分层，并为设计文档、分析文档、特性聚合文档、标准文档、临时文档、归档文档定义固定放置路径。
+
+#### Scenario: 文档类型有唯一放置位置
+- **WHEN** 维护者新增某类治理文档
+- **THEN** 可以根据文档类型映射到唯一推荐目录
+- **AND** 导航文档中存在与该映射一致的目录说明
+
 ### Requirement: 治理变更必须维护单一聚合入口文档
 每个文档治理变更 MUST 提供一个可定位的聚合入口文档，集中链接 proposal/design/specs/tasks、相关 `docs/design` 更新、gap 分析与 TODO 清单证据。
 
@@ -39,3 +47,11 @@
 - **WHEN** 维护者或 agent 执行治理类变更
 - **THEN** 可定位到对应阶段的 skill 入口与使用说明
 - **AND** 能从映射关系中确认该阶段对应的 gate/checkpoint
+
+### Requirement: 协作流程必须声明 OpenSpec 默认与回退模式
+治理流程 MUST 明确 OpenSpec 为默认协作模式，并定义无 OpenSpec 场景下的 TODO-driven 回退流程及后续迁移要求。
+
+#### Scenario: OpenSpec 不可用时仍可保持治理闭环
+- **WHEN** OpenSpec 工具不可用
+- **THEN** 维护者可按 TODO-driven 回退模式继续执行文档治理任务
+- **AND** 一旦 OpenSpec 恢复可用，回退资产可迁移并回写到 OpenSpec change

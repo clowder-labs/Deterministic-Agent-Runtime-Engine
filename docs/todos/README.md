@@ -52,7 +52,9 @@
 ## 5. 与其他文档的关系
 
 - 与 `docs/design/modules/*`：模块细节在模块文档，这里只保留跨模块视角。
-- 与 OpenSpec：执行任务拆解在 OpenSpec artifacts，这里只做方向与优先级治理。
+- 与 OpenSpec：执行任务拆解在 OpenSpec artifacts，这里只做方向与优先级治理（默认模式）。
+- 与 `docs/features/*`：每个治理/特性 change 的状态单一真相源在聚合文档，本目录负责分析与执行清单，不重复维护冲突状态。
 - 与 `docs/README.md`：由文档导航统一入口。
 - 与 `docs/guides/Documentation_First_Development_SOP.md`：必须遵循“gap 分析 -> TODO -> OpenSpec 执行 -> 回写/归档”的闭环流程。
+- 与 `docs/governance/Documentation_Management_Model.md`：目录分层、生命周期和回退协作模式以该模型为准。
 - 与 `docs/guides/Design_Reconstruction_SOP.md`：重建场景必须遵循该 SOP，并以追踪矩阵为验收入口。

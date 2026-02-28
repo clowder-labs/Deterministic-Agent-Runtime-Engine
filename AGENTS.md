@@ -9,6 +9,10 @@
 - Agent-driven development MUST follow documents under `docs/guides/` first, especially:
   - `docs/guides/Development_Constraints.md`
   - `docs/guides/Documentation_First_Development_SOP.md`
+- Documentation placement, lifecycle, and archive handling MUST follow:
+  - `docs/governance/Documentation_Management_Model.md`
+- Documentation governance tasks SHOULD use:
+  - `.codex/skills/documentation-lifecycle-governance/SKILL.md`
 - Code implementation MUST align with `docs/design/` as the latest full design source of truth.
 - If design and implementation diverge, update design docs first, then execute gap analysis before coding.
 - Every design doc that governs implementation MUST explicitly contain:
