@@ -21,9 +21,9 @@
 ## 4. SOP skillization implementation
 
 - [ ] 4.1 Define and publish a checkpoint-to-skill mapping document for governance lifecycle stages.
-- [ ] 4.2 Add or update at least two governance skills under repository-managed skills: `documentation-management` and `documentation-workflow` (plus optional compatibility wrapper).
+- [ ] 4.2 Add or update at least two governance skills under repository-managed skills: `documentation-management` and `development-workflow`.
 - [ ] 4.3 Add CI validation to ensure required governance checkpoint-skill mappings are present and non-stale.
-- [ ] 4.4 Define reuse contract so the two governance skills can be reused by both OpenSpec mode and TODO fallback mode.
+- [ ] 4.4 Define reuse contract so `documentation-management` and `development-workflow` can be reused by both OpenSpec mode and TODO fallback mode.
 
 ## 5. Pilot backfill and closure evidence
 

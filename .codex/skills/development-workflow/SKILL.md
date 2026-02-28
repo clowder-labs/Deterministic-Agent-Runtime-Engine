@@ -1,12 +1,12 @@
 ---
-name: documentation-workflow
-description: Use when executing documentation governance work to run lifecycle checkpoints, OpenSpec-default collaboration, TODO fallback, and evidence sync.
+name: development-workflow
+description: Use when executing change delivery work to run OpenSpec-default workflow checkpoints, TODO fallback, and evidence synchronization.
 ---
 
-# Documentation Workflow
+# Development Workflow
 
 ## When to use
-Use this skill when documentation work must follow lifecycle checkpoints from kickoff to archive.
+Use this skill when development work must follow governance checkpoints from kickoff to archive.
 
 **REQUIRED SUB-SKILL:** `documentation-management` for classification, placement, metadata, and archive moves.
 
@@ -30,10 +30,10 @@ Use this skill when documentation work must follow lifecycle checkpoints from ki
 
 2. execution-sync
 - keep OpenSpec tasks, TODO status, and feature aggregation evidence aligned
-- update linked design/gap/TODO docs per completed task
+- update linked design/gap/TODO docs and implementation evidence per completed task
 
 3. verification
-- run required checks (`openspec validate`, `openspec status`, and repo doc checks)
+- run required checks (`openspec validate`, `openspec status`, tests, and repo doc checks)
 - verify status consistency: feature doc is source of truth, linked docs are non-conflicting
 
 4. completion-archive

@@ -42,7 +42,7 @@ PR #113 已明确把“文档治理哲学互学”拆分为独立变更执行。
 - 历史文档按活跃优先级回填，不阻塞本次治理基线落地。
 
 ### Decision 5: 关键治理步骤由 Skill 承载执行语义
-- 方案 A（采用）：采用双技能架构，至少包含 `documentation-management`（管理）与 `documentation-workflow`（流程）两类职责，并维护“checkpoint -> skill”映射文档；保留 `documentation-lifecycle-governance` 作为兼容入口。
+- 方案 A（采用）：采用双技能架构，包含 `documentation-management`（文档治理管理）与 `development-workflow`（开发流程治理）两类职责，并维护“checkpoint -> skill”映射文档。
 - 方案 B（不采用）：只在 SOP 文档里描述步骤，不提供可调用 skill。
 - 理由：仅文档约束容易漂移；双技能拆分可降低职责耦合并增强复用，skill 化可以将治理流程变成可执行协议并支持自动审计。
 
@@ -85,4 +85,4 @@ PR #113 已明确把“文档治理哲学互学”拆分为独立变更执行。
 - frontmatter 字段名统一使用 `feature_ids` 还是 `change_ids` 作为主字段？
 - 聚合文档目录命名是否固定为 `docs/features/`，还是放入 `docs/governance/`？
 - 是否在后续迭代增加自动生成聚合骨架（由脚本从 OpenSpec change 初始化）？
-- 是否在下一迭代提供脚手架命令自动生成 `documentation-management` / `documentation-workflow` 的最小执行模板？
+- 是否在下一迭代提供脚手架命令自动生成 `documentation-management` / `development-workflow` 的最小执行模板？

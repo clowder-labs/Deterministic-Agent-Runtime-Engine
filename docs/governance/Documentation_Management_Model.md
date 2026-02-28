@@ -87,14 +87,13 @@ Required lifecycle checkpoints MUST be skillized:
 
 Skill contract (minimum two skills):
 - management skill: `.codex/skills/documentation-management/SKILL.md`
-- workflow skill: `.codex/skills/documentation-workflow/SKILL.md`
-- compatibility wrapper (legacy): `.codex/skills/documentation-lifecycle-governance/SKILL.md`
+- workflow skill: `.codex/skills/development-workflow/SKILL.md`
 
 Checkpoint mapping:
-- kickoff -> `documentation-workflow` (mode/scope) + `documentation-management` (baseline metadata/path)
-- execution-sync -> `documentation-workflow` (evidence/status sync) + `documentation-management` (metadata consistency)
-- verification -> `documentation-workflow` (gate/check commands + status conflict detection)
-- completion-archive -> `documentation-workflow` (closure) + `documentation-management` (archive move and retention policy)
+- kickoff -> `development-workflow` (mode/scope) + `documentation-management` (baseline metadata/path)
+- execution-sync -> `development-workflow` (evidence/status sync) + `documentation-management` (metadata consistency)
+- verification -> `development-workflow` (gate/check commands + status conflict detection)
+- completion-archive -> `development-workflow` (closure) + `documentation-management` (archive move and retention policy)
 
 CI MUST validate:
 - required skill files exist,

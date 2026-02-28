@@ -12,6 +12,8 @@ Use this skill for documentation structure operations:
 - add or update frontmatter metadata
 - archive completed documentation records
 
+This skill supersedes `documentation-lifecycle-governance` for documentation governance management responsibilities.
+
 ## Core responsibilities
 
 1. Classify document kind
@@ -33,6 +35,10 @@ Use this skill for documentation structure operations:
 - completed feature entries move to `docs/features/archive/`
 - completed TODO/analysis entries move to `docs/todos/archive/` or be marked archived in index
 - do not delete historical evidence unless explicitly approved
+
+5. Maintain lifecycle dependency definition
+- ensure documentation dependencies are explicit and consistent:
+  - `standards -> feature aggregation -> design -> gap analysis -> TODO -> execution evidence -> archive`
 
 ## Output expectations
 For each management action, provide:
