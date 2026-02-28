@@ -41,11 +41,11 @@
 - **AND** PR 在补齐治理资产前不得通过完整 gate
 
 ### Requirement: 治理 SOP 关键阶段必须 skill 化
-治理流程中的关键阶段（至少包含 kickoff、completion、verification）MUST 对应到可调用 skill，并维护 checkpoint 到 skill 的稳定映射关系。
+治理流程中的关键阶段（至少包含 kickoff、completion、verification）MUST 对应到可调用 skill，并维护 checkpoint 到 skill 的稳定映射关系；该映射 MUST 至少包含两个职责分离 skill：`documentation-management` 与 `documentation-workflow`。
 
 #### Scenario: 治理任务可由 skill 驱动执行
 - **WHEN** 维护者或 agent 执行治理类变更
-- **THEN** 可定位到对应阶段的 skill 入口与使用说明
+- **THEN** 可定位到 `documentation-management` 与 `documentation-workflow` 的 skill 入口与使用说明
 - **AND** 能从映射关系中确认该阶段对应的 gate/checkpoint
 
 ### Requirement: 协作流程必须声明 OpenSpec 默认与回退模式

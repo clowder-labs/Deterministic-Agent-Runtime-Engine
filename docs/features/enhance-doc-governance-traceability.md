@@ -24,7 +24,9 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 ## Governance Anchors
 - `docs/governance/Documentation_Management_Model.md`
 - `docs/guides/Documentation_First_Development_SOP.md`
-- `.codex/skills/documentation-lifecycle-governance/SKILL.md`
+- `.codex/skills/documentation-management/SKILL.md`
+- `.codex/skills/documentation-workflow/SKILL.md`
+- compatibility wrapper: `.codex/skills/documentation-lifecycle-governance/SKILL.md`
 
 ## Evidence
 - `openspec validate --changes enhance-doc-governance-traceability`

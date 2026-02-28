@@ -38,11 +38,11 @@
 - **AND** 报告指出缺失项与期望文件路径
 
 ### Requirement: 可重建性治理必须维护 checkpoint-skill 映射
-可重建性治理 MUST 维护一份 checkpoint 到 skill 的映射清单，确保 SOP 的关键阶段具备可执行承载并可被审计。
+可重建性治理 MUST 维护一份 checkpoint 到 skill 的映射清单，确保 SOP 的关键阶段具备可执行承载并可被审计；映射 MUST 至少覆盖 `documentation-management` 与 `documentation-workflow` 两个技能角色。
 
 #### Scenario: 评审者可验证 SOP skill 化覆盖
 - **WHEN** 评审者检查治理流程资产
-- **THEN** 能定位到关键 checkpoint 对应的 skill 名称与路径
+- **THEN** 能定位到关键 checkpoint 对应的 skill 名称与路径（至少包含 `documentation-management` 与 `documentation-workflow`）
 - **AND** 能确认该映射与 CI 检查项一致
 
 ### Requirement: 特性聚合文档必须作为状态单一真相源

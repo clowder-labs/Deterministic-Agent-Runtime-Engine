@@ -12,7 +12,9 @@
 - Documentation placement, lifecycle, and archive handling MUST follow:
   - `docs/governance/Documentation_Management_Model.md`
 - Documentation governance tasks SHOULD use:
-  - `.codex/skills/documentation-lifecycle-governance/SKILL.md`
+  - `.codex/skills/documentation-management/SKILL.md`
+  - `.codex/skills/documentation-workflow/SKILL.md`
+  - compatibility wrapper (legacy): `.codex/skills/documentation-lifecycle-governance/SKILL.md`
 - Code implementation MUST align with `docs/design/` as the latest full design source of truth.
 - If design and implementation diverge, update design docs first, then execute gap analysis before coding.
 - Every design doc that governs implementation MUST explicitly contain:

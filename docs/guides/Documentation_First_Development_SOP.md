@@ -125,7 +125,13 @@ SOP 关键阶段必须有可调用技能承载，并保持 checkpoint 与 skill 
 - verification
 - completion-archive
 
-当前统一技能入口：
-- `.codex/skills/documentation-lifecycle-governance/SKILL.md`
+当前双技能分工：
+- 文档管理技能（类型/路径/frontmatter/归档）：
+  - `.codex/skills/documentation-management/SKILL.md`
+- 文档流程技能（模式选择/checkpoint/证据回写）：
+  - `.codex/skills/documentation-workflow/SKILL.md`
+
+兼容入口（历史调用）：
+- `.codex/skills/documentation-lifecycle-governance/SKILL.md`（转发到上述两个技能）
 
 若 SOP 与 skill 行为不一致，以规范文档更新 + skill 同步更新为同一任务，禁止只改其一。

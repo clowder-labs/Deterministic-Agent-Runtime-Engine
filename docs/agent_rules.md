@@ -10,7 +10,7 @@ These rules apply to all agent-generated changes in this repository.
 5. 任何跳过测试（skip/only/exclude）必须说明理由并经过 review。
 6. 文档治理任务必须遵循 `docs/governance/Documentation_Management_Model.md` 的目录分层与生命周期规则。
 7. 默认采用 OpenSpec 协作；OpenSpec 不可用时仅可使用 TODO-driven 回退模式，并需补迁移证据。
-8. 文档创建/迁移/归档时必须执行统一技能流程：`.codex/skills/documentation-lifecycle-governance/SKILL.md`。
+8. 文档创建/迁移/归档时必须执行双技能流程：`.codex/skills/documentation-management/SKILL.md` + `.codex/skills/documentation-workflow/SKILL.md`（兼容入口：`.codex/skills/documentation-lifecycle-governance/SKILL.md`）。
 9. `docs/features/<change-id>.md` 是特性状态单一真相源，其他文档不得写冲突状态。
 
 ## Operating Notes

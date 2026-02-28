@@ -85,9 +85,21 @@ Required lifecycle checkpoints MUST be skillized:
 - verification
 - completion-archive
 
-Implementation is defined by:
-- skill file: `.codex/skills/documentation-lifecycle-governance/SKILL.md`
-- CI checks that validate presence and linkage of required assets.
+Skill contract (minimum two skills):
+- management skill: `.codex/skills/documentation-management/SKILL.md`
+- workflow skill: `.codex/skills/documentation-workflow/SKILL.md`
+- compatibility wrapper (legacy): `.codex/skills/documentation-lifecycle-governance/SKILL.md`
+
+Checkpoint mapping:
+- kickoff -> `documentation-workflow` (mode/scope) + `documentation-management` (baseline metadata/path)
+- execution-sync -> `documentation-workflow` (evidence/status sync) + `documentation-management` (metadata consistency)
+- verification -> `documentation-workflow` (gate/check commands + status conflict detection)
+- completion-archive -> `documentation-workflow` (closure) + `documentation-management` (archive move and retention policy)
+
+CI MUST validate:
+- required skill files exist,
+- checkpoint mapping is declared,
+- required assets and linkages are present.
 
 ## 8. Effectiveness Criteria
 
