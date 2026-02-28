@@ -10,7 +10,8 @@ from dare_framework.agent.dare_agent import DareAgent
 from dare_framework.config import Config
 from dare_framework.context import Context
 from dare_framework.plan.types import ToolLoopRequest
-from dare_framework.security.errors import SECURITY_POLICY_DENIED
+from dare_framework.security.errors import SECURITY_POLICY_DENIED, SECURITY_TRUST_DERIVATION_FAILED
+from dare_framework.security.impl import PolicySecurityBoundary
 from dare_framework.security.kernel import ISecurityBoundary
 from dare_framework.security.types import PolicyDecision, RiskLevel, SandboxSpec, TrustedInput
 from dare_framework.tool._internal.control.approval_manager import (
@@ -235,3 +236,34 @@ async def test_missing_explicit_boundary_uses_default_preflight_instead_of_bypas
     event_types = [event_type for event_type, _ in event_log.events]
     assert "security.trust_verified" in event_types
     assert "security.policy_checked" in event_types
+
+
+@pytest.mark.asyncio
+async def test_strict_policy_boundary_rejects_missing_trusted_risk_metadata_even_with_default_envelope() -> None:
+    event_log = _RecordingEventLog()
+    descriptor = CapabilityDescriptor(
+        id="run_command",
+        type=CapabilityType.TOOL,
+        name="run_command",
+        description="Run shell command",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+        metadata={"requires_approval": False},
+    )
+    gateway = _RecordingGateway([descriptor])
+    agent = _agent(
+        gateway=gateway,
+        event_log=event_log,
+        security_boundary=PolicySecurityBoundary(require_trusted_metadata=True),
+    )
+
+    result = await agent._run_tool_loop(  # noqa: SLF001 - direct runtime boundary coverage
+        ToolLoopRequest(capability_id="run_command", params={"command": "echo strict"}),
+        tool_name="run_command",
+        tool_call_id="tc-strict-missing-risk",
+        descriptor=descriptor,
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "not_allow"
+    assert result["output"]["code"] == SECURITY_TRUST_DERIVATION_FAILED
+    assert gateway.invoke_calls == []

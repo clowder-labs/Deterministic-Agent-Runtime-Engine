@@ -1449,8 +1449,6 @@ class DareAgent(BaseAgent):
             "tool_call_id": tool_call_id,
             "attempt": attempt,
             "descriptor": descriptor,
-            "risk_level": getattr(request.envelope.risk_level, "value", request.envelope.risk_level),
-            "envelope_risk_level": getattr(request.envelope.risk_level, "value", request.envelope.risk_level),
             "requires_approval": self._requires_approval(descriptor),
         }
         try:
