@@ -372,6 +372,49 @@ class TestDareAgentExecution:
         assert result.output["content"] == "done"
 
     @pytest.mark.asyncio
+    async def test_session_summary_event_serializes_sets_deterministically(self) -> None:
+        """session.summary payload sorts set values to keep deterministic event hashes."""
+
+        class SetOutputToolGateway(MockToolGateway):
+            async def invoke(self, capability_id: str, *, envelope: Any, **params: Any) -> Any:
+                self.invoke_calls.append((capability_id, params, envelope))
+                return MagicMock(success=True, output={"values": {"z", "a", "m", "k", "b"}}, evidence=[])
+
+        model = MockModelAdapter([
+            ModelResponse(
+                content="call tool",
+                tool_calls=[{"name": "read_file", "arguments": {"path": "artifact.txt"}}],
+            ),
+            ModelResponse(content="done", tool_calls=[]),
+        ])
+        tool_gateway = SetOutputToolGateway(
+            [
+                CapabilityDescriptor(
+                    id="read_file",
+                    type=CapabilityType.TOOL,
+                    name="read_file",
+                    description="Read file content.",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
+        event_log = MockEventLog()
+        agent = _make_agent(
+            name="test-agent",
+            model=model,
+            event_log=event_log,
+            tool_gateway=tool_gateway,
+        )
+
+        await agent("Emit set output")
+
+        session_summary_events = [event for event in event_log.events if event[0] == "session.summary"]
+        assert session_summary_events
+        summary_payload = session_summary_events[-1][1]["summary"]
+        milestone_outputs = summary_payload["milestones"][0]["outputs"]
+        assert milestone_outputs[0]["output"]["values"] == ["a", "b", "k", "m", "z"]
+
+    @pytest.mark.asyncio
     async def test_budget_check_called(self) -> None:
         """Budget check is called during execution."""
         model = MockModelAdapter()

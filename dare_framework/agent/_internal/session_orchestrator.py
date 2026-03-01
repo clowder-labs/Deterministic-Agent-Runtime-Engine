@@ -6,6 +6,7 @@ facade.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Protocol
 from uuid import uuid4
@@ -21,7 +22,11 @@ def _to_json_safe(value: Any) -> Any:
         return value
     if isinstance(value, dict):
         return {str(key): _to_json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, set):
+        normalized = [_to_json_safe(item) for item in value]
+        # Sort by canonical JSON representation so mixed nested values remain deterministic.
+        return sorted(normalized, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+    if isinstance(value, (list, tuple)):
         return [_to_json_safe(item) for item in value]
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
