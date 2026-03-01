@@ -103,6 +103,22 @@ async def test_append_persists_hash_version_column(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_verify_chain_returns_false_for_unsupported_hash_version(tmp_path) -> None:
+    db_path = tmp_path / "events.db"
+    event_log = SQLiteEventLog(db_path)
+
+    await event_log.append("security.check", {"ok": True})
+    await event_log.append("security.done", {"ok": True})
+    assert await event_log.verify_chain() is True
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE events SET hash_version = ? WHERE seq = 2", (999,))
+        conn.commit()
+
+    assert await event_log.verify_chain() is False
+
+
+@pytest.mark.asyncio
 async def test_schema_migrates_legacy_events_table_with_hash_version(tmp_path) -> None:
     db_path = tmp_path / "legacy-events.db"
     event_id = "legacy-e1"

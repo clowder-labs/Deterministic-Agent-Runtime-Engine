@@ -162,14 +162,19 @@ class SQLiteEventLog(IEventLog):
             if row_prev_hash != previous_hash:
                 return False
 
-            expected_hash = self._compute_event_hash(
-                event_id=row["event_id"],
-                event_type=row["event_type"],
-                timestamp_iso=row["timestamp_iso"],
-                payload_json=row["payload_json"],
-                hash_version=int(row["hash_version"]),
-                prev_hash=row_prev_hash,
-            )
+            # Integrity verification is a boolean contract: unsupported versions
+            # are treated as verification failure instead of runtime exceptions.
+            try:
+                expected_hash = self._compute_event_hash(
+                    event_id=row["event_id"],
+                    event_type=row["event_type"],
+                    timestamp_iso=row["timestamp_iso"],
+                    payload_json=row["payload_json"],
+                    hash_version=int(row["hash_version"]),
+                    prev_hash=row_prev_hash,
+                )
+            except ValueError:
+                return False
             if row_event_hash != expected_hash:
                 return False
             previous_hash = row_event_hash
