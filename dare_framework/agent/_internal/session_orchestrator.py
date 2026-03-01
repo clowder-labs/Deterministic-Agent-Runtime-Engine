@@ -15,6 +15,20 @@ from dare_framework.context import Message
 from dare_framework.plan.types import MilestoneSummary, RunResult, SessionSummary, Task
 
 
+def _to_json_safe(value: Any) -> Any:
+    """Best-effort conversion for values that must survive JSON event persistence."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_json_safe(item) for item in value]
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    # Fall back to stable string form for custom objects (Path/datetime/etc.).
+    return str(value)
+
+
 class SessionOrchestratorAgent(Protocol):
     """Minimal DareAgent contract required by session-loop orchestration."""
 
@@ -125,6 +139,7 @@ async def run_session_loop(
         last_result = milestone_results[-1]
         if last_result.outputs:
             output = last_result.outputs[-1]
+    summary_output = _to_json_safe(output)
 
     milestone_summaries: list[MilestoneSummary] = []
     for idx, result in enumerate(milestone_results):
@@ -135,7 +150,7 @@ async def run_session_loop(
                 description=state.milestone.description,
                 attempts=state.attempts,
                 success=result.success,
-                outputs=list(result.outputs),
+                outputs=[_to_json_safe(item) for item in result.outputs],
                 errors=list(result.errors),
                 evidence_count=len(state.evidence_collected),
                 reflections_count=len(state.reflections),
@@ -151,7 +166,7 @@ async def run_session_loop(
         ended_at=session_ended_at,
         duration_ms=(time.perf_counter() - session_start_monotonic) * 1000.0,
         milestones=milestone_summaries,
-        final_output=output,
+        final_output=summary_output,
         errors=list(errors),
         metadata={"milestone_count": len(milestones)},
     )

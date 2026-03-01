@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -323,6 +324,52 @@ class TestDareAgentExecution:
 
         with pytest.raises(EventLogWriteError, match="session.start"):
             await agent("Test task")
+
+    @pytest.mark.asyncio
+    async def test_session_summary_event_serializes_non_json_outputs(self) -> None:
+        """session.summary payload converts non-JSON outputs to strings."""
+        class PathOutputToolGateway(MockToolGateway):
+            async def invoke(self, capability_id: str, *, envelope: Any, **params: Any) -> Any:
+                self.invoke_calls.append((capability_id, params, envelope))
+                return MagicMock(success=True, output={"artifact": Path("artifact.txt")}, evidence=[])
+
+        model = MockModelAdapter([
+            ModelResponse(
+                content="call tool",
+                tool_calls=[{"name": "read_file", "arguments": {"path": "artifact.txt"}}],
+            ),
+            ModelResponse(content="done", tool_calls=[]),
+        ])
+        tool_gateway = PathOutputToolGateway(
+            [
+                CapabilityDescriptor(
+                    id="read_file",
+                    type=CapabilityType.TOOL,
+                    name="read_file",
+                    description="Read file content.",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
+        event_log = MockEventLog()
+        agent = _make_agent(
+            name="test-agent",
+            model=model,
+            event_log=event_log,
+            tool_gateway=tool_gateway,
+        )
+
+        result = await agent("Emit non-serializable output")
+
+        session_summary_events = [event for event in event_log.events if event[0] == "session.summary"]
+        assert session_summary_events
+        summary_payload = session_summary_events[-1][1]["summary"]
+        assert summary_payload["final_output"] == {"content": "done"}
+        milestone_outputs = summary_payload["milestones"][0]["outputs"]
+        assert milestone_outputs[0]["output"] == {"artifact": "artifact.txt"}
+        # RunResult keeps the raw value for in-process consumers.
+        assert isinstance(result.output, dict)
+        assert result.output["content"] == "done"
 
     @pytest.mark.asyncio
     async def test_budget_check_called(self) -> None:
