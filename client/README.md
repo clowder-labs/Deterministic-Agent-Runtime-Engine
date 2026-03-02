@@ -324,7 +324,7 @@ JSON 行结构（简化）：
 
 - 当前 `--output json` 是 **现有 automation schema**，适合脚本、调试和外部 UI 做轻量集成。
 - 它**不是**未来宿主编排协议的稳定承诺；当前输出仍缺少版本化 envelope、`run_id/seq` 等宿主级关联字段。
-- 如果目标是“像主流 agent CLI 一样被外部宿主长期稳定托管”，当前可以使用 `run/script --headless` 获取 versioned event envelope；但独立控制通道与能力发现仍未落地，因此 `--output json` 仍然只是 legacy automation schema，不是长期宿主协议。
+- 如果目标是“像主流 agent CLI 一样被外部宿主长期稳定托管”，当前可以使用 `run/script --headless` 获取 versioned event envelope，并通过 `--control-stdin` 使用显式 capability discovery / control actions；`--output json` 仍然只是 legacy automation schema，不是长期宿主协议。
 
 ## 宿主编排说明（当前状态）
 
@@ -341,26 +341,26 @@ Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地
 - `--headless` 不能与 legacy `--output json` 混用
 - `run` / `script --headless` 支持可选 `--control-stdin`
   - 控制响应使用独立 schema：`client-control-stdin.v1`
-  - 当前已接通：`status:get`、`approvals:list/poll/grant/deny/revoke`、`mcp:list/reload/show-tool`、`skills:list`
+  - 当前已接通：`actions:list`、`status:get`、`approvals:list/poll/grant/deny/revoke`、`mcp:list/reload/show-tool`、`skills:list`
   - `mcp:unload` 仍然不是宿主协议 action；宿主发送时会得到结构化 `UNSUPPORTED_ACTION`
   - 未支持或未完成的 action 会返回结构化 error，而不是回落到 prompt 文案
 
 仍未落地：
 
-- `actions:list` 显式能力发现
+- 启动即发送的 capability handshake
 
 当前推荐边界是：
 
 1. 自动化脚本仍使用 `run/script --output json`。
 2. 宿主事件流接入使用 `run/script --headless`。
-3. 运行中控制当前优先使用 `--control-stdin` 做 `status:get`、approvals、MCP 与 `skills:list`；`actions:list` 作为下一 Slice 的显式能力发现入口继续推进。
+3. 运行中控制当前优先使用 `--control-stdin` 做 `actions:list`、`status:get`、approvals、MCP 与 `skills:list`。
 4. 不要把当前 `log/event/result` 三类 JSON 行当作长期稳定的宿主协议。
 
 补充说明：
 
 - `script --headless` 与 `run --headless` 一样支持审批超时控制。
 - `script` 可显式传入 `--approval-timeout-seconds <seconds>`；未显式传入时，headless 脚本默认使用 `120s` 超时，避免无头会话无限等待审批。
-- 启动即发送的 capability handshake 当前不属于 v1 计划；宿主应通过显式 discovery action 获取支持矩阵。
+- 启动即发送的 capability handshake 当前不属于 v1 计划；宿主应通过显式 `actions:list` 获取支持矩阵。
 
 退出码约定：
 

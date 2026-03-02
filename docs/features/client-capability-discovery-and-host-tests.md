@@ -35,6 +35,8 @@ mode: openspec
 - `git fetch origin`
 - `git worktree add .worktrees/client-capability-discovery-and-host-tests -b codex/client-capability-discovery-and-host-tests origin/main`
 - `openspec archive client-external-control-plane-v1 -y`
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_additional_host_actions'`
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'actions_list or startup_handshake or bridges_additional_host_actions or control_stdin_bridges_actions_list'`
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`
 - `openspec list`
@@ -47,22 +49,25 @@ mode: openspec
 - `git fetch origin`: confirmed `origin/main` has merged Slice C via PR `#151`.
 - `git worktree add .worktrees/client-capability-discovery-and-host-tests -b codex/client-capability-discovery-and-host-tests origin/main`: created an isolated Slice D workspace from merged `main` at commit `cce6e4d`.
 - `openspec archive client-external-control-plane-v1 -y`: archived the completed Slice C change to `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/` and synced the landed control-plane deltas back into the main `client-host-orchestration` spec.
-- `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`45` tests, `0` failures) as the Slice D kickoff baseline in the new worktree.
-- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`21` tests, `0` failures) as the Slice D kickoff baseline in the new worktree.
-- `openspec list`: shows the new change as `client-capability-discovery-and-host-tests     0/7 tasks`.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_additional_host_actions'`: failed before the implementation because `actions:list` returned `ok=false` as an unsupported control action; passed after exposing explicit discovery on the CLI host bridge.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'actions_list or startup_handshake or bridges_additional_host_actions or control_stdin_bridges_actions_list'`: passed (`8` tests), covering run/script discovery, coexistence with approvals, and the absence of unsolicited startup handshake frames.
+- `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`45` tests, `0` failures) after the Slice D discovery bridge landed.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`25` tests, `0` failures) after the Slice D capability-discovery regressions were added.
+- `openspec list`: shows the change as `client-capability-discovery-and-host-tests     ✓ Complete` after implementation, docs, and evidence tasks were synchronized.
 - `openspec show client-capability-discovery-and-host-tests --type change --json --no-interactive`: confirms the change exposes `1` `MODIFIED` delta under `client-host-orchestration`.
 - `openspec validate client-capability-discovery-and-host-tests --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
-- `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice C archive moves and Slice D kickoff evidence were synchronized.
+- `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice D implementation evidence was synchronized with the updated tasks and README / DESIGN claims.
 
 ### Behavior Verification
 
-- Happy path: Slice C is now archived on top of merged `main`, and Slice D design chooses explicit `actions:list` discovery on `--control-stdin` rather than adding startup chatter to the host protocol.
-- Error branch: unsolicited startup capability handshake remains out of scope for v1, preventing hosts from depending on implicit frames before explicit discovery semantics are finalized.
+- Happy path: `run/script --headless --control-stdin` now exposes explicit `actions:list`, and the discovery result returns the current CLI host protocol surface without delegating to the runtime action dispatcher.
+- Happy path: `actions:list` coexists with existing approvals / MCP / skills / status control actions in the same headless session, preserving request correlation and structured responses.
+- Error branch: headless sessions still do not emit unsolicited startup handshake frames; hosts must request discovery explicitly, which keeps the stdout protocol free of implicit capability chatter.
 
 ### Risks and Rollback
 
-- Risk: until Slice D implementation lands, hosts still need a hardcoded discovery matrix even though the design baseline now prefers explicit `actions:list`.
-- Rollback: drop the Slice D kickoff change and keep the repository at the archived Slice C baseline where control is available but capability discovery remains planned-only.
+- Risk: the explicit discovery list is intentionally narrow and returns only canonical action ids, so hosts that want richer metadata still need a later protocol slice.
+- Rollback: revert the Slice D implementation/files and return to the archived Slice C baseline where control is available but explicit `actions:list` discovery is not.
 
 ### Review and Merge Gate Links
 
