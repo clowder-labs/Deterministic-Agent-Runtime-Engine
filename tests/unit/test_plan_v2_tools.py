@@ -50,6 +50,20 @@ def test_sync_completed_step_ids_tolerates_legacy_steps_without_status() -> None
     assert state.completed_step_ids == {"s1", "s_dict"}
 
 
+def test_transition_step_tolerates_legacy_step_without_status() -> None:
+    class _LegacyStep:
+        def __init__(self, step_id: str, description: str) -> None:
+            self.step_id = step_id
+            self.description = description
+            self.params = {}
+
+    state = PlannerState(steps=[_LegacyStep(step_id="s_legacy", description="legacy step")])
+
+    state.transition_step("s_legacy", "in_progress")
+
+    assert getattr(state.steps[0], "status") == "in_progress"
+
+
 @pytest.mark.asyncio
 async def test_finish_plan_rejects_done_when_pending_steps_exist() -> None:
     state = PlannerState()

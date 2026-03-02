@@ -155,7 +155,7 @@ class PlannerState:
     def get_step(self, step_id: str) -> Step | None:
         """Lookup a step by identifier."""
         for step in self.steps:
-            if step.step_id == step_id:
+            if _step_id(step) == step_id:
                 return step
         return None
 
@@ -172,11 +172,14 @@ class PlannerState:
         step = self.get_step(step_id)
         if step is None:
             raise ValueError(f"unknown step_id: {step_id}")
-        current = _normalize_state(step.status, default="todo")
+        current = _step_state(step)
         normalized_next = _normalize_state(next_state, default="todo")
         if not is_valid_state_transition(current, normalized_next):
             raise ValueError(f"invalid step transition: {current} -> {normalized_next} ({step_id})")
-        step.status = normalized_next
+        if isinstance(step, dict):
+            step["status"] = normalized_next
+        else:
+            setattr(step, "status", normalized_next)
         self.sync_completed_step_ids()
 
     def copy_for_execution(self) -> PlannerState:
