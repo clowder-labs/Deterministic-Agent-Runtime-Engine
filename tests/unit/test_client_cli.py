@@ -1488,6 +1488,65 @@ def test_chat_parser_rejects_headless_flag() -> None:
     assert excinfo.value.code == 2
 
 
+def test_run_and_script_parser_accept_control_stdin_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    run_args = parser.parse_args(["run", "--task", "summarize readme", "--headless", "--control-stdin"])
+    script_args = parser.parse_args(
+        ["script", "--file", "tasks.txt", "--headless", "--control-stdin"]
+    )
+
+    assert run_args.control_stdin is True
+    assert script_args.control_stdin is True
+
+
+def test_chat_parser_rejects_control_stdin_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["chat", "--control-stdin"])
+
+    assert excinfo.value.code == 2
+
+
+def test_read_control_stdin_line_cancellation_does_not_block_default_executor_shutdown(
+    monkeypatch,
+) -> None:
+    client_main = importlib.import_module("client.main")
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _BlockingStdin:
+        def readline(self) -> str:
+            entered.set()
+            release.wait(timeout=5.0)
+            return ""
+
+    async def _exercise() -> None:
+        task = asyncio.create_task(client_main._read_control_stdin_line())
+        deadline = time.time() + 1.0
+        while not entered.is_set():
+            assert time.time() < deadline
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    monkeypatch.setattr(client_main.sys, "stdin", _BlockingStdin())
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(asyncio.wait_for(_exercise(), timeout=1.0))
+        loop.run_until_complete(asyncio.wait_for(loop.shutdown_default_executor(), timeout=0.2))
+    finally:
+        release.set()
+        with contextlib.suppress(Exception):
+            loop.run_until_complete(asyncio.wait_for(loop.shutdown_default_executor(), timeout=1.0))
+        loop.close()
+
+
 @pytest.mark.asyncio
 async def test_main_run_headless_rejects_legacy_output(monkeypatch, tmp_path, capsys) -> None:
     client_main = importlib.import_module("client.main")
@@ -1539,3 +1598,99 @@ async def test_main_run_headless_rejects_legacy_output(monkeypatch, tmp_path, ca
     assert payload["schema_version"] == "client-headless-event-envelope.v1"
     assert payload["event"] == "log.error"
     assert "cannot combine --headless with legacy --output" in payload["data"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_main_run_control_stdin_requires_headless(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for invalid control-stdin args")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "run",
+            "--task",
+            "summarize readme",
+            "--control-stdin",
+        ]
+    )
+
+    assert rc == 2
+    output = capsys.readouterr().out
+    assert "--control-stdin requires --headless" in output
+
+
+@pytest.mark.asyncio
+async def test_main_script_control_stdin_requires_headless(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    script_path = tmp_path / "tasks.txt"
+    script_path.write_text("task one\n", encoding="utf-8")
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for invalid control-stdin args")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "script",
+            "--file",
+            str(script_path),
+            "--control-stdin",
+        ]
+    )
+
+    assert rc == 2
+    output = capsys.readouterr().out
+    assert "--control-stdin requires --headless" in output

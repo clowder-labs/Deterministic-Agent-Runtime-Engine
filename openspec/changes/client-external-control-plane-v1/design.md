@@ -49,7 +49,9 @@ Issue #135 的 Slice C 需要补足“写路径”，但不应同时引入网络
   - `ok`
   - `result`
   - `error`
+- v1 `schema_version` 固定为 `client-control-stdin.v1`。
 - 结果帧不复用 `event` 字段，避免把控制往返混入只读事件流语义。
+- result/error 与 headless event 一样走 `stdout` 多路复用，由 `schema_version` 区分。
 
 ### Decision 3: v1 action 范围收敛到现有 canonical surface
 
@@ -65,6 +67,7 @@ Issue #135 的 Slice C 需要补足“写路径”，但不应同时引入网络
   - `skills:list`
   - `status:get`
 - `status:get` 由 CLI session state 提供结构化快照；其余 action 复用现有运行时 handler。
+- `status:get` 的最小返回字段为 `mode`、`status`、`running`、`active_task`、`pending_approvals`。
 - `mcp:unload` 继续留在 CLI 命令面，不进入 v1 协议基线。
 
 ### Decision 4: 错误必须结构化且不可回落为 prompt UX
@@ -93,6 +96,4 @@ Issue #135 的 Slice C 需要补足“写路径”，但不应同时引入网络
 
 ## Open Questions
 
-- control result/error 是否输出到 stdout 还是 stderr，才能兼容宿主同时读取事件流与控制响应？
-- `status:get` 的最小返回字段是否应包含 `mode/status/running/active_task/pending_approvals`？
 - `mcp:show-tool` 与现有 `/mcp inspect` 的输出投影是否需要完全一致，还是先只保证结构化字段稳定？
