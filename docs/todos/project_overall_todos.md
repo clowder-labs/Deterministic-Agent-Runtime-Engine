@@ -1,12 +1,24 @@
 # DARE Framework 项目总体 TODO
 
-> 更新时间：2026-03-01  
+> 更新时间：2026-03-02  
 > 范围：项目全局演进（非单个 feature 的实现方案）
 
 ## 1. 目标与边界
 
 - 目标：持续收敛 `docs/design` 目标架构与 `dare_framework/` 当前实现，优先保证可运行、可验证、可审计。
 - 边界：这里只记录跨模块、跨阶段事项；具体任务拆解进入 OpenSpec 与模块文档。
+
+## 1.1 认领声明（Claim Ledger）
+
+> 用途：在进入执行前先声明 TODO 负责人与范围，避免多人并行冲突。  
+> 规则：同一 TODO Scope 同时仅允许一个 `planned/active` 认领；过期需续期或释放。
+
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| CLM-20260302-AG1 | T5-2 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 对齐 D2/D4：thinking + transport 事件链路。 |
+| CLM-20260302-AG2 | T2-1 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 对齐 D5：安全压缩与预算收敛。 |
+| CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | 先按 AgentScope gap 切片推进 plan 状态机能力。 |
+| CLM-20260302-AG4 | T5-3 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 对齐 D1/D3：多模态输入 schema + normalize。 |
 
 ## 2. 当前基线
 

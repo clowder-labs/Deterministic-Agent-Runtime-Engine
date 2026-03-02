@@ -45,16 +45,19 @@ Reference contract: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
 - choose collaboration mode (OpenSpec default, TODO fallback only when OpenSpec unavailable)
 - complete global analysis before execution
 - build/update a master TODO backlog that covers the full scope
+- declare TODO ownership in the target TODO ledger before implementation (`Claim ID`, `TODO scope`, `owner`, `expires`)
 - update `docs/design/**` first (no implementation before design update)
 - create or refresh feature aggregation doc as the status source
 - initialize/refresh the required evidence block in feature aggregation doc before execution
 - for OpenSpec mode, select one TODO slice as current change scope
+- ensure only one active claim exists per TODO slice; resolve conflicts before coding
 - run `documentation-management` to validate type/path/frontmatter baseline
 
 2. execution-sync
 - OpenSpec mode: execute in small increments `TODO slice item -> OpenSpec task -> implementation -> evidence`
 - TODO fallback mode: execute in small increments `TODO item -> implementation -> evidence`, and record pending OpenSpec migration mapping
 - keep master TODO status and feature aggregation evidence aligned in all modes
+- keep claim ledger aligned with execution state (`planned -> active -> done/released`)
 - after each completed task, update linked design/gap/TODO docs and implementation evidence
 - append command outputs and behavior-check results to the feature evidence block at task granularity
 - for large initiatives, continue by opening the next TODO slice in a new OpenSpec change instead of overloading one change
@@ -63,6 +66,7 @@ Reference contract: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
 - OpenSpec mode checks: `openspec validate`, `openspec status`, tests, and repo doc checks
 - TODO fallback mode checks: tests, repo doc checks, TODO ledger completeness, and migration debt note completeness
 - verify current OpenSpec slice only claims TODO items actually completed in this slice
+- verify claim ownership is consistent between TODO ledger and feature/OpenSpec slice
 - verify coverage of interface contracts and error branches for changed behavior
 - verify status consistency: feature doc is source of truth, linked docs are non-conflicting
 - verify `docs/**` can stand alone as the current-state record without depending on OpenSpec internals
@@ -77,6 +81,7 @@ Reference contract: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
 
 5. completion-archive
 - mark work done in feature aggregation and related ledgers
+- release or close TODO claims (`done`/`released`) and clear stale active claims
 - run `documentation-management` archive actions
 - update TODO/archive indexes (for example `docs/todos/README.md` when applicable)
 - OpenSpec mode: complete OpenSpec archive when the change is finished
@@ -91,5 +96,6 @@ For each workflow run, report:
 - evidence commands executed
 - evidence results summary (including changed happy path + error branch checks)
 - evidence file updates (design, TODO, OpenSpec tasks, feature aggregation)
+- claim updates (new/renewed/released claims with TODO scope)
 - review and merge-gate status
 - unresolved risks or migration debt

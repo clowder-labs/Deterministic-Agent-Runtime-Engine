@@ -3,6 +3,15 @@
 > 来源：`docs/todos/2026-02-27_full_design_review_gap_analysis.md`  
 > 说明：所有项必须映射 Gap ID，并附可定位证据。
 
+## 认领声明（Claim Ledger）
+
+> 当前状态：本清单条目均为 `done`，暂无 `planned/active` 认领。  
+> 若未来新增条目，需先登记 Claim 后再进入 `doing`。
+
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| N/A | N/A | N/A | released | 2026-03-02 | 2026-03-02 | N/A | 当前无活跃认领。 |
+
 | ID | Priority | Status | Gap ID | Task | Owner | Evidence | Last Updated |
 |---|---|---|---|---|---|---|---|
 | FR-001 | P0 | done | FR-GAP-001 | 修正 `Architecture.md` 过时运行态断言（step-driven/security）。 | codex | `docs/design/Architecture.md`；`dare_framework/agent/dare_agent.py` | 2026-02-27 |

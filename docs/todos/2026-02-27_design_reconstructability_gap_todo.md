@@ -3,6 +3,15 @@
 > 来源：`docs/todos/2026-02-27_design_reconstructability_gap_analysis.md`  
 > 执行模型：文档先行 -> OpenSpec change -> 实施 -> 回写证据 -> 归档
 
+## 认领声明（Claim Ledger）
+
+> 当前状态：本清单条目均为 `done`，暂无 `planned/active` 认领。  
+> 若未来新增条目，需先登记 Claim 后再进入 `doing`。
+
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| N/A | N/A | N/A | released | 2026-03-02 | 2026-03-02 | N/A | 当前无活跃认领。 |
+
 | ID | Priority | Status | Gap ID | Task | Owner | Evidence | Last Updated |
 |---|---|---|---|---|---|---|---|
 | DR-001 | P0 | done | DR-GAP-001 | 建立全局追踪矩阵：每条关键设计约束映射 `doc -> code -> tests -> status`。 | codex | `docs/design/Design_Reconstructability_Traceability_Matrix.md`；`openspec/changes/archive/2026-02-27-close-design-reconstructability-gaps/` | 2026-02-27 |

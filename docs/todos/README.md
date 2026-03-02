@@ -23,6 +23,8 @@
 - `Priority`：`P0/P1/P2/P3`。
 - `Status`：`todo` / `doing` / `blocked` / `done` / `dropped`。
 - `Owner`：责任人或责任小组。
+- `Claim Status`：`planned` / `active` / `released` / `done` / `expired`。
+- `Claim Expires`：认领过期时间（`YYYY-MM-DD`），用于冲突自动释放。
 - `Evidence`：验证命令、测试结果、PR/commit 或文档链接。
 - `Last Updated`：最后更新时间（`YYYY-MM-DD`）。
 
@@ -30,6 +32,28 @@
 
 `todo -> doing -> done`  
 `todo/doing -> blocked -> doing/dropped`
+
+### 2.1 认领声明（Claim Ledger，新增）
+
+每个**活跃** TODO 文档（存在 `todo/doing/blocked` 项）必须包含 `## 认领声明（Claim Ledger）` 区块，避免多人并行冲突。
+
+建议字段：
+
+- `Claim ID`：唯一认领编号（如 `CLM-20260302-A1`）。
+- `TODO Scope`：被认领的 TODO ID 范围（如 `D2-1~D2-4,D4-1~D4-4`）。
+- `Owner`：当前负责人（个人或小组）。
+- `Status`：`planned`（声明未开工）/`active`（执行中）/`released`（释放）/`done`（完成）/`expired`（过期）。
+- `Declared At`：声明时间（`YYYY-MM-DD`）。
+- `Expires At`：过期时间（建议 3-7 天，超时需续期或释放）。
+- `OpenSpec Change`：对应 change-id（若未创建写 `pending`）。
+- `Notes`：冲突说明、续期原因或交接备注。
+
+执行规则：
+
+- 在 TODO 从 `todo` 进入 `doing` 前，必须先写入认领声明。
+- 同一 TODO ID 在同一时刻只能有一个 `planned/active` 认领。
+- 到期未续期的认领应转为 `expired`，并允许他人重新认领。
+- 完成或暂停时，必须把认领状态回写为 `done/released`。
 
 ## 3. 更新规则
 
@@ -41,6 +65,7 @@
   - 只记录“全局事项”，不写单个 feature 的实现细节；
   - 变更 TODO 时同步更新时间；
   - `done` 项必须补 `Evidence`。
+  - 进入执行前必须更新认领声明（Owner/Scope/Expires）。
   - 全量设计评审（Architecture + 全部模块 README）至少每两周执行一次，并回写到 `project_overall_todos.md`。
 
 ## 4. 归档规则
