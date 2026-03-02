@@ -38,6 +38,7 @@ class CLISessionState:
     execution_failures: int = 0
     last_execution_success: bool | None = None
     pending_runtime_approvals: set[str] = field(default_factory=set)
+    headless_failure_payload: dict[str, Any] | None = None
 
     def clear_pending(self) -> None:
         """Drop in-memory plan preview state."""

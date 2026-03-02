@@ -22,6 +22,7 @@ from client.commands.info import (
 )
 from client.commands.mcp import format_mcp_inspection, handle_mcp_tokens
 from client.parser.command import Command, CommandType, parse_command
+from client.render.headless import HeadlessRenderer
 from client.render.human import HumanRenderer
 from client.render.json import JsonRenderer
 from client.runtime.action_client import ActionClientError, TransportActionClient
@@ -41,15 +42,33 @@ class OutputFacade:
         self._mode = mode
         self._human = HumanRenderer() if mode == "human" else None
         self._json = JsonRenderer() if mode == "json" else None
+        self._headless = HeadlessRenderer() if mode == "headless" else None
         self._logger = logging.getLogger(CLI_LOGGER_NAME)
 
     @property
     def mode(self) -> str:
         return self._mode
 
+    @property
+    def is_headless(self) -> bool:
+        return self._headless is not None
+
+    def set_protocol_context(self, *, session_id: str, run_id: str) -> None:
+        if self._headless is None:
+            return
+        self._headless.set_context(session_id=session_id, run_id=run_id)
+
+    def _emit_headless(self, event: str, payload: Any) -> bool:
+        if self._headless is None:
+            return False
+        self._headless.emit(event, _serialize(payload))
+        return True
+
     def header(self, title: str) -> None:
         self._logger.info("%s", title)
         if self._human is not None:
+            return
+        if self._emit_headless("log.header", {"title": title}):
             return
         self._json.emit({"type": "event", "event": "header", "data": {"title": title}})
 
@@ -57,11 +76,15 @@ class OutputFacade:
         self._logger.info("%s", text)
         if self._human is not None:
             return
+        if self._emit_headless("log.info", {"message": text}):
+            return
         self._json.emit({"type": "log", "level": "info", "message": text})
 
     def warn(self, text: str) -> None:
         self._logger.warning("%s", text)
         if self._human is not None:
+            return
+        if self._emit_headless("log.warn", {"message": text}):
             return
         self._json.emit({"type": "log", "level": "warn", "message": text})
 
@@ -69,11 +92,15 @@ class OutputFacade:
         self._logger.info("%s", text)
         if self._human is not None:
             return
+        if self._emit_headless("log.ok", {"message": text}):
+            return
         self._json.emit({"type": "log", "level": "ok", "message": text})
 
     def error(self, text: str) -> None:
         self._logger.error("%s", text)
         if self._human is not None:
+            return
+        if self._emit_headless("log.error", {"message": text}):
             return
         self._json.emit({"type": "log", "level": "error", "message": text})
 
@@ -96,6 +123,8 @@ class OutputFacade:
         if self._human is not None:
             self._human.message(f"mode={mode.value}")
             return
+        if self._emit_headless("session.mode", {"mode": mode.value}):
+            return
         self._json.emit({"type": "event", "event": "mode", "data": {"mode": mode.value}})
 
     def show_plan(self, plan: Any) -> None:
@@ -114,6 +143,8 @@ class OutputFacade:
                 }
             )
         payload["steps"] = steps
+        if self._emit_headless("plan.preview", payload):
+            return
         self._json.emit({"type": "event", "event": "plan_preview", "data": payload})
 
     def emit_data(self, payload: Any) -> None:
@@ -121,11 +152,15 @@ class OutputFacade:
         if self._human is not None:
             print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
             return
+        if self._emit_headless("result", payload):
+            return
         self._json.emit({"type": "result", "data": payload})
 
     def emit_event(self, event: str, payload: Any) -> None:
         self._logger.info("event=%s payload=%s", event, json.dumps(_serialize(payload), ensure_ascii=False))
         if self._human is not None:
+            return
+        if self._emit_headless(event, payload):
             return
         self._json.emit({"type": "event", "event": event, "data": payload})
 
@@ -174,6 +209,8 @@ async def _execute_task_and_report(
     state: CLISessionState,
     task_text: str,
 ) -> bool:
+    if output.is_headless:
+        output.emit_event("task.started", {"task": task_text, "mode": state.mode.value})
     try:
         result = await run_task(
             agent=runtime.agent,
@@ -184,17 +221,35 @@ async def _execute_task_and_report(
     except asyncio.CancelledError:
         state.last_execution_success = False
         state.execution_failures += 1
+        if output.is_headless:
+            payload = state.headless_failure_payload or {"task": task_text, "error": "execution cancelled"}
+            state.headless_failure_payload = None
+            output.emit_event("task.failed", payload)
+            return False
         output.display("execution cancelled", level="warn")
         return False
     except Exception as exc:  # noqa: BLE001
         state.last_execution_success = False
         state.execution_failures += 1
+        if output.is_headless:
+            output.emit_event("task.failed", {"task": task_text, "error": str(exc)})
+            return False
         output.display(f"execution error: {exc}", level="error")
         return False
 
     if result.success:
         state.last_execution_success = True
         text = format_run_output(result.output)
+        if output.is_headless:
+            output.emit_event(
+                "task.completed",
+                {
+                    "task": task_text,
+                    "output": _serialize(result.output),
+                    "rendered_output": text,
+                },
+            )
+            return True
         if text:
             output.display(text)
         else:
@@ -204,6 +259,16 @@ async def _execute_task_and_report(
 
     state.last_execution_success = False
     state.execution_failures += 1
+    if output.is_headless:
+        output.emit_event(
+            "task.failed",
+            {
+                "task": task_text,
+                "errors": _serialize(result.errors),
+                "output": _serialize(getattr(result, "output", None)),
+            },
+        )
+        return False
     output.display("task failed", level="error")
     if result.errors:
         output.display(f"errors: {result.errors}", level="error")
@@ -495,16 +560,27 @@ async def _execute_task_with_approval_timeout(
                 elapsed = time.monotonic() - approval_watch.pending_since_monotonic
                 if elapsed >= approval_timeout_seconds:
                     request_id = approval_watch.request_id or "?"
-                    output.display(
-                        "approval wait timed out "
-                        f"(request_id={request_id}, timeout={approval_timeout_seconds:.1f}s)",
-                        level="error",
-                    )
-                    output.display(
-                        "rerun with `--auto-approve-tool <tool_name>` "
-                        "or use `chat` mode to approve manually",
-                        level="error",
-                    )
+                    if output.is_headless:
+                        state.headless_failure_payload = {
+                            "task": task_text,
+                            "request_id": request_id,
+                            "timeout_seconds": approval_timeout_seconds,
+                            "error": (
+                                "approval wait timed out "
+                                f"(request_id={request_id}, timeout={approval_timeout_seconds:.1f}s)"
+                            ),
+                        }
+                    else:
+                        output.display(
+                            "approval wait timed out "
+                            f"(request_id={request_id}, timeout={approval_timeout_seconds:.1f}s)",
+                            level="error",
+                        )
+                        output.display(
+                            "rerun with `--auto-approve-tool <tool_name>` "
+                            "or use `chat` mode to approve manually",
+                            level="error",
+                        )
                     task.cancel()
                     break
             await asyncio.sleep(0.1)
@@ -795,6 +871,17 @@ async def _on_transport_event_async(
             maybe_awaitable = on_approval_pending(request, tool_name, capability_id)
             if maybe_awaitable is not None:
                 await maybe_awaitable
+        if output.is_headless:
+            output.emit_event(
+                "approval.pending",
+                {
+                    "request_id": request_id,
+                    "capability_id": capability_id,
+                    "tool_name": tool_name,
+                    "request": request,
+                },
+            )
+            return
         message = f"approval pending: request_id={request_id}, capability={capability_id}"
         if suppress_human_approval_pending_output and output.mode == "human":
             output.warn(message)
@@ -809,12 +896,34 @@ async def _on_transport_event_async(
             maybe_awaitable = on_approval_resolved(request_id)
             if maybe_awaitable is not None:
                 await maybe_awaitable
+        if output.is_headless:
+            output.emit_event(
+                "approval.resolved",
+                {"request_id": request_id, "decision": decision},
+            )
+            return
         output.info(f"approval resolved: request_id={request_id}, decision={decision}")
         return
     if payload_type == "hook":
+        hook_phase = str(payload.get("phase", "")).strip()
+        hook_payload = payload.get("payload", {})
+        if output.is_headless and isinstance(hook_payload, dict):
+            if hook_phase == "before_tool":
+                output.emit_event("tool.invoke", hook_payload)
+                return
+            if hook_phase == "after_tool":
+                event_name = "tool.result" if hook_payload.get("success") else "tool.error"
+                output.emit_event(event_name, hook_payload)
+                return
+            if hook_phase == "after_model":
+                output.emit_event("model.response", hook_payload)
+                return
         output.info(f"hook event: {payload.get('event')}")
         return
     # Keep unknown payloads observable in json mode while avoiding noisy human logs.
+    if output.is_headless:
+        output.emit_event("transport.raw", payload)
+        return
     if output.mode == "json":
         output.emit_event("transport", _serialize(payload))
 
@@ -828,6 +937,9 @@ async def _run_chat(
     script_lines: list[str] | None,
 ) -> int:
     state = CLISessionState(mode=_normalize_mode(mode))
+    if output.is_headless:
+        output.set_protocol_context(session_id=state.conversation_id, run_id=state.conversation_id)
+        output.emit_event("session.started", {"mode": state.mode.value, "entrypoint": "script"})
     inline_chat_approvals = script_lines is None and output.mode == "human"
 
     async def _handle_chat_approval_pending(request: dict[str, Any], tool_name: str, capability_id: str) -> None:
@@ -946,10 +1058,20 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="extra tool name eligible for auto-approve (repeatable)",
     )
+    run.add_argument(
+        "--headless",
+        action="store_true",
+        help="planned host-orchestrated headless mode for non-interactive execution",
+    )
 
     script = sub.add_parser("script", help="run script and exit")
     script.add_argument("--file", required=True)
     script.add_argument("--mode", choices=["plan", "execute"], default="execute")
+    script.add_argument(
+        "--headless",
+        action="store_true",
+        help="planned host-orchestrated headless mode for non-interactive execution",
+    )
 
     approvals = sub.add_parser("approvals", help="approval controls")
     approvals_sub = approvals.add_subparsers(dest="approvals_cmd", required=True)
@@ -1022,11 +1144,27 @@ def _build_runtime_options(args: argparse.Namespace) -> RuntimeOptions:
     )
 
 
+def _validate_cli_args(args: argparse.Namespace, *, output: OutputFacade) -> int | None:
+    """Reject unsupported or conflicting CLI flag combinations before runtime boot."""
+
+    if getattr(args, "headless", False) and args.output != "human":
+        output.display(
+            "cannot combine --headless with legacy --output; headless uses a dedicated protocol stream",
+            level="error",
+        )
+        return 2
+
+    return None
+
+
 async def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     configure_cli_logging(resolve_cli_log_path())
-    output = OutputFacade(args.output)
+    output = OutputFacade("headless" if getattr(args, "headless", False) else args.output)
+    validation_error = _validate_cli_args(args, output=output)
+    if validation_error is not None:
+        return validation_error
     try:
         options = _build_runtime_options(args)
     except OSError as exc:
@@ -1044,10 +1182,11 @@ async def main(argv: list[str] | None = None) -> int:
         _ = provider
         configure_cli_logging(resolve_cli_log_path(config))
 
-        output.header("DARE CLIENT CLI")
-        output.info(f"workspace={config.workspace_dir}")
-        output.info(f"adapter={config.llm.adapter or 'openai'}")
-        output.info(f"model={config.llm.model}")
+        if not output.is_headless:
+            output.header("DARE CLIENT CLI")
+            output.info(f"workspace={config.workspace_dir}")
+            output.info(f"adapter={config.llm.adapter or 'openai'}")
+            output.info(f"model={config.llm.model}")
 
         if command == "doctor":
             model_probe_error: str | None = None
@@ -1086,6 +1225,19 @@ async def main(argv: list[str] | None = None) -> int:
 
         if command == "run":
             state = CLISessionState(mode=_normalize_mode(args.mode))
+            if output.is_headless:
+                output.set_protocol_context(session_id=state.conversation_id, run_id=state.conversation_id)
+                output.emit_event(
+                    "session.started",
+                    {
+                        "mode": state.mode.value,
+                        "entrypoint": "run",
+                        "task": args.task,
+                        "workspace": config.workspace_dir,
+                        "adapter": config.llm.adapter or "openai",
+                        "model": config.llm.model,
+                    },
+                )
             if state.mode == ExecutionMode.PLAN:
                 try:
                     plan = await preview_plan(

@@ -324,22 +324,33 @@ JSON 行结构（简化）：
 
 - 当前 `--output json` 是 **现有 automation schema**，适合脚本、调试和外部 UI 做轻量集成。
 - 它**不是**未来宿主编排协议的稳定承诺；当前输出仍缺少版本化 envelope、`run_id/seq` 等宿主级关联字段。
-- 如果目标是“像主流 agent CLI 一样被外部宿主长期稳定托管”，后续会补显式 `headless` 协议面与独立控制通道；在该能力落地前，请将 `--output json` 视为当前版本的脚本接口，而非长期协议。
+- 如果目标是“像主流 agent CLI 一样被外部宿主长期稳定托管”，当前可以使用 `run/script --headless` 获取 versioned event envelope；但独立控制通道与能力发现仍未落地，因此 `--output json` 仍然只是 legacy automation schema，不是长期宿主协议。
 
-## 宿主编排说明（规划中）
+## 宿主编排说明（当前状态）
 
-Issue #135 对应的设计基线已经建立，但当前尚未实现以下能力：
+Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地”两层：
 
-- 显式 `headless` 模式
-- versioned event envelope
+已落地：
+
+- `run` / `script` 支持显式 `--headless`
+- headless stdout 使用独立的 versioned event envelope：
+  - 顶层字段：`schema_version`、`ts`、`session_id`、`run_id`、`seq`、`event`、`data`
+  - 最小事件集：`session.started`、`task.started`、`task.completed`、`task.failed`
+  - 已接通的运行时事件：`approval.pending`、`approval.resolved`、`tool.invoke`、`tool.result`、`tool.error`、`model.response`
+- `chat` 不支持 `--headless`
+- `--headless` 不能与 legacy `--output json` 混用
+
+仍未落地：
+
 - `--control-stdin` 结构化控制面
 - `actions:list` / 启动握手式能力发现
+- MCP 动态控制对应的宿主协议面
 
-现阶段的推荐边界是：
+当前推荐边界是：
 
-1. 自动化执行使用 `run` / `script`。
-2. 输出消费使用 `--output json`。
-3. 审批、MCP、skills 等运行时控制仍以显式 CLI 命令或当前 transport/action 能力为主。
+1. 自动化脚本仍使用 `run/script --output json`。
+2. 宿主事件流接入使用 `run/script --headless`。
+3. 审批、MCP、skills 等运行时控制当前仍以显式 CLI 命令或当前 transport/action 能力为主。
 4. 不要把当前 `log/event/result` 三类 JSON 行当作长期稳定的宿主协议。
 
 退出码约定：

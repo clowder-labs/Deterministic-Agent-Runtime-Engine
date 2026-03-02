@@ -1380,6 +1380,63 @@ def test_output_facade_json_schema(capsys) -> None:
     assert third == {"type": "event", "event": "transport", "data": {"x": 1}}
 
 
+def test_output_facade_headless_schema(capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    output = client_main.OutputFacade("headless")
+    output.set_protocol_context(session_id="session-1", run_id="run-1")
+    output.emit_event("task.started", {"task": "demo"})
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+
+    assert payload["schema_version"] == "client-headless-event-envelope.v1"
+    assert payload["session_id"] == "session-1"
+    assert payload["run_id"] == "run-1"
+    assert payload["seq"] == 1
+    assert payload["event"] == "task.started"
+    assert payload["data"] == {"task": "demo"}
+    assert "ts" in payload
+
+
+@pytest.mark.asyncio
+async def test_on_transport_event_headless_maps_tool_hook_events(capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    output = client_main.OutputFacade("headless")
+    output.set_protocol_context(session_id="session-1", run_id="run-1")
+
+    await client_main._on_transport_event_async(
+        {
+            "type": "hook",
+            "phase": "before_tool",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call-1",
+                "capability_id": "read_file",
+            },
+        },
+        output=output,
+    )
+    await client_main._on_transport_event_async(
+        {
+            "type": "hook",
+            "phase": "after_tool",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call-1",
+                "capability_id": "read_file",
+                "success": True,
+            },
+        },
+        output=output,
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert [line["event"] for line in lines] == ["tool.invoke", "tool.result"]
+    assert lines[0]["data"]["tool_name"] == "read_file"
+    assert lines[1]["data"]["success"] is True
+
+
 def test_sync_main_wraps_async_main(monkeypatch: pytest.MonkeyPatch) -> None:
     client_main = importlib.import_module("client.main")
 
@@ -1419,3 +1476,66 @@ def test_cli_raises_system_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as excinfo:
         client_main.cli()
     assert excinfo.value.code == 5
+
+
+def test_chat_parser_rejects_headless_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["chat", "--headless"])
+
+    assert excinfo.value.code == 2
+
+
+@pytest.mark.asyncio
+async def test_main_run_headless_rejects_legacy_output(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for invalid headless args")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "run",
+            "--task",
+            "summarize readme",
+            "--headless",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["schema_version"] == "client-headless-event-envelope.v1"
+    assert payload["event"] == "log.error"
+    assert "cannot combine --headless with legacy --output" in payload["data"]["message"]
