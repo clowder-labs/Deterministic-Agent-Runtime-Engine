@@ -148,6 +148,7 @@ extract_pr_number_for_marker() {
 check_feature_doc() {
   local file="$1"
   local frontmatter status mode topic_slug
+  local strict_acceptance_pack
   local contract_section golden_section regression_section observability_section structured_review_section review_section
   local evidence_heading commands_heading results_heading contract_heading golden_heading regression_heading
   local observability_heading structured_review_heading behavior_heading risks_heading review_heading
@@ -175,20 +176,34 @@ check_feature_doc() {
     return
   fi
 
+  strict_acceptance_pack="false"
+  if [[ "$normalized_status" == "in_review" ]]; then
+    strict_acceptance_pack="true"
+  fi
+
   governed_docs_count=$((governed_docs_count + 1))
-  log "checking $file"
+  log "checking $file (strict_acceptance_pack=$strict_acceptance_pack)"
 
   evidence_heading="$(resolve_heading_line "$file" '^##[[:space:]]+Evidence([[:space:]]+Truth)?[[:space:]]*$' "Evidence section")"
   commands_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Commands|Command Log)[[:space:]]*$' "Commands subsection")"
   results_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Results|Result Summary)[[:space:]]*$' "Results subsection")"
-  contract_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Contract Delta|Contract Changes?)[[:space:]]*$' "Contract Delta subsection")"
-  golden_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Golden Cases?|Golden Files?)[[:space:]]*$' "Golden Cases subsection")"
-  regression_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Regression Summary|Regression Results?)[[:space:]]*$' "Regression Summary subsection")"
-  observability_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Observability( and Failure Localization)?|Failure Localization)[[:space:]]*$' "Observability and Failure Localization subsection")"
-  structured_review_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Structured Review Report|Structured Review)[[:space:]]*$' "Structured Review Report subsection")"
   behavior_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Behavior Verification|Behavior Checks?)[[:space:]]*$' "Behavior Verification subsection")"
   risks_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Risks? and Rollback|Risk and Rollback)[[:space:]]*$' "Risks and Rollback subsection")"
   review_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Review and Merge Gate Links?|Review[[:space:]]*/[[:space:]]*Merge Gate Links?)[[:space:]]*$' "Review and Merge Gate Links subsection")"
+
+  if [[ "$strict_acceptance_pack" == "true" ]]; then
+    contract_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Contract Delta|Contract Changes?)[[:space:]]*$' "Contract Delta subsection")"
+    golden_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Golden Cases?|Golden Files?)[[:space:]]*$' "Golden Cases subsection")"
+    regression_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Regression Summary|Regression Results?)[[:space:]]*$' "Regression Summary subsection")"
+    observability_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Observability( and Failure Localization)?|Failure Localization)[[:space:]]*$' "Observability and Failure Localization subsection")"
+    structured_review_heading="$(resolve_heading_line "$file" '^###[[:space:]]+(Structured Review Report|Structured Review)[[:space:]]*$' "Structured Review Report subsection")"
+  else
+    contract_heading="$(grep -Ei '^###[[:space:]]+(Contract Delta|Contract Changes?)[[:space:]]*$' "$file" | head -n 1 || true)"
+    golden_heading="$(grep -Ei '^###[[:space:]]+(Golden Cases?|Golden Files?)[[:space:]]*$' "$file" | head -n 1 || true)"
+    regression_heading="$(grep -Ei '^###[[:space:]]+(Regression Summary|Regression Results?)[[:space:]]*$' "$file" | head -n 1 || true)"
+    observability_heading="$(grep -Ei '^###[[:space:]]+(Observability( and Failure Localization)?|Failure Localization)[[:space:]]*$' "$file" | head -n 1 || true)"
+    structured_review_heading="$(grep -Ei '^###[[:space:]]+(Structured Review Report|Structured Review)[[:space:]]*$' "$file" | head -n 1 || true)"
+  fi
 
   if [[ -n "$contract_heading" ]]; then
     contract_section="$(extract_subsection "$file" "$contract_heading")"
@@ -296,15 +311,6 @@ check_feature_doc() {
   # Require both intent/implementation links and at least one review link.
   if [[ -n "$review_heading" ]]; then
     review_section="$(extract_subsection "$file" "$review_heading")"
-    if ! grep -Eiq 'intent[[:space:]_-]+pr' <<<"$review_section"; then
-      log "missing Intent PR marker in $file"
-      failures=$((failures + 1))
-    fi
-    if ! grep -Eiq 'implementation[[:space:]_-]+pr' <<<"$review_section"; then
-      log "missing Implementation PR marker in $file"
-      failures=$((failures + 1))
-    fi
-
     local pr_link_count
     pr_link_count="$(grep -Eo 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' <<<"$review_section" | wc -l | tr -d '[:space:]' || true)"
     if [[ "$pr_link_count" -lt 2 ]]; then
@@ -316,22 +322,33 @@ check_feature_doc() {
       failures=$((failures + 1))
     fi
 
-    intent_pr_number="$(extract_pr_number_for_marker "$review_section" 'intent[[:space:]_-]+pr')"
-    implementation_pr_number="$(extract_pr_number_for_marker "$review_section" 'implementation[[:space:]_-]+pr')"
-    if [[ -z "$intent_pr_number" ]]; then
-      log "Intent PR marker must include a valid GitHub PR link in $file"
-      failures=$((failures + 1))
-    fi
-    if [[ -z "$implementation_pr_number" ]]; then
-      log "Implementation PR marker must include a valid GitHub PR link in $file"
-      failures=$((failures + 1))
-    fi
-    if [[ -n "$intent_pr_number" && -n "$implementation_pr_number" && "$intent_pr_number" == "$implementation_pr_number" ]]; then
-      log "Intent PR and Implementation PR must reference different pull requests in $file"
-      failures=$((failures + 1))
-    fi
-    if [[ -n "$intent_pr_number" && -n "$implementation_pr_number" && "$intent_pr_number" -ge "$implementation_pr_number" ]]; then
-      log "warning: intent PR number ($intent_pr_number) is not lower than implementation PR number ($implementation_pr_number) in $file; verify intent-merged-before-implementation manually"
+    if [[ "$strict_acceptance_pack" == "true" ]]; then
+      if ! grep -Eiq 'intent[[:space:]_-]+pr' <<<"$review_section"; then
+        log "missing Intent PR marker in $file"
+        failures=$((failures + 1))
+      fi
+      if ! grep -Eiq 'implementation[[:space:]_-]+pr' <<<"$review_section"; then
+        log "missing Implementation PR marker in $file"
+        failures=$((failures + 1))
+      fi
+
+      intent_pr_number="$(extract_pr_number_for_marker "$review_section" 'intent[[:space:]_-]+pr')"
+      implementation_pr_number="$(extract_pr_number_for_marker "$review_section" 'implementation[[:space:]_-]+pr')"
+      if [[ -z "$intent_pr_number" ]]; then
+        log "Intent PR marker must include a valid GitHub PR link in $file"
+        failures=$((failures + 1))
+      fi
+      if [[ -z "$implementation_pr_number" ]]; then
+        log "Implementation PR marker must include a valid GitHub PR link in $file"
+        failures=$((failures + 1))
+      fi
+      if [[ -n "$intent_pr_number" && -n "$implementation_pr_number" && "$intent_pr_number" == "$implementation_pr_number" ]]; then
+        log "Intent PR and Implementation PR must reference different pull requests in $file"
+        failures=$((failures + 1))
+      fi
+      if [[ -n "$intent_pr_number" && -n "$implementation_pr_number" && "$intent_pr_number" -ge "$implementation_pr_number" ]]; then
+        log "warning: intent PR number ($intent_pr_number) is not lower than implementation PR number ($implementation_pr_number) in $file; verify intent-merged-before-implementation manually"
+      fi
     fi
   fi
 }

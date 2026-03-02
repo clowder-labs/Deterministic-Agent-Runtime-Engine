@@ -19,14 +19,16 @@ Each active/in_review feature aggregation doc MUST include:
 - `## Evidence`
 - `### Commands`
 - `### Results`
+- `### Behavior Verification`
+- `### Risks and Rollback`
+- `### Review and Merge Gate Links`
+
+`in_review` docs additionally MUST include:
 - `### Contract Delta`
 - `### Golden Cases`
 - `### Regression Summary`
 - `### Observability and Failure Localization`
 - `### Structured Review Report`
-- `### Behavior Verification`
-- `### Risks and Rollback`
-- `### Review and Merge Gate Links`
 
 `### Contract Delta` MUST declare these dimensions (changed or `none/n.a + reason`):
 - schema impact,
@@ -65,7 +67,8 @@ Frontmatter mode requirements:
 Use a deterministic script gate:
 - script: `scripts/ci/check_governance_evidence_truth.sh`
 - checks:
-  - required evidence headings exist in active/in_review feature aggregation docs (with tolerant heading variants)
+  - baseline evidence headings exist in active/in_review feature aggregation docs (with tolerant heading variants)
+  - acceptance-pack headings are hard-required for `in_review` docs
   - acceptance-pack semantic markers exist in required sections
   - frontmatter keys satisfy mode contract
   - OpenSpec artifact paths listed in aggregation docs are repository-resolvable files

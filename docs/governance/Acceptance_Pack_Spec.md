@@ -17,6 +17,8 @@ If any item is missing, the PR is non-compliant.
 
 Gate scope and status normalization:
 - gate scope is `status: active|in_review|in-review` (hyphen form normalized to underscore form).
+- strict acceptance-pack enforcement is applied to `in_review` docs.
+- `active` docs are required to keep baseline evidence structure (`Evidence/Commands/Results/Behavior/Risks/Review links`) and review links.
 - if no governed feature doc is found in scope, the gate fails.
 
 ## 2. Item Contract

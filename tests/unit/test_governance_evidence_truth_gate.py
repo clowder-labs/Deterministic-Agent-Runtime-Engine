@@ -124,13 +124,17 @@ class GovernanceEvidenceTruthGateTests(unittest.TestCase):
             "- Reason: this change only touches documentation + gate script behavior.\n"
             "- Fallback evidence: regression commands and runner output listed above."
         )
-        result = self._run_gate_with_doc(_base_doc(observability_body=observability_body))
+        result = self._run_gate_with_doc(
+            _base_doc(status="in_review", observability_body=observability_body)
+        )
 
         self.assertEqual(result.returncode, 0)
         self.assertIn("Observability N/A accepted with reason + fallback evidence", result.stdout)
 
     def test_intent_and_implementation_must_reference_different_prs(self) -> None:
-        result = self._run_gate_with_doc(_base_doc(intent_pr=130, implementation_pr=130))
+        result = self._run_gate_with_doc(
+            _base_doc(status="in_review", intent_pr=130, implementation_pr=130)
+        )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must reference different pull requests", result.stdout)
@@ -138,6 +142,7 @@ class GovernanceEvidenceTruthGateTests(unittest.TestCase):
     def test_heading_variants_are_accepted(self) -> None:
         result = self._run_gate_with_doc(
             _base_doc(
+                status="in_review",
                 contract_heading="### Contract Changes",
                 golden_heading="### Golden Case",
                 regression_heading="### Regression Results",
@@ -152,8 +157,53 @@ class GovernanceEvidenceTruthGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("passed", result.stdout)
 
+    def test_active_baseline_without_acceptance_pack_sections_passes(self) -> None:
+        active_doc = """---
+change_ids: ["fixture-change"]
+doc_kind: feature
+status: active
+mode: openspec
+---
+
+# Feature: fixture-change
+
+## Evidence
+### Commands
+- `pytest -q`
+
+### Results
+- pass
+
+### Behavior Verification
+- Happy path and known error branch are tracked at intent level.
+
+### Risks and Rollback
+- Risk: implementation evidence pending until in_review phase.
+- Rollback: keep active scope as docs-only until implementation starts.
+
+### Review and Merge Gate Links
+- Slice intent PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141
+- Slice implementation PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145
+- Review thread: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145#discussion_r2872038646
+"""
+        result = self._run_gate_with_doc(active_doc)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
+
+    def test_in_review_requires_contract_delta_section(self) -> None:
+        doc = _base_doc(status="in_review")
+        doc = doc.replace(
+            "### Contract Delta\n- schema: none, reason: docs-only governance check.\n- error semantics: error_type (framework-native marker).\n- retry semantics: none, reason: deterministic docs gate.\n\n",
+            "",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Contract Delta missing schema semantics", result.stdout)
+
     def test_intent_marker_without_pr_url_fails_even_with_other_links(self) -> None:
-        doc = _base_doc().replace(
+        doc = _base_doc(status="in_review").replace(
             "- Intent PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/120",
             "- Intent PR: TBD",
         )
@@ -168,7 +218,9 @@ class GovernanceEvidenceTruthGateTests(unittest.TestCase):
             "- Fields: run_id, tool_call_id, capability_id, attempt, trace_id.\n"
             "- Error locator: error_message only."
         )
-        result = self._run_gate_with_doc(_base_doc(observability_body=observability_body))
+        result = self._run_gate_with_doc(
+            _base_doc(status="in_review", observability_body=observability_body)
+        )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing error locator semantics", result.stdout)
