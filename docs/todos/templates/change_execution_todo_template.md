@@ -7,10 +7,12 @@
 
 ## 0. 使用规则
 
-- 本文档是 active change 的唯一认领板。
+- 本文档是 active change 的详细协作板，不替代外层 `Claim Ledger`。
+- 外层 ownership 先写在对应 TODO 文档；本板负责 change 内部的 work package、Gate、Touch Scope 与证据。
 - 默认原则：`大包认领，小 task 验收`。
 - `WP` 是认领单位；子任务只用于验收、回写、证据映射。
 - 只有在设计文档、gap analysis、OpenSpec artifacts 入库后，才允许 `claimed/doing`。
+- 本板若作为开工依据，必须随 docs-only `intent PR` 一起合入 `main`；intent PR 合入前不得开始实现代码。
 - 共享契约必须先 Gate 冻结，再放行下游并行开发。
 
 ## 1. 上下文与边界
@@ -34,7 +36,7 @@
 | Gate-2 | `<assemble/loop/policy>` | `<WP-B>` | `<WP-D>` | `todo` | `<PR/doc/test>` |
 | Gate-3 | `<audit/log/state>` | `<WP-C>` | `<WP-D>` | `todo` | `<PR/doc/test>` |
 
-## 3. Work Package 认领板
+## 3. Work Package 协作板
 
 | WP | Goal | Owner | Depends On | Touch Scope | Freeze Gate | Status | Branch/Worktree | PR | Evidence | Last Updated |
 |---|---|---|---|---|---|---|---|---|---|---|

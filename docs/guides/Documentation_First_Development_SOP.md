@@ -14,7 +14,7 @@
    - 关键接口
    - 异常与错误处理
 4. 任何 Bug/Feature/Refactor，必须先判断是否为设计约束不清或缺失；是则先补文档。
-5. 开发闭环必须是：全局分析 -> 总体 TODO 主清单 -> docs 更新 -> 按 TODO 切片进入 OpenSpec 执行 -> TODO/证据回写 -> 文档归档。
+5. 开发闭环必须是：全局分析 -> 总体 TODO 主清单 -> 认领声明 -> docs 更新 -> 按 TODO 切片建立 OpenSpec / execution board -> docs-only intent PR 合入 -> 实现 -> TODO/证据回写 -> 文档归档。
 6. `docs/**` 是全量事实源；`openspec/**` 仅是执行过程记录。OpenSpec 结果必须回写到 `docs/**`，禁止只留在 OpenSpec。
 
 ## 2. 产物规范（必须）
@@ -47,14 +47,13 @@
 - 基于分析文档生成总体 TODO 主清单，覆盖完整目标范围。
 - 每条 TODO 必须标记切片边界（可独立执行、可独立验证、可独立回滚）。
 - 总体 TODO 必须支持映射多个 OpenSpec change（一个大特性通常对应多个 change）。
-- 每条 TODO 必须有明确 `Owner`；若暂未指定负责人，状态不得进入 `doing`。
+- 每条进入执行态的 TODO 切片必须可映射到唯一 `Claim Ledger` scope。
 
-### Step 2.5: 负责人认领声明（冲突规避，新增）
-- 在开始实现前，必须先在对应 TODO 文档的 `Claim Ledger` 写入认领声明：
-  - `Claim ID`、`TODO Scope`、`Owner`、`Status(planned/active)`、`Declared At`、`Expires At`、`OpenSpec Change`。
-- 同一 TODO ID 在同一时刻只允许一个 `planned/active` 认领。
-- 认领过期后必须续期或释放（`expired/released`），否则他人可重新认领。
-- 推荐顺序：`先认领 -> 再建/更新 OpenSpec 切片 -> 再进入代码实现`。
+### Step 2.5: 认领声明（冲突规避，强制）
+- 在开始实现前，必须先在对应 TODO 文档写入 `Claim Ledger` 认领声明。
+- 最少字段：`Claim ID`、`TODO Scope`、`Owner`、`Status`、`Declared At`、`Expires At`、`OpenSpec Change`。
+- 同一 TODO scope 在同一时刻只允许一个 `planned/active` 认领。
+- 认领只声明“这一块范围由谁推进”，不替代 active change 内部的 work package 协作板。
 
 ### Step 3: 先更新 docs（作为 OpenSpec 输入）
 - 在执行前先更新 `docs/design/**` 与相关治理文档，形成当前基线。
@@ -66,11 +65,21 @@
 - 从总体 TODO 中选择一个最小切片，创建/更新一个 OpenSpec change。
 - 每个 change 必须声明其消费的 TODO 子集与验收边界。
 - 一个 change 只处理一个切片；多切片并行时使用多个 change-id。
+- 若该切片存在多人并行、共享接口、或需要 Gate 冻结，则必须创建/更新 `docs/todos/YYYY-MM-DD_<change-id>_execution_todos.md`。
+
+### Step 4.5: 合入 docs-only intent PR（实现前门禁）
+- 在进入代码实现前，必须提交一个只包含治理文档的 `spec-sync / intent PR` 并先合入 `main`。
+- 该 PR 至少包含：
+  - `Claim Ledger` 更新；
+  - 本轮切片对应的 docs/OpenSpec artifacts；
+  - 若需要多人协作，则包含 execution board 骨架与 Gate/Touch Scope 定义。
+- `intent PR` 禁止夹带实现代码；其目的仅是把意图、边界、冻结点写入共享基线。
 
 ### Step 5: 按 OpenSpec 切片逐项执行修复
 - 每个切片在 OpenSpec 中落地为可追踪 proposal/design/tasks。
 - 推荐节奏：一条 TODO（切片子项） -> OpenSpec task -> 实现 -> 验证 -> 回写状态。
 - 禁止一次性跨多个高风险 TODO 混改。
+- 未完成 `intent PR` 合入前，不得开始实现代码或提交实现 PR。
 
 ### Step 6: 验证与回写
 - 每次切片修复后必须同步更新：
@@ -106,9 +115,10 @@
 
 - 未完成 Step 1（全局分析）不得进入切片执行。
 - 未完成 Step 2（总体 TODO）不得创建 OpenSpec change。
-- 未完成 Step 2.5（负责人认领声明）不得进入 Step 4/Step 5。
+- 未完成 Step 2.5（认领声明）不得进入 Step 4/Step 5。
 - 未完成 Step 3（docs 更新）不得进入代码提交。
 - 未完成 Step 4（切片映射）不得开始批量修复。
+- 未完成 Step 4.5（docs-only intent PR 合入）不得开始代码实现。
 - 未完成 Step 6（验证+回写）不得标记切片完成。
 - 未完成 Step 7（归档）不得关闭该轮治理任务。
 
@@ -138,10 +148,12 @@
 2. 在 TODO `Claim Ledger` 先声明认领（scope/owner/expires/change-id）。
 3. 从总体 TODO 选择一个切片，建立/选择 `openspec/changes/<change-id>/`。
 4. 创建或更新 `docs/features/<change-id>.md`，登记该切片的 proposal/design/specs/tasks 链接。
-5. 按 OpenSpec tasks 执行该切片，并回写证据到 feature 聚合文档与 TODO 文档。
-6. 重复步骤 2-5，直到总体 TODO 主清单清空。
-7. 完成后执行 verify + archive，并迁移聚合文档到 `docs/features/archive/`。
-8. 确认最终可读性以 `docs/**` 为准：架构/流程/接口变更已在 docs 中可独立理解，OpenSpec 仅保留追踪链接。
+5. 若切片需要多人并行、共享接口冻结或联调顺序控制，则创建/更新对应 execution board。
+6. 提交 docs-only `intent PR` 并先合入 `main`。
+7. 基于最新 `main` 开始实现，按 OpenSpec tasks 执行该切片，并回写证据到 feature 聚合文档与 TODO 文档。
+8. 重复步骤 2-7，直到总体 TODO 主清单清空。
+9. 完成后执行 verify + archive，并迁移聚合文档到 `docs/features/archive/`。
+10. 确认最终可读性以 `docs/**` 为准：架构/流程/接口变更已在 docs 中可独立理解，OpenSpec 仅保留追踪链接。
 
 ### Mode B: 无 OpenSpec 回退（TODO-driven）
 
@@ -149,8 +161,10 @@
 1. 先完成分析 + 总体 TODO 主清单 + docs 基线更新。
 2. 在 TODO `Claim Ledger` 先声明认领（scope/owner/expires）。
 3. 创建 `docs/features/<topic-slug>.md`，并在 frontmatter 声明 `mode: todo_fallback` 与 `topic_slug`。
-4. 以 TODO 清单推进并持续回写 evidence（不阻塞于 OpenSpec 工具可用性）。
-5. OpenSpec 可用后，按 TODO 切片补迁移：将 fallback 资产映射到一个或多个新的 `openspec/changes/<change-id>/` 并记录迁移证据。
+4. 若该切片需要多人并行或共享接口冻结，则创建/更新 execution board。
+5. 提交 docs-only `intent PR` 并先合入 `main`。
+6. 以 TODO 清单推进并持续回写 evidence（不阻塞于 OpenSpec 工具可用性）。
+7. OpenSpec 可用后，按 TODO 切片补迁移：将 fallback 资产映射到一个或多个新的 `openspec/changes/<change-id>/` 并记录迁移证据。
 
 ## 8. SOP Skill 化（必须）
 

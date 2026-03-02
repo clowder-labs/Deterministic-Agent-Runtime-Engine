@@ -100,8 +100,8 @@ pytest -q tests/smoke -m smoke
 - 当前工作属于 active change，而不是纯 backlog 条目。
 
 执行规则：
-1. 认领单位默认是 `work package`，不是单个 TODO bullet，也不是整个模块。
-2. 一个 `work package` 由一个人独占，目标是在 `0.5-2` 天内交付一个可验证闭环。
+1. 外层认领单位默认是 `TODO scope` 或 `change slice`，不是单个 TODO bullet，也不是整个模块。
+2. 进入 active change 后，内层协作单位才是 `work package`；一个 `work package` 由一个人独占，目标是在 `0.5-2` 天内交付一个可验证闭环。
 3. 一个 `work package` 最多跨 1 个 Gate；如果同时跨协议冻结、执行链路、观测治理，必须拆包。
 4. work package 内部可以保留多个细粒度 task，但这些 task 默认只用于验收和回写，不单独并行认领。
 5. 共享契约先冻结再并行：schema、payload、状态机、日志字段、审计字段都属于 Gate 级接口，不允许多人同时自由演化。
@@ -113,15 +113,23 @@ pytest -q tests/smoke -m smoke
 ## 5.2 三层协作板
 
 1. `docs/design/TODO_INDEX.md`：设计 backlog，只看“还有什么要做”，不做认领板。
-2. `docs/todos/project_overall_todos.md`：项目路线图，只记跨模块、跨阶段事项。
-3. `docs/todos/YYYY-MM-DD_<change-id>_execution_todos.md`：活跃 change 的执行认领板，记录 owner、依赖、冻结点、PR、证据。
+2. `docs/todos/project_overall_todos.md`：项目路线图 + 外层 `Claim Ledger`，只认领 TODO scope，不记 work package 施工细节。
+3. `docs/todos/YYYY-MM-DD_<change-id>_execution_todos.md`：活跃 change 的执行协作板，记录 work package、依赖、冻结点、PR、证据。
 
 要求：
-1. 不要把 feature 级认领写到 `project_overall_todos.md`。
-2. 不要从 `TODO_INDEX` 直接抢任务；必须先落到 active execution board。
-3. 每个活跃 change 都应有一份 execution board，且与 `openspec/changes/<change-id>/tasks.md` 双向关联。
+1. 不要把 feature 内部的 work package 施工细节写到 `project_overall_todos.md`。
+2. 不要从 `TODO_INDEX` 直接抢任务；必须先声明 TODO scope，再视协作复杂度落到 execution board。
+3. 存在多人并行、共享接口或 Gate 冻结需求的活跃 change，必须有一份 execution board，且与 `openspec/changes/<change-id>/tasks.md` 双向关联。
 
-## 5.3 execution board 最小字段
+## 5.3 Intent PR 门禁
+
+1. `Claim Ledger`、OpenSpec artifacts、execution board 都先在本地准备好。
+2. 准备好后，先发一个 docs-only `spec-sync / intent PR`。
+3. `intent PR` 只允许包含治理文档，不允许夹带实现代码。
+4. 只有 `intent PR` 合入 `main` 后，才允许开始实现分支与后续 `impl PR`。
+5. 高冲突 change 可进一步拆成 `intent PR -> Gate freeze PR -> impl PR`。
+
+## 5.4 execution board 最小字段
 
 每个 `work package` 至少记录：
 - `WP`
