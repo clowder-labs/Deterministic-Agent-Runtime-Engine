@@ -41,7 +41,7 @@ mode: openspec
 | CCLI-003 | P1 | todo | CCLI-GAP-001 | `client-headless-event-envelope-v1` | 为 `client` 设计并实现显式 headless 模式，定义禁止 prompt / 禁止内联审批 / 只输出协议帧的行为边界。 | TBD | `client/main.py`；相关 OpenSpec design/specs/tasks | 2026-03-02 |
 | CCLI-004 | P1 | todo | CCLI-GAP-002 | `client-headless-event-envelope-v1` | 设计并实现 versioned event envelope（至少含 `schema_version`、`run_id`、`seq`、`event`、`data`），并定义与现有 JSON 输出的兼容策略。 | TBD | `client/main.py`；`client/render/json.py`；相关测试 | 2026-03-02 |
 | CCLI-005 | P1 | todo | CCLI-GAP-003 | `client-external-control-plane-v1` | 设计外部控制协议入口（如 `control-stdin` 或 loopback RPC），覆盖 approvals / MCP / skills / status 的结构化控制。 | TBD | `client/main.py`；`client/runtime/action_client.py`；相关 OpenSpec design/specs/tasks | 2026-03-02 |
-| CCLI-006 | P2 | todo | CCLI-GAP-005 | `client-external-control-plane-v1` | 将 `mcp.list/reload/show-tool/unload` 接入外部 control plane，并明确运行中生效与错误处理语义。 | TBD | `client/commands/mcp.py`；相关集成测试 | 2026-03-02 |
+| CCLI-006 | P2 | todo | CCLI-GAP-005 | `client-external-control-plane-v1` | 将 `mcp:list/reload/show-tool/unload` 接入外部 control plane，并明确运行中生效与错误处理语义。 | TBD | `client/commands/mcp.py`；相关集成测试 | 2026-03-02 |
 | CCLI-007 | P2 | todo | CCLI-GAP-004 | `client-capability-discovery-and-host-tests` | 将 `actions:list` 提升到 CLI 宿主协议面，并定义启动握手或显式查询命令。 | TBD | `dare_framework/transport/interaction/resource_action.py`；`client/main.py`；相关文档 | 2026-03-02 |
 | CCLI-008 | P1 | todo | CCLI-GAP-006 | `client-capability-discovery-and-host-tests` | 新增 headless 协议稳定性、外部控制、能力发现三组集成测试，并回写 README / 设计文档中的验证锚点。 | TBD | `tests/integration/test_client_cli_flow.py`；新增协议测试文件 | 2026-03-02 |
 

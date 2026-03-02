@@ -333,7 +333,7 @@ Issue #135 对应的设计基线已经建立，但当前尚未实现以下能力
 - 显式 `headless` 模式
 - versioned event envelope
 - `--control-stdin` 结构化控制面
-- `actions.list` / 启动握手式能力发现
+- `actions:list` / 启动握手式能力发现
 
 现阶段的推荐边界是：
 

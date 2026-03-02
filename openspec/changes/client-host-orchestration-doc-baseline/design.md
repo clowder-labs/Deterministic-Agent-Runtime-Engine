@@ -48,7 +48,7 @@
 
 ### Decision 4: capability discovery 是宿主协议的基线能力，不是附属优化
 
-- `actions.list` 或等价启动握手必须进入宿主协议设计。
+- `actions:list` 或等价启动握手必须进入宿主协议设计。
 - 宿主不能依赖硬编码支持矩阵来判断某个 `client` 版本是否支持某 action。
 
 ### Decision 5: docs baseline 必须落在多层文档，而不是只改一个局部 README
@@ -82,6 +82,6 @@ Rollback:
 
 ## Open Questions
 
-- `status.show` 是否需要作为独立 action，还是由 `actions.list` + 事件流已足够？
+- `status:get` 是否需要作为独立 action，还是由 `actions:list` + 事件流已足够？
 - `session.started` 是否承担完整握手，还是需要单独的 capability handshake 事件？
 - 宿主协议 envelope 是否应直接复用 transport `seq/stream_id` 命名，还是在 CLI 层做字段投影？

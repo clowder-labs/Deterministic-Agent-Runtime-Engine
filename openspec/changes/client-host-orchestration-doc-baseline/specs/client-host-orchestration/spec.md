@@ -43,7 +43,7 @@ The system SHALL provide a structured local control plane for host-orchestrated 
 The system SHALL provide a deterministic capability discovery surface for host orchestration.
 
 - Hosts MUST be able to discover supported actions for the active client/runtime.
-- Capability discovery MAY be exposed via an explicit action such as `actions.list` or an equivalent startup handshake.
+- Capability discovery MAY be exposed via an explicit action such as `actions:list` or an equivalent startup handshake.
 
 #### Scenario: Host queries supported actions
 - **GIVEN** a host needs to determine whether the client supports dynamic MCP reload
