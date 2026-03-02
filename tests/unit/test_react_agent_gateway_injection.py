@@ -167,6 +167,25 @@ class _FinalOnlyModel:
         return ModelResponse(content="final", tool_calls=[])
 
 
+class _NonConvergingToolModel:
+    def __init__(self) -> None:
+        self._idx = 0
+
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        self._idx += 1
+        return ModelResponse(
+            content="keep going",
+            tool_calls=[
+                {
+                    "id": f"tc_{self._idx}",
+                    "name": "tool:echo",
+                    "arguments": {"value": f"ping-{self._idx}"},
+                }
+            ],
+        )
+
+
 @pytest.mark.asyncio
 async def test_react_agent_prefers_injected_gateway_over_context_gateway() -> None:
     context_gateway = _RecordingGateway("context")
@@ -373,3 +392,45 @@ async def test_react_agent_without_auto_compress_keeps_legacy_behavior() -> None
 
     assert result.success is True
     assert context.compress_calls == []
+
+
+@pytest.mark.asyncio
+async def test_react_agent_loop_guard_emits_terminal_message_event() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+    transport = _RecordingTransport()
+    agent = ReactAgent(
+        name="react-test-loop-guard-terminal-message",
+        model=_RepeatingToolModel(),
+        context=context,
+        tool_gateway=gateway,
+        max_tool_rounds=10,
+    )
+
+    result = await agent.execute("test loop guard", transport=transport)
+
+    assert result.success is True
+    assert getattr(transport.sent[-1], "event_type", None) == TransportEventType.MESSAGE.value
+    terminal_payload = getattr(transport.sent[-1], "payload", {})
+    assert "连续重复调用相同工具" in terminal_payload.get("resp", {}).get("output", "")
+
+
+@pytest.mark.asyncio
+async def test_react_agent_max_round_exit_emits_terminal_message_event() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+    transport = _RecordingTransport()
+    agent = ReactAgent(
+        name="react-test-max-round-terminal-message",
+        model=_NonConvergingToolModel(),
+        context=context,
+        tool_gateway=gateway,
+        max_tool_rounds=2,
+    )
+
+    result = await agent.execute("test max rounds", transport=transport)
+
+    assert result.success is True
+    assert getattr(transport.sent[-1], "event_type", None) == TransportEventType.MESSAGE.value
+    terminal_payload = getattr(transport.sent[-1], "payload", {})
+    assert "未收敛" in terminal_payload.get("resp", {}).get("output", "")

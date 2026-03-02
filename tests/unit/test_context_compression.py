@@ -72,3 +72,22 @@ def test_compress_context_target_tokens_trims_long_history() -> None:
 
     assert len(after_messages) < before_count
     assert len(after_messages) >= 1
+
+
+def test_compress_context_negative_max_messages_keeps_unbounded_semantics() -> None:
+    ctx = Context(config=Config())
+    for idx in range(4):
+        ctx.stm_add(Message(role="user", content=f"msg-{idx}"))
+
+    before_messages = list(ctx.stm_get())
+    compress_context(
+        ctx,
+        strategy="truncate",
+        max_messages=-1,
+        target_tokens=10_000,
+    )
+    after_messages = ctx.stm_get()
+
+    assert [message.content for message in after_messages] == [
+        message.content for message in before_messages
+    ]

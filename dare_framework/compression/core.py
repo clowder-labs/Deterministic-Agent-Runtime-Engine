@@ -258,6 +258,9 @@ def compress_context(
 
     if max_messages is None:
         max_messages = len(messages)
+    elif max_messages < 0:
+        # Keep historical sentinel semantics: negative means "no message cap".
+        max_messages = len(messages)
 
     # strategy 默认为 "truncate"，后续可扩展更多策略。
     strategy = options.get("strategy", "truncate")
