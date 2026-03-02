@@ -48,7 +48,7 @@ mode: openspec
 
 ### Contract Delta
 - `schema`: `Step.status` 与 `PlannerState.plan_status` 引入 `todo/in_progress/done/abandoned` 显式状态语义，`revise_current_plan` 与 `finish_plan` 进入 plan tool 契约。
-- `error_code`: 未新增跨服务 API `error_code` 表；工具失败路径统一返回可判定错误字符串（如 pending step 拒绝 `finish_plan(done)`、非法状态迁移）。
+- `error semantics`: 未新增跨服务 API `error_code` 枚举；本次错误契约沿用框架原生表达（`error_code`/`error_type`/`exception_class`/`ToolResult.error`），并覆盖 pending-step 与非法迁移失败分支。
 - `retry`: 重试语义收敛为“仅对非终态 step/plan 允许继续推进”；终态（`done/abandoned`）拒绝回退重试。
 
 ### Golden Cases
@@ -66,7 +66,7 @@ mode: openspec
 
 ### Observability and Failure Localization
 - 生命周期观测链覆盖 `start` / `tool_call` / `end` / `fail` 四类事件。
-- 失败定位字段要求保留：`run_id`, `tool_call_id`, `capability_id`, `attempt`, `error_code`, `trace_id`。
+- 失败定位字段要求保留：`run_id`, `tool_call_id`, `capability_id`, `attempt`, `trace_id`，并至少包含一种错误定位：`error_code`/`error_type`/`exception_class`/`ToolResult.error`。
 - 重点定位点：`finish_plan` 失败分支（pending step 保护）、`transition_step/transition_plan` 非法迁移拒绝、sub-agent 调用后状态推进一致性。
 
 ### Structured Review Report
