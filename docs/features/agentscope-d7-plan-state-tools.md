@@ -4,7 +4,7 @@ doc_kind: feature
 topics: ["agentscope", "plan_v2", "state-machine", "critical-block"]
 created: 2026-03-02
 updated: 2026-03-02
-status: draft
+status: in_review
 mode: openspec
 ---
 
@@ -25,7 +25,8 @@ mode: openspec
 - 已完成：D7 kickoff（claim active + docs/design 基线 + OpenSpec 切片初始化）。
 - 已完成：D7-1~D7-4 实现（状态机 + revise/finish 工具 + critical_block 联动）。
 - 已完成：OpenSpec tasks 全部勾选（12/12）。
-- 待完成：提交 PR、评审与合并门禁。
+- 已完成：提交 PR #138，进入评审阶段。
+- 待完成：评审反馈处理与合并门禁。
 
 ## Evidence
 
@@ -60,4 +61,6 @@ mode: openspec
 - 回滚：保留现有 plan_v2 工具路径与兼容字段（`completed_step_ids`），必要时回退新状态机入口。
 
 ### Review and Merge Gate Links
-- 待提交 PR 后补充。
+- PR：`https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/138`
+- Review 请求：`https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/138#issuecomment-3982413008`
+- Merge Gate：待评审通过后补充。
