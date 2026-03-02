@@ -58,13 +58,13 @@ mode: openspec
 - `openspec validate client-headless-event-envelope-v1 --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 - `../../.venv/bin/python --version`: confirmed the project virtualenv provides Python `3.14.0`, which is new enough for the current runtime/tests.
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`40` tests, `0` failures).
-- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`9` tests, `0` failures).
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`10` tests, `0` failures), including the `script --headless` approval-timeout regression coverage added after PR review.
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice B evidence block was updated with landed verification commands.
 
 ### Behavior Verification
 
 - Happy path: `run --headless` now emits versioned lifecycle frames (`session.started`, `task.started`, `task.completed`) with stable `schema_version/session_id/run_id/seq`, and headless hook events map to structured `tool.invoke` / `tool.result`.
-- Error branch: headless approval timeout now terminates with structured `approval.pending` + `task.failed` frames instead of falling back to inline approval prompts or plain terminal text.
+- Error branch: both `run --headless` and `script --headless` approval timeouts now terminate with structured `approval.pending` + `task.failed` frames instead of falling back to inline approval prompts or plain terminal text.
 
 ### Risks and Rollback
 

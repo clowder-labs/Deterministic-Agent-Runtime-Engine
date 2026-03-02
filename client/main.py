@@ -606,6 +606,8 @@ async def _handle_shell_command(
     action_client: TransportActionClient,
     output: OutputFacade,
     background_execute: bool,
+    approval_watch: _ApprovalWatchState | None = None,
+    approval_timeout_seconds: float | None = None,
 ) -> bool:
     if command.type == CommandType.QUIT:
         if _is_execution_running(state):
@@ -667,12 +669,22 @@ async def _handle_shell_command(
             return False
 
         state.status = SessionStatus.RUNNING
-        await _execute_task_and_report(
-            runtime=runtime,
-            output=output,
-            state=state,
-            task_text=task_text,
-        )
+        if approval_watch is not None:
+            await _execute_task_with_approval_timeout(
+                runtime=runtime,
+                output=output,
+                state=state,
+                task_text=task_text,
+                approval_watch=approval_watch,
+                approval_timeout_seconds=approval_timeout_seconds,
+            )
+        else:
+            await _execute_task_and_report(
+                runtime=runtime,
+                output=output,
+                state=state,
+                task_text=task_text,
+            )
         state.status = SessionStatus.IDLE
         return False
 
@@ -748,6 +760,8 @@ async def _run_cli_loop(
     action_client: TransportActionClient,
     output: OutputFacade,
     background_execute: bool,
+    approval_watch: _ApprovalWatchState | None = None,
+    approval_timeout_seconds: float | None = None,
 ) -> bool:
     quit_requested = False
     for raw in lines:
@@ -763,6 +777,8 @@ async def _run_cli_loop(
                     action_client=action_client,
                     output=output,
                     background_execute=background_execute,
+                    approval_watch=approval_watch,
+                    approval_timeout_seconds=approval_timeout_seconds,
                 )
             except ActionClientError as exc:
                 # Command failures must affect scripted exit status.
@@ -823,12 +839,22 @@ async def _run_cli_loop(
             continue
 
         state.status = SessionStatus.RUNNING
-        await _execute_task_and_report(
-            runtime=runtime,
-            output=output,
-            state=state,
-            task_text=task_text,
-        )
+        if approval_watch is not None:
+            await _execute_task_with_approval_timeout(
+                runtime=runtime,
+                output=output,
+                state=state,
+                task_text=task_text,
+                approval_watch=approval_watch,
+                approval_timeout_seconds=approval_timeout_seconds,
+            )
+        else:
+            await _execute_task_and_report(
+                runtime=runtime,
+                output=output,
+                state=state,
+                task_text=task_text,
+            )
         state.status = SessionStatus.IDLE
 
     await _finalize_background_task_if_done(state, output=output)
@@ -935,16 +961,20 @@ async def _run_chat(
     output: OutputFacade,
     mode: str,
     script_lines: list[str] | None,
+    approval_timeout_seconds: float | None = None,
 ) -> int:
     state = CLISessionState(mode=_normalize_mode(mode))
     if output.is_headless:
         output.set_protocol_context(session_id=state.conversation_id, run_id=state.conversation_id)
         output.emit_event("session.started", {"mode": state.mode.value, "entrypoint": "script"})
     inline_chat_approvals = script_lines is None and output.mode == "human"
+    approval_watch = _ApprovalWatchState() if script_lines is not None and approval_timeout_seconds is not None else None
 
     async def _handle_chat_approval_pending(request: dict[str, Any], tool_name: str, capability_id: str) -> None:
         request_id = str(request.get("request_id", "?")).strip() or "?"
         state.mark_runtime_approval_pending(request_id)
+        if approval_watch is not None:
+            approval_watch.mark_pending(request_id)
         if not inline_chat_approvals:
             return
         await _resolve_inline_chat_approval(
@@ -955,6 +985,11 @@ async def _run_chat(
             capability_id=capability_id,
         )
 
+    def _handle_chat_approval_resolved(request_id: str) -> None:
+        state.mark_runtime_approval_resolved(request_id)
+        if approval_watch is not None:
+            approval_watch.mark_resolved(request_id)
+
     output.info(f"mode={state.mode.value}")
     pump = EventPump(
         client_channel=runtime.client_channel,
@@ -962,7 +997,7 @@ async def _run_chat(
             payload,
             output=output,
             on_approval_pending=_handle_chat_approval_pending,
-            on_approval_resolved=state.mark_runtime_approval_resolved,
+            on_approval_resolved=_handle_chat_approval_resolved,
             suppress_human_approval_pending_output=inline_chat_approvals,
         ),
     )
@@ -978,6 +1013,8 @@ async def _run_chat(
                 # Script mode must be deterministic: run each task line to completion
                 # so later lines are not skipped behind an active background task.
                 background_execute=False,
+                approval_watch=approval_watch,
+                approval_timeout_seconds=approval_timeout_seconds,
             )
             if _is_execution_running(state):
                 output.display("waiting for last background execution", level="warn")
@@ -1071,6 +1108,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--headless",
         action="store_true",
         help="planned host-orchestrated headless mode for non-interactive execution",
+    )
+    script.add_argument(
+        "--approval-timeout-seconds",
+        type=float,
+        default=None,
+        help="when approval is pending in script mode, fail after timeout seconds (<=0 disables)",
     )
 
     approvals = sub.add_parser("approvals", help="approval controls")
@@ -1221,6 +1264,7 @@ async def main(argv: list[str] | None = None) -> int:
                 output=output,
                 mode=args.mode,
                 script_lines=lines,
+                approval_timeout_seconds=None,
             )
 
         if command == "run":
@@ -1303,12 +1347,16 @@ async def main(argv: list[str] | None = None) -> int:
             lines = _load_script_lines_with_handling(Path(args.file), output=output)
             if lines is None:
                 return 2
+            script_approval_timeout_seconds = args.approval_timeout_seconds
+            if script_approval_timeout_seconds is None and output.is_headless:
+                script_approval_timeout_seconds = 120.0
             return await _run_chat(
                 runtime=runtime,
                 action_client=action_client,
                 output=output,
                 mode=args.mode,
                 script_lines=lines,
+                approval_timeout_seconds=script_approval_timeout_seconds,
             )
 
         if command == "approvals":

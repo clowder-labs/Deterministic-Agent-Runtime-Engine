@@ -353,6 +353,11 @@ Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地
 3. 审批、MCP、skills 等运行时控制当前仍以显式 CLI 命令或当前 transport/action 能力为主。
 4. 不要把当前 `log/event/result` 三类 JSON 行当作长期稳定的宿主协议。
 
+补充说明：
+
+- `script --headless` 与 `run --headless` 一样支持审批超时控制。
+- `script` 可显式传入 `--approval-timeout-seconds <seconds>`；未显式传入时，headless 脚本默认使用 `120s` 超时，避免无头会话无限等待审批。
+
 退出码约定：
 
 - `0`：成功
@@ -364,6 +369,8 @@ Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地
 说明：`script` 模式下只要任一任务失败，最终退出码为 `1`。
 
 `run` 模式若触发工具审批并超过 `--approval-timeout-seconds`，会以失败退出，避免长时间无反馈阻塞。
+
+`script --headless` 也遵循相同的超时失败语义；超时后会输出结构化 `task.failed` 事件并以失败退出。
 
 `run` 模式可使用：
 - `--auto-approve`：启用内置低风险工具自动审批名单。

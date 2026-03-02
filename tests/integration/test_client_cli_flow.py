@@ -466,6 +466,67 @@ async def test_main_run_headless_times_out_with_structured_failure(
 
 
 @pytest.mark.asyncio
+async def test_main_script_headless_times_out_with_structured_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    pending_event = {
+        "type": "approval_pending",
+        "resp": {
+            "request": {"request_id": "req-script-headless-timeout-1"},
+            "capability_id": "run_command",
+        },
+    }
+    runtime = _FakeRuntime(config=config, events=[pending_event])
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(1.0)
+        return type("OkResult", (), {"success": True, "output": {"content": "ok"}, "errors": []})()
+
+    script_path = tmp_path / "headless-timeout.script.txt"
+    script_path.write_text("do one task\n", encoding="utf-8")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "script",
+            "--file",
+            str(script_path),
+            "--headless",
+            "--approval-timeout-seconds",
+            "0.2",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    events = [line["event"] for line in lines]
+
+    assert rc == 1
+    assert "approval.pending" in events
+    assert events[-1] == "task.failed"
+    assert lines[-1]["data"]["request_id"] == "req-script-headless-timeout-1"
+    assert "approval wait timed out" in lines[-1]["data"]["error"]
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
 async def test_main_run_auto_approves_configured_tool(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
