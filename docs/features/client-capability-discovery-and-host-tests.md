@@ -68,4 +68,4 @@ mode: openspec
 
 - Slice C implementation gate (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/151`
 - Slice C archive target: `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/`
-- Slice D intent PR: pending
+- Slice D intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/156`
