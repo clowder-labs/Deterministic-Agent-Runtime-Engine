@@ -60,3 +60,4 @@ mode: openspec
 
 - Slice A intent gate (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141`
 - Slice B implementation gate (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145`
+- Slice C docs-only intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/148`
