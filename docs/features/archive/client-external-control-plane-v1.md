@@ -17,11 +17,11 @@ mode: openspec
 
 ## OpenSpec Artifacts
 
-- Proposal: `openspec/changes/client-external-control-plane-v1/proposal.md`
-- Design: `openspec/changes/client-external-control-plane-v1/design.md`
+- Proposal: `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/proposal.md`
+- Design: `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/design.md`
 - Specs:
-  - `openspec/changes/client-external-control-plane-v1/specs/client-host-orchestration/spec.md`
-- Tasks: `openspec/changes/client-external-control-plane-v1/tasks.md`
+  - `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/specs/client-host-orchestration/spec.md`
+- Tasks: `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/tasks.md`
 
 ## TODO Coverage
 
