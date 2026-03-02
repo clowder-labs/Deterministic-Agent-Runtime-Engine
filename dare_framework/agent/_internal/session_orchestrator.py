@@ -16,18 +16,34 @@ from dare_framework.context import Message
 from dare_framework.plan.types import MilestoneSummary, RunResult, SessionSummary, Task
 
 
-def _to_json_safe(value: Any) -> Any:
+def _to_json_safe(value: Any, *, _seen: set[int] | None = None) -> Any:
     """Best-effort conversion for values that must survive JSON event persistence."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
+    if _seen is None:
+        _seen = set()
+    if isinstance(value, (dict, list, tuple, set)):
+        marker = id(value)
+        if marker in _seen:
+            return "<circular>"
+        _seen.add(marker)
     if isinstance(value, dict):
-        return {str(key): _to_json_safe(item) for key, item in value.items()}
+        try:
+            return {str(key): _to_json_safe(item, _seen=_seen) for key, item in value.items()}
+        finally:
+            _seen.remove(marker)
     if isinstance(value, set):
-        normalized = [_to_json_safe(item) for item in value]
-        # Sort by canonical JSON representation so mixed nested values remain deterministic.
-        return sorted(normalized, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+        try:
+            normalized = [_to_json_safe(item, _seen=_seen) for item in value]
+            # Sort by canonical JSON representation so mixed nested values remain deterministic.
+            return sorted(normalized, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+        finally:
+            _seen.remove(marker)
     if isinstance(value, (list, tuple)):
-        return [_to_json_safe(item) for item in value]
+        try:
+            return [_to_json_safe(item, _seen=_seen) for item in value]
+        finally:
+            _seen.remove(marker)
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     # Fall back to stable string form for custom objects (Path/datetime/etc.).

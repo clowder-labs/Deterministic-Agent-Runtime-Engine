@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from dare_framework.agent import DareAgent
+from dare_framework.agent._internal.session_orchestrator import _to_json_safe
 from dare_framework.agent.dare_agent import EventLogWriteError
 from dare_framework.config import Config
 from dare_framework.context import Budget, Context, Message
@@ -413,6 +414,16 @@ class TestDareAgentExecution:
         summary_payload = session_summary_events[-1][1]["summary"]
         milestone_outputs = summary_payload["milestones"][0]["outputs"]
         assert milestone_outputs[0]["output"]["values"] == ["a", "b", "k", "m", "z"]
+
+    @pytest.mark.asyncio
+    async def test_to_json_safe_handles_cyclic_containers(self) -> None:
+        """_to_json_safe should mark cyclic references instead of recursing forever."""
+        payload: dict[str, Any] = {}
+        payload["self"] = payload
+
+        normalized = _to_json_safe(payload)
+
+        assert normalized == {"self": "<circular>"}
 
     @pytest.mark.asyncio
     async def test_budget_check_called(self) -> None:
