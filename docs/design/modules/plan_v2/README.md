@@ -57,3 +57,8 @@
 - `tests/unit/test_plan_v2_tools.py`（状态机迁移、finish/revise、critical_block 联动）
 - `tests/unit/test_react_agent_gateway_injection.py`（plan state 注入行为不回归）
 
+## 能力状态（landed / partial / planned）
+
+- `landed`: `PlannerState` 生命周期状态机（`todo -> in_progress -> done/abandoned`）与 `create/validate/revise/finish` 主流程已接入。
+- `partial`: 兼容路径仍保留 `completed_step_ids` 等历史字段，并需要在工具层持续维持双写一致性。
+- `planned`: 后续将继续收敛与 `dare_framework/plan` 的语义边界，减少并行状态表达与重复约束定义。
