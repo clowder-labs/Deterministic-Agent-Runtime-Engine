@@ -92,6 +92,7 @@ pytest -q tests/smoke -m smoke
 3. 目录归属清晰：跨模块改动必须写影响分析。
 4. 锁文件有纪律：lockfile 改动必须同 PR 同步 manifest。
 5. 风险路径强约束：鉴权/并发/执行控制改动必须带 `risk-matrix` 证据。
+6. Evidence-first：实现 PR 必须附带 acceptance pack（contract/golden/regression/observability/structured review）。
 
 ## 5.1 Spec-Driven 认领粒度（新增）
 

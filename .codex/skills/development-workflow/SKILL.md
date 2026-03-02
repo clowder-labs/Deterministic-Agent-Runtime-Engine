@@ -29,9 +29,14 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 
 ## Required evidence block in feature aggregation doc
 
-Each active feature aggregation doc MUST contain an `## Evidence` section with at least:
+Each active/in_review feature aggregation doc MUST contain an `## Evidence` section with at least:
 - commands executed (exact commands)
 - command results (pass/fail + key output summary)
+- contract delta (`schema`/`error_code`/`retry`)
+- golden case file updates
+- regression summary (runner output)
+- observability/failure localization (`start/tool_call/end/fail` + locator fields)
+- structured review report (module boundary/state/concurrency/side-effect/coverage)
 - behavior verification (happy path + changed error branch)
 - risks and rollback notes
 - review/merge-gate evidence links (review request, key review threads, merge gate result)
@@ -75,10 +80,12 @@ Reference contract: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
 - verify status consistency: feature doc is source of truth, linked docs are non-conflicting
 - verify `docs/**` can stand alone as the current-state record without depending on OpenSpec internals
 - verify governance CI scope is complete (frontmatter by mode, link resolution, evidence block completeness, TODO->change mapping, checkpoint mapping)
-- verify feature evidence block includes commands, results, behavior verification, risks, rollback, and review links
+- verify feature evidence block includes acceptance-pack semantics and structured review report content
+- verify review links include both intent PR and implementation PR records
 
 4. review-merge-gate
 - request review with explicit evidence links from the feature aggregation doc
+- reviewer default path is evidence-first, then risk-targeted code sampling (contract boundary + control-flow/side-effects)
 - process review feedback thread-by-thread and keep evidence section updated with fix commits
 - require explicit non-blocking merge gate signal (approval or equivalent repo policy signal) before archive
 - keep mailbox records linked: temporary coordination notes vs retained audit evidence
