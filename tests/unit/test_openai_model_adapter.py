@@ -31,6 +31,32 @@ def test_extract_usage_normalizes_reasoning_tokens() -> None:
     }
 
 
+def test_extract_usage_reads_reasoning_tokens_from_output_tokens_details() -> None:
+    adapter = OpenAIModelAdapter()
+    response = SimpleNamespace(
+        response_metadata={
+            "token_usage": {
+                "prompt_tokens": 3,
+                "completion_tokens": 7,
+                "total_tokens": 10,
+                "output_tokens_details": {
+                    "reasoning_tokens": 4,
+                },
+            }
+        },
+        additional_kwargs={},
+    )
+
+    usage = adapter._extract_usage(response)
+
+    assert usage == {
+        "prompt_tokens": 3,
+        "completion_tokens": 7,
+        "total_tokens": 10,
+        "reasoning_tokens": 4,
+    }
+
+
 def test_extract_thinking_content_from_response_additional_kwargs() -> None:
     adapter = OpenAIModelAdapter()
     response = SimpleNamespace(

@@ -248,6 +248,9 @@ class OpenAIModelAdapter(IModelAdapter):
         """Extract reasoning token count from provider-specific usage payloads."""
         candidates: list[Any] = [
             usage.get("reasoning_tokens"),
+            usage.get("output_tokens_details", {}).get("reasoning_tokens")
+            if isinstance(usage.get("output_tokens_details"), dict)
+            else None,
             usage.get("output_tokens_details", {}).get("reasoning")
             if isinstance(usage.get("output_tokens_details"), dict)
             else None,
