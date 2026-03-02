@@ -43,13 +43,13 @@
 
 ## security
 - [ ] 提供 production-grade Policy/Sandbox 实现。(`docs/design/modules/security/README.md`)
-- [ ] 与 HITL (`IExecutionControl`) 形成审批闭环。(`docs/design/modules/security/README.md`)
+- [ ] 与 HITL (`IExecutionControl`) 形成审批闭环（含宿主控制面桥接）。(`docs/design/modules/security/README.md`)
 - [ ] 统一 security 事件 taxonomy（deny/approve_required/allow）。(`docs/design/modules/security/README.md`)
 
 ## event
 - [ ] 评估大规模场景下的存储后端升级路径（WORM/远端签名/分片归档）。(`docs/design/modules/event/README.md`)
 - [ ] 统一 legacy events 与 event domain 的迁移策略。(`docs/design/modules/event/README.md`)
-- [ ] 定义稳定事件 taxonomy 与 payload schema。(`docs/design/modules/event/README.md`)
+- [ ] 定义稳定事件 taxonomy 与 payload schema（含 host-orchestrated client envelope 映射）。(`docs/design/modules/event/README.md`)
 
 ## hook
 - [ ] 在 DareAgent 生命周期注入 hook 调用点。(`docs/design/modules/hook/README.md`)
