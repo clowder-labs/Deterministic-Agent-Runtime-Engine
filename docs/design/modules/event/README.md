@@ -56,12 +56,14 @@ flowchart TD
 
 - 当前默认实现为单机 SQLite 基线实现（非分布式多写场景）。
 - 事件 taxonomy 与 payload schema 仍需统一规范。
+- 面向外部宿主的 CLI/headless 事件 envelope 尚未与 canonical runtime taxonomy 明确映射；当前 `client --output json` 仅是 automation 输出层，不等同于 event domain 合约。
 
 ## 8. TODO / 未决问题
 
 - TODO: 评估大规模场景下的存储后端升级路径（WORM/远端签名/分片归档）。
 - TODO: 定义 legacy events -> event domain 的迁移策略。
 - TODO: 固化跨模块事件命名与字段协议。
+- TODO: 明确 host-orchestrated client event envelope 与 runtime/event taxonomy 的映射边界。
 
 ## 能力状态（landed / partial / planned）
 

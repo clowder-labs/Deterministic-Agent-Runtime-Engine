@@ -28,6 +28,19 @@
 2. 远程多节点编排与分布式队列。
 3. 新增框架核心能力（仅复用现有 `dare_framework`）。
 
+### 2.3 宿主编排协议基线（planned）
+
+Issue #135 之后，`client/` 还需要补一层“宿主可稳定托管”的协议面，但该能力当前仍处于规划态。
+
+本轮设计基线约束：
+
+1. **不回退当前 CLI 可用性**：`chat/run/script` 与现有 `--output json` 行为保持兼容。
+2. **显式区分三类模式**：
+   - interactive（当前主路径，已落地）
+   - automation-json（当前脚本集成路径，已落地但仅是 legacy automation schema）
+   - headless host orchestration（规划中）
+3. **后续变更必须以显式协议切面落地**，不能继续把宿主编排能力混在 `dare>` prompt、内联审批和展示型 JSON 输出中。
+
 ## 3. 总体方案
 
 ### 3.1 关键决策
@@ -41,6 +54,11 @@
 4. **默认安全策略**：
    - 高风险工具审批默认开启（复用 `ToolApprovalManager` 默认行为）。
    - 不提供默认绕过审批的开关。
+5. **宿主协议与现有 JSON 输出分层**：
+   - 当前 `--output json` 继续作为脚本/调试输出层。
+   - 规划中的宿主编排协议使用独立 headless contract，避免与现有 JSON 行格式耦合。
+6. **v1 外部控制面优先使用本地 stdin 命令帧**：
+   - 相比本地 HTTP/JSON-RPC，`control-stdin` 不新增端口、鉴权面与进程发现复杂度，更适合作为最小宿主协议基线。
 
 ### 3.2 架构图
 
@@ -197,6 +215,106 @@ CLI 层不自行定义“平行配置模型”，只对 `Config` 做覆盖合并
 4. `3`：`doctor` 检查失败（环境或配置探测失败）
 5. `130`：用户中断（Ctrl+C）
 
+### 8.3 宿主编排协议基线（planned）
+
+> 本节是 Slice A 的目标设计输入，**尚未实现**。  
+> 当前仓库事实仍以 `8.1`/`8.2` 描述的 landed 行为为准。
+
+#### 8.3.1 模式分层
+
+| 模式 | 状态 | 入口 | 主要语义 |
+|---|---|---|---|
+| interactive | landed | `dare chat` | 允许 `dare>` prompt、内联审批提示、人类可读输出。 |
+| automation-json | landed / legacy | `run/script --output json` | 允许脚本消费 `log/event/result` 行输出，但不承诺宿主级稳定 envelope。 |
+| headless | planned | 规划中的 `run/script --headless` | 禁止 prompt、禁止内联审批提示，仅允许结构化事件流与结构化控制通道。 |
+
+#### 8.3.2 核心流程
+
+```text
+Host Process
+   |
+   | start CLI in headless mode
+   v
+DARE client
+   |
+   | emits versioned event envelope
+   v
+Host Event Parser
+   |
+   | sends structured command frames via control-stdin
+   v
+DARE control handler
+   |
+   | returns structured result/error frame
+   v
+Host Orchestrator
+```
+
+headless 目标流程要求：
+
+1. 启动后先输出 `session.started` 或等价握手事件。
+2. 执行期间所有可观察状态都走结构化事件帧，而不是 `[INFO]` / prompt 文案。
+3. 审批、MCP、skills、能力发现等控制请求通过独立 control plane 完成，而不是依赖交互文本命令。
+
+#### 8.3.3 事件 envelope v1（planned）
+
+规划中的宿主事件帧至少包含以下顶层字段：
+
+1. `schema_version`
+2. `ts`
+3. `session_id`
+4. `run_id`
+5. `seq`
+6. `event`
+7. `data`
+
+首批事件类别基线：
+
+1. lifecycle：`session.started`、`task.started`、`task.completed`、`task.failed`
+2. tool/model：`model.response`、`tool.invoke`、`tool.result`、`tool.error`
+3. approvals：`approval.pending`、`approval.resolved`
+4. dynamic capability：`mcp.reloaded`、`mcp.unloaded`、`skills.listed`
+
+兼容原则：
+
+1. 当前 `--output json` 行结构视为 legacy automation schema。
+2. headless envelope 使用独立 schema version，不直接复用现有 `type=log|event|result` 结构。
+3. 迁移阶段必须允许宿主显式区分 legacy automation 与 host protocol。
+
+#### 8.3.4 control-stdin v1（planned）
+
+v1 设计选择：优先支持 `--control-stdin`，即 stdin 一行一个 JSON 命令帧。
+
+命令 envelope 最小字段：
+
+1. `schema_version`
+2. `id`
+3. `action`
+4. `params`
+
+结果 envelope 最小字段：
+
+1. `schema_version`
+2. `id`
+3. `ok`
+4. `result`
+5. `error`
+
+首批 action 基线：
+
+1. `actions:list`
+2. `approvals:list/poll/grant/deny/revoke`
+3. `mcp:list/reload/show-tool`
+4. `skills:list`
+5. `status:get`
+
+#### 8.3.5 错误处理与安全边界（planned）
+
+1. headless 模式下禁止回落到 `input("dare> ")` 或内联 `approve>` 提示。
+2. control plane 的失败必须返回结构化错误对象，而不是只写 stdout 文案。
+3. 宿主协议层不得绕过已有 `approvals:*` / `mcp:*` / `skills:*` action 语义，只能在 CLI 外层做协议桥接。
+4. 若未来补 `--control-port`，必须额外定义 loopback 约束、调用方身份与审计关联；该能力不属于当前 Slice A 的设计承诺。
+
 ## 9. 安全与边界
 
 1. 审批规则存储继续复用：
@@ -222,6 +340,9 @@ CLI 层不自行定义“平行配置模型”，只对 `Config` 做覆盖合并
 2. `chat` + 后台执行 + approvals 命令并发。
 3. `mcp reload/unload` 行为（mock MCP manager 或本地 fake server）。
 4. `script` 模式（注释/空行/失败中断）。
+5. headless 协议稳定性（事件 envelope、schema version、error path）。
+6. `control-stdin` 往返控制（approvals / MCP / skills / status）。
+7. capability discovery（`actions:list` / 启动握手）与宿主降级策略。
 
 ## 11. 分阶段落地计划
 
@@ -244,6 +365,13 @@ CLI 层不自行定义“平行配置模型”，只对 `Config` 做覆盖合并
 1. 打包入口（console script）
 2. 完整命令文档与示例脚本
 3. 回归测试矩阵接入 CI
+
+### Phase 4（宿主编排协议，planned）
+
+1. `--headless` 明确模式边界
+2. versioned event envelope v1
+3. `--control-stdin` 最小外部控制面
+4. capability discovery / handshake
 
 ## 12. 风险与缓解
 
