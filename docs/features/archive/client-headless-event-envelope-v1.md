@@ -5,7 +5,7 @@ topics: ["client-cli", "host-orchestration", "headless-protocol", "issue-135"]
 todo_ids: ["CCLI-003", "CCLI-004"]
 created: 2026-03-02
 updated: 2026-03-02
-status: active
+status: archived
 mode: openspec
 ---
 
@@ -79,3 +79,4 @@ mode: openspec
 - Slice B implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145`
 - Review thread fixed by this follow-up: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145#discussion_r2871270479`
 - Related owner comment acknowledged after fix: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145#issuecomment-3983060182`
+- Archive target: `openspec/changes/archive/2026-03-02-client-headless-event-envelope-v1/`
