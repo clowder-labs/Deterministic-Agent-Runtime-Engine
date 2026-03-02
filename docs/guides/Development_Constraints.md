@@ -18,6 +18,7 @@
 - 默认采用 OpenSpec 协作；仅在 OpenSpec 不可用时允许 TODO-driven 回退模式，并必须在 OpenSpec 恢复后完成迁移回写。
 - 任何治理类文档任务必须使用双技能流程（`.codex/skills/documentation-management/SKILL.md` + `.codex/skills/development-workflow/SKILL.md`）或等价自动化流程。
 - Evidence Truth 必须结构化固化到 `docs/features/*.md`，并通过 `./scripts/ci/check_governance_evidence_truth.sh` 门禁校验（见 `docs/guides/Evidence_Truth_Implementation_Strategy.md`）。
+- 每个实现 PR 必须提供 Evidence-first 验收包（contract delta / golden cases / regression summary / observability chain / structured review report）；缺失任一项不得合入。
 - 禁止“先写代码后补文档”；除紧急止血修复外，文档缺失视为任务未开始。紧急修复需在 24 小时内补齐文档与 gap 分析。
 
 ## 设计准则（高内聚、低耦合）

@@ -140,5 +140,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check governance evidence truth contract
+      - name: Check governance evidence-first contract (structure + semantics)
         run: ./scripts/ci/check_governance_evidence_truth.sh
