@@ -5,7 +5,7 @@ topics: ["client-cli", "host-orchestration", "headless-protocol", "issue-135"]
 todo_ids: ["CCLI-001", "CCLI-002"]
 created: 2026-03-02
 updated: 2026-03-02
-status: active
+status: archived
 mode: openspec
 ---
 
@@ -60,3 +60,4 @@ mode: openspec
 ### Review and Merge Gate Links
 
 - Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141`
+- Archive target: `openspec/changes/archive/2026-03-02-client-host-orchestration-doc-baseline/`
