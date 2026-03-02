@@ -92,6 +92,125 @@ def _build_summary_preview(
     return new_messages, removed
 
 
+def _estimate_tokens(messages: List[Message]) -> int:
+    """Rough token estimate using a cheap character-based heuristic."""
+    total = 0
+    for msg in messages:
+        content = (msg.content or "").strip()
+        total += max(1, len(content) // 4) + 8
+    return total
+
+
+def _trim_to_target_tokens(messages: List[Message], target_tokens: int | None) -> Tuple[List[Message], int]:
+    """Trim oldest messages until estimated token size fits target_tokens."""
+    if target_tokens is None or target_tokens <= 0:
+        return messages, 0
+    if _estimate_tokens(messages) <= target_tokens:
+        return messages, 0
+
+    trimmed = list(messages)
+    removed = 0
+    while len(trimmed) > 1 and _estimate_tokens(trimmed) > target_tokens:
+        trimmed.pop(0)
+        removed += 1
+    return trimmed, removed
+
+
+def _extract_tool_call_ids(message: Message) -> list[str]:
+    """Collect tool call ids declared on an assistant message."""
+    if message.role != "assistant":
+        return []
+    tool_calls = message.metadata.get("tool_calls", [])
+    if not isinstance(tool_calls, list):
+        return []
+
+    ids: list[str] = []
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            continue
+        tool_id = call.get("id")
+        if isinstance(tool_id, str) and tool_id.strip():
+            ids.append(tool_id.strip())
+    return ids
+
+
+def _enforce_tool_pair_safety(messages: List[Message]) -> Tuple[List[Message], int]:
+    """Keep tool_call/tool_result in sync so compression never leaves orphan pairs."""
+    tool_result_ids = {
+        message.name.strip()
+        for message in messages
+        if message.role == "tool" and isinstance(message.name, str) and message.name.strip()
+    }
+
+    updated_messages: list[Message] = []
+    retained_call_ids: set[str] = set()
+    changes = 0
+    for message in messages:
+        if message.role != "assistant":
+            updated_messages.append(message)
+            continue
+        raw_calls = message.metadata.get("tool_calls", [])
+        if not isinstance(raw_calls, list):
+            updated_messages.append(message)
+            continue
+
+        filtered_calls = []
+        for call in raw_calls:
+            if not isinstance(call, dict):
+                continue
+            tool_id = call.get("id")
+            if isinstance(tool_id, str) and tool_id.strip() and tool_id.strip() in tool_result_ids:
+                filtered_calls.append(call)
+                retained_call_ids.add(tool_id.strip())
+
+        if len(filtered_calls) != len(raw_calls):
+            changes += len(raw_calls) - len(filtered_calls)
+            metadata = dict(message.metadata)
+            metadata["tool_calls"] = filtered_calls
+            updated_messages.append(
+                CtxMessage(
+                    role=message.role,
+                    content=message.content,
+                    name=message.name,
+                    metadata=metadata,
+                )
+            )
+        else:
+            retained_call_ids.update(_extract_tool_call_ids(message))
+            updated_messages.append(message)
+
+    final_messages: list[Message] = []
+    for message in updated_messages:
+        if message.role == "tool":
+            tool_id = message.name.strip() if isinstance(message.name, str) else ""
+            if tool_id and tool_id not in retained_call_ids:
+                changes += 1
+                continue
+        final_messages.append(message)
+    return final_messages, changes
+
+
+def _annotate_strategy(messages: List[Message], strategy: str) -> List[Message]:
+    """Attach strategy metadata to the first message when compression rewrites context."""
+    if not messages:
+        return messages
+    for message in messages:
+        if message.metadata.get("compressed") is True:
+            return messages
+
+    head = messages[0]
+    metadata = dict(head.metadata)
+    metadata["compressed"] = True
+    metadata.setdefault("strategy", strategy)
+    messages[0] = CtxMessage(
+        role=head.role,
+        content=head.content,
+        name=head.name,
+        metadata=metadata,
+    )
+    return messages
+
+
 def compress_context(
     context: IContext,
     *,
@@ -114,8 +233,16 @@ def compress_context(
     NOTE:
         - phase 参数暂未参与决策，仅为未来差异化调用预留。
     """
-    # 未提供 max_messages 时，不做任何压缩（由调用方决定是否传入）。
-    if max_messages is None or max_messages < 0:
+    # 未提供任何压缩上限时，不做压缩（由调用方决定是否传入）。
+    target_tokens_raw = options.get("target_tokens")
+    target_tokens: int | None = None
+    if target_tokens_raw is not None:
+        try:
+            target_tokens = int(target_tokens_raw)
+        except (TypeError, ValueError):
+            target_tokens = None
+
+    if (max_messages is None or max_messages < 0) and (target_tokens is None or target_tokens <= 0):
         return
 
     # 通过 IContext 的标准接口访问 STM，避免绑定具体实现细节。
@@ -129,8 +256,12 @@ def compress_context(
     if not messages:
         return
 
+    if max_messages is None:
+        max_messages = len(messages)
+
     # strategy 默认为 "truncate"，后续可扩展更多策略。
     strategy = options.get("strategy", "truncate")
+    tool_pair_safe = bool(options.get("tool_pair_safe", False))
 
     removed_total = 0
 
@@ -153,10 +284,20 @@ def compress_context(
         removed_total += len(messages) - max_messages
         messages = messages[-max_messages:]
 
+    # Step 4: token-aware 截断（按估算 token 控制）
+    messages, removed = _trim_to_target_tokens(messages, target_tokens)
+    removed_total += removed
+
+    # Step 5: 工具调用对齐保护（可选）
+    if tool_pair_safe:
+        messages, changes = _enforce_tool_pair_safety(messages)
+        removed_total += changes
+
     # 如无任何压缩，不改写 STM，避免无意义写操作。
     if removed_total == 0:
         return
 
+    messages = _annotate_strategy(messages, str(strategy))
     stm_clear()
     for msg in messages:
         stm_add(msg)

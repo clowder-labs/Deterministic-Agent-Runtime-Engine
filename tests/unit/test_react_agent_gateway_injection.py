@@ -151,6 +151,22 @@ class _ThinkingSequenceModel:
         return response
 
 
+class _CompressionRecordingContext(Context):
+    def __init__(self, *, config: Config) -> None:
+        super().__init__(config=config)
+        self.compress_calls: list[dict[str, Any]] = []
+
+    def compress(self, **options: Any) -> None:
+        self.compress_calls.append(dict(options))
+        super().compress(**options)
+
+
+class _FinalOnlyModel:
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        return ModelResponse(content="final", tool_calls=[])
+
+
 @pytest.mark.asyncio
 async def test_react_agent_prefers_injected_gateway_over_context_gateway() -> None:
     context_gateway = _RecordingGateway("context")
@@ -317,3 +333,43 @@ async def test_react_agent_emits_terminal_message_for_max_round_exit() -> None:
     last_envelope = transport.sent[-1]
     assert getattr(last_envelope, "event_type", None) == TransportEventType.MESSAGE.value
     assert "达到最大轮次" in str(getattr(last_envelope, "payload", {}).get("resp", {}).get("output", ""))
+
+async def test_react_agent_auto_compress_triggers_before_model_call() -> None:
+    context = _CompressionRecordingContext(config=Config())
+    context.budget.max_tokens = 100
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-auto-compress",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=True,
+        compress_trigger_ratio=0.01,
+        compress_target_ratio=0.5,
+    )
+
+    result = await agent("test auto compress trigger")
+
+    assert result.success is True
+    assert len(context.compress_calls) >= 1
+    first_call = context.compress_calls[0]
+    assert first_call.get("tool_pair_safe") is True
+    assert first_call.get("target_tokens") is not None
+
+
+@pytest.mark.asyncio
+async def test_react_agent_without_auto_compress_keeps_legacy_behavior() -> None:
+    context = _CompressionRecordingContext(config=Config())
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-no-auto-compress",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=False,
+    )
+
+    result = await agent("test no auto compress")
+
+    assert result.success is True
+    assert context.compress_calls == []

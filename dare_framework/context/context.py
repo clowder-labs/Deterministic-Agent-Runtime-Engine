@@ -178,8 +178,9 @@ class Context(IContext):
 
     def compress(self, **options: Any) -> None:
         """Compress context to fit within budget."""
-        if self._short_term_memory is not None:
-            self._short_term_memory.compress(**options)
+        from dare_framework.compression.core import compress_context
+
+        compress_context(self, **options)
 
 
 class DefaultAssembledContext(IAssembleContext):

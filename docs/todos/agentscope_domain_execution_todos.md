@@ -21,10 +21,10 @@
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
-| CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | mindfn | active | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 先处理 P0/P1 的 thinking 与 transport 协议统一。 |
-| CLM-20260302-D5 | D5-1~D5-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 压缩链路：tool pair safe + token-aware + auto trigger。 |
-| CLM-20260302-D7 | D7-1~D7-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | plan 状态机与 finish/revise 原生工具补齐。 |
-| CLM-20260302-D1D3 | D1-1~D1-4, D3-1~D3-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 多模态输入 schema 与 assemble normalize。 |
+| CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 先处理 P0/P1 的 thinking 与 transport 协议统一（PR #134 review 中）。 |
+| CLM-20260302-D5 | D5-1~D5-4 | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | D5 实现与回归已完成，待创建 PR。 |
+| CLM-20260302-D7 | D7-1~D7-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | plan 状态机与 finish/revise 原生工具补齐。 |
+| CLM-20260302-D1D3 | D1-1~D1-4, D3-1~D3-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 多模态输入 schema 与 assemble normalize。 |
 
 ---
 
@@ -94,10 +94,10 @@
 
 | ID | 任务 | 主要代码改动 | 支持能力 | 依赖 | 状态 | 输出证据 |
 |---|---|---|---|---|---|---|
-| D2-1 | 定义消息类型枚举 | enum + 常量统一 | thinking/tool 事件标准化 | D1-1 | todo | 枚举被全链路复用 |
-| D2-2 | 定义 payload 协议 | envelope schema + serializer | transport 语义一致 | D2-1 | todo | 往返一致性测试 |
-| D2-3 | 错误码标准化 | error payload model | 可观测错误治理 | D2-2 | todo | CLI/transport 输出一致 |
-| D2-4 | 协议测试矩阵 | e2e + contract test | 端到端稳定性 | D2-1/2/3 | todo | message/tool/thinking/error 全覆盖 |
+| D2-1 | 定义消息类型枚举 | enum + 常量统一 | thinking/tool 事件标准化 | D1-1 | done | `tests/unit/test_transport_types.py` |
+| D2-2 | 定义 payload 协议 | envelope schema + serializer | transport 语义一致 | D2-1 | done | `tests/unit/test_transport_adapters.py` |
+| D2-3 | 错误码标准化 | error payload model | 可观测错误治理 | D2-2 | done | `tests/unit/test_transport_channel.py` |
+| D2-4 | 协议测试矩阵 | e2e + contract test | 端到端稳定性 | D2-1/2/3 | done | `tests/unit/test_transport_types.py`, `tests/unit/test_transport_adapters.py` |
 
 ---
 
@@ -145,10 +145,10 @@
 
 | ID | 任务 | 主要代码改动 | 支持能力 | 依赖 | 状态 | 输出证据 |
 |---|---|---|---|---|---|---|
-| D4-1 | thinking_content | ModelResponse + adapter 提取 | ChatModelBase thinking | D2-1/2 | todo | 单测：thinking 不丢失 |
-| D4-2 | reasoning_tokens | usage parser 标准化 | 预算计量准确性 | D4-1 | todo | usage 测试覆盖 |
-| D4-3 | 中间态事件 | loop 内发送 thinking/tool 事件 | 执行可观测 | D2-1/2/3 | todo | 端到端事件序列测试 |
-| D4-4 | 回归验证 | model+loop 集成测试 | 模型输出链路稳定 | D4-1/2/3 | todo | 无回归 |
+| D4-1 | thinking_content | ModelResponse + adapter 提取 | ChatModelBase thinking | D2-1/2 | done | `tests/unit/test_openai_model_adapter.py`, `tests/unit/test_openrouter_adapter.py` |
+| D4-2 | reasoning_tokens | usage parser 标准化 | 预算计量准确性 | D4-1 | done | `tests/unit/test_openai_model_adapter.py`, `tests/unit/test_openrouter_adapter.py` |
+| D4-3 | 中间态事件 | loop 内发送 thinking/tool 事件 | 执行可观测 | D2-1/2/3 | done | `tests/unit/test_react_agent_gateway_injection.py` |
+| D4-4 | 回归验证 | model+loop 集成测试 | 模型输出链路稳定 | D4-1/2/3 | done | `pytest -q`（528 passed, 12 skipped, 1 warning） |
 
 ---
 
@@ -170,10 +170,10 @@
 
 | ID | 任务 | 主要代码改动 | 支持能力 | 依赖 | 状态 | 输出证据 |
 |---|---|---|---|---|---|---|
-| D5-1 | tool pair safe | compression 截断算法 | F1/Mem5 | D3-1 + D4-3 | todo | 工具对完整性测试 |
-| D5-2 | token 压缩 | token-aware 策略 | F2 | D4-2 | todo | token 预算测试 |
-| D5-3 | 自动触发 | model 调用前压缩 hook | F4/R5 | D5-1/2 | todo | 超阈值自动收敛 |
-| D5-4 | 压缩矩阵测试 | truncate/summary/pair-safe | 压缩质量与稳定 | D5-1/2/3 | todo | 策略矩阵全通过 |
+| D5-1 | tool pair safe | compression 截断算法 | F1/Mem5 | D3-1 + D4-3 | done | `tests/unit/test_context_compression.py` |
+| D5-2 | token 压缩 | token-aware 策略 | F2 | D4-2 | done | `tests/unit/test_context_compression.py` |
+| D5-3 | 自动触发 | model 调用前压缩 hook | F4/R5 | D5-1/2 | done | `tests/unit/test_react_agent_gateway_injection.py` |
+| D5-4 | 压缩矩阵测试 | truncate/summary/pair-safe | 压缩质量与稳定 | D5-1/2/3 | done | `pytest -q`（533 passed, 12 skipped, 1 warning） |
 
 ---
 
