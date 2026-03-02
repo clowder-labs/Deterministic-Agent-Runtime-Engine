@@ -243,6 +243,9 @@ async def _dispatch_control_action(
         ResourceAction.APPROVALS_GRANT,
         ResourceAction.APPROVALS_DENY,
         ResourceAction.APPROVALS_REVOKE,
+        ResourceAction.MCP_LIST,
+        ResourceAction.MCP_RELOAD,
+        ResourceAction.MCP_SHOW_TOOL,
         ResourceAction.SKILLS_LIST,
     }:
         return await action_client.invoke_action(resolved, **params)

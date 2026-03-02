@@ -341,19 +341,19 @@ Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地
 - `--headless` 不能与 legacy `--output json` 混用
 - `run` / `script --headless` 支持可选 `--control-stdin`
   - 控制响应使用独立 schema：`client-control-stdin.v1`
-  - 当前已接通：`status:get`、`approvals:list/poll/grant/deny/revoke`
+  - 当前已接通：`status:get`、`approvals:list/poll/grant/deny/revoke`、`mcp:list/reload/show-tool`、`skills:list`
+  - `mcp:unload` 仍然不是宿主协议 action；宿主发送时会得到结构化 `UNSUPPORTED_ACTION`
   - 未支持或未完成的 action 会返回结构化 error，而不是回落到 prompt 文案
 
 仍未落地：
 
 - `actions:list` / 启动握手式能力发现
-- `mcp:list/reload/show-tool` 与 `skills:list` 的宿主协议面
 
 当前推荐边界是：
 
 1. 自动化脚本仍使用 `run/script --output json`。
 2. 宿主事件流接入使用 `run/script --headless`。
-3. 运行中控制当前优先使用 `--control-stdin` 做 `status:get` 与 approvals；MCP / skills 的宿主协议面仍在 Slice C 后续增量中。
+3. 运行中控制当前优先使用 `--control-stdin` 做 `status:get`、approvals、MCP 与 `skills:list`；`actions:list` / 启动握手仍在后续 Slice 中。
 4. 不要把当前 `log/event/result` 三类 JSON 行当作长期稳定的宿主协议。
 
 补充说明：

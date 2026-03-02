@@ -48,6 +48,20 @@ class _FakeActionClient:
         type(self).calls.append((action_id, dict(params)))
         if action_id == "approvals:list":
             return {"pending": [], "rules": []}
+        if action_id == "skills:list":
+            return {"skills": [{"name": "development-workflow"}]}
+        if action_id == "mcp:list":
+            return {"mcps": ["demo"], "mcp_paths": ["/tmp/demo"], "tools": []}
+        if action_id == "mcp:reload":
+            return {"ok": True, "reloaded": params.get("mcp_name") or "all"}
+        if action_id == "mcp:show-tool":
+            return {
+                "found": True,
+                "tool": {
+                    "name": params.get("tool_name", "?"),
+                    "mcp_name": params.get("mcp_name", "?"),
+                },
+            }
         return {"ok": True}
 
     async def invoke_control(self, control: Any, **params: Any) -> dict[str, Any]:
@@ -393,6 +407,121 @@ async def test_main_run_headless_control_stdin_bridges_approvals_list(
     assert control_frames[0]["ok"] is True
     assert control_frames[0]["result"] == {"pending": [], "rules": []}
     assert any(action_id == "approvals:list" for action_id, _ in _FakeActionClient.calls)
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action_id", "params", "expected_result", "expected_call"),
+    [
+        (
+            "skills:list",
+            {},
+            {"skills": [{"name": "development-workflow"}]},
+            ("skills:list", {}),
+        ),
+        (
+            "mcp:list",
+            {"mcp_name": "demo"},
+            {"mcps": ["demo"], "mcp_paths": ["/tmp/demo"], "tools": []},
+            ("mcp:list", {"mcp_name": "demo"}),
+        ),
+        (
+            "mcp:reload",
+            {"mcp_name": "demo"},
+            {"ok": True, "reloaded": "demo"},
+            ("mcp:reload", {"mcp_name": "demo"}),
+        ),
+        (
+            "mcp:show-tool",
+            {"mcp_name": "demo", "tool_name": "search"},
+            {"found": True, "tool": {"name": "search", "mcp_name": "demo"}},
+            ("mcp:show-tool", {"mcp_name": "demo", "tool_name": "search"}),
+        ),
+    ],
+)
+async def test_main_run_headless_control_stdin_bridges_additional_host_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    action_id: str,
+    params: dict[str, Any],
+    expected_result: dict[str, Any],
+    expected_call: tuple[str, dict[str, Any]],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.2)
+        return _OkResult()
+
+    control_lines = iter(
+        [
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": f"ctl-{action_id}-1",
+                    "action": action_id,
+                    "params": params,
+                }
+            ),
+            None,
+        ]
+    )
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0)
+        return next(control_lines)
+
+    _FakeActionClient.calls = []
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "TransportActionClient", _FakeActionClient)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+            "--headless",
+            "--control-stdin",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    control_frames = [line for line in lines if line["schema_version"] == "client-control-stdin.v1"]
+
+    assert rc == 0
+    assert len(control_frames) == 1
+    assert control_frames[0]["id"] == f"ctl-{action_id}-1"
+    assert control_frames[0]["ok"] is True
+    assert control_frames[0]["result"] == expected_result
+    assert expected_call in _FakeActionClient.calls
     assert runtime.closed is True
 
 

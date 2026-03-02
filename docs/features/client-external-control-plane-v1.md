@@ -37,6 +37,7 @@ mode: openspec
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q -k 'control_stdin or control-stdin or chat_parser_rejects_control_stdin_flag or run_and_script_parser_accept_control_stdin_flag'`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'control_stdin_status_get_emits_structured_result'`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_approvals_list'`
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_additional_host_actions'`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'script_headless_control_stdin_status_get_reports_active_task'`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'surfaces_action_handler_failure or rejects_unsupported_action or bridges_approvals_list or control_stdin_status_get_emits_structured_result or script_headless_control_stdin_status_get_reports_active_task'`
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`
@@ -52,11 +53,12 @@ mode: openspec
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q -k 'control_stdin or control-stdin or chat_parser_rejects_control_stdin_flag or run_and_script_parser_accept_control_stdin_flag'`: passed (`4` tests) after adding `--control-stdin` parser support and rejecting non-headless usage.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'control_stdin_status_get_emits_structured_result'`: failed before the first control-loop implementation because no `client-control-stdin.v1` response frame was emitted; passed after landing the control stdin loop and `status:get` snapshot.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_approvals_list'`: failed before approvals were bridged through canonical action dispatch; passed after exposing `approvals:list` via the control plane.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_additional_host_actions'`: failed (`3` MCP cases red, `skills:list` already green) before `mcp:list/reload/show-tool` were admitted to the host bridge; passed (`4` tests) after extending the canonical action allow-list while keeping `mcp:unload` structurally rejected.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'script_headless_control_stdin_status_get_reports_active_task'`: failed before script foreground execution tracked `active_task`; passed after aligning script/session state with run-mode snapshots.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'surfaces_action_handler_failure or rejects_unsupported_action or bridges_approvals_list or control_stdin_status_get_emits_structured_result or script_headless_control_stdin_status_get_reports_active_task'`: passed (`5` tests), covering happy path plus unsupported-action and handler-failure branches.
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`44` tests, `0` failures).
-- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`16` tests, `0` failures).
-- `openspec list`: confirms Slice A / Slice B have been archived out of the active change list, and the active Slice C change now shows `5/7 tasks`.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`20` tests, `0` failures).
+- `openspec list`: confirms Slice A / Slice B have been archived out of the active change list, and the active Slice C change now shows `✓ Complete`.
 - `openspec validate client-external-control-plane-v1 --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice C feature evidence block and prior-slice archive moves were synchronized.
 
@@ -64,6 +66,7 @@ mode: openspec
 
 - Happy path: `run/script --headless --control-stdin` now multiplexes `client-control-stdin.v1` responses on stdout alongside the existing headless event envelope, and `status:get` returns a structured session snapshot including the current active task.
 - Happy path: approvals are now reachable from the host control plane through the canonical `approvals:*` action ids, without falling back to slash-command parsing.
+- Happy path: `skills:list` and canonical MCP actions `mcp:list/reload/show-tool` now return structured control results with request correlation, and `mcp:show-tool` preserves `mcp_name/tool_name` params across the bridge.
 - Error branch: unsupported actions such as `mcp:unload` return structured `UNSUPPORTED_ACTION` errors, and transport/action handler failures are surfaced as structured error responses instead of prompt text.
 
 ### Risks and Rollback

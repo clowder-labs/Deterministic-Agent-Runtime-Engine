@@ -6,7 +6,7 @@
 ## 2. Action Bridging
 
 - [x] 2.1 将 `approvals:list/poll/grant/deny/revoke` 暴露到外部 control plane。
-- [ ] 2.2 将 `mcp:list/reload/show-tool` 与 `skills:list` 暴露到外部 control plane，并显式排除 `mcp:unload`。
+- [x] 2.2 将 `mcp:list/reload/show-tool` 与 `skills:list` 暴露到外部 control plane，并显式排除 `mcp:unload`。
 - [x] 2.3 提供 `status:get` 的结构化会话快照返回。
 
 ## 3. Verification And Evidence
