@@ -139,6 +139,29 @@ def test_dare_builder_autowires_default_event_log_path_when_missing(tmp_path) ->
     assert agent._event_log._inner._path == expected_path
 
 
+def test_dare_builder_treats_blank_event_log_path_as_missing(tmp_path) -> None:
+    expected_path = tmp_path / ".dare" / "events.db"
+    builder = BaseAgent.dare_agent_builder("event-default-blank-path").with_model(_Model())
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(tmp_path),
+            "event_log": {"enabled": True, "path": "   "},
+        }
+    )
+    agent = builder._build_impl(  # noqa: SLF001 - builder contract test
+        config=config,
+        model=_Model(),
+        context=Context(config=config),
+        tool_gateway=_ToolGateway(),
+        approval_manager=None,
+        agent_channel=None,
+    )
+
+    assert isinstance(agent._event_log, TraceAwareEventLog)
+    assert isinstance(agent._event_log._inner, SQLiteEventLog)
+    assert agent._event_log._inner._path == expected_path
+
+
 def test_dare_builder_explicit_event_log_overrides_default_autowire(tmp_path) -> None:
     class _ExplicitEventLog:
         async def append(self, event_type: str, payload: dict[str, Any]) -> str:

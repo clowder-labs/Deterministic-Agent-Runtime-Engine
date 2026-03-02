@@ -785,8 +785,10 @@ class DareAgentBuilder(_BaseAgentBuilder[DareAgent]):
         if not config.event_log.enabled:
             return None
 
+        # Normalize blank templated values (e.g. empty env var expansion) to
+        # "unset" so event log keeps the documented default db location.
         db_path = config.event_log.path
-        if db_path is None:
+        if db_path is None or not str(db_path).strip():
             db_path = str(Path(config.workspace_dir) / ".dare" / "events.db")
         return DefaultEventLog(db_path)
 
