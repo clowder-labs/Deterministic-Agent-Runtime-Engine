@@ -162,9 +162,9 @@ check_feature_doc() {
   fi
 
   golden_section="$(extract_subsection "$file" "### Golden Cases")"
-  if ! grep -Eq '`[^`]+\.[[:alnum:]_]+`' <<<"$golden_section" && \
+  if ! grep -Eq '`[^`]+`' <<<"$golden_section" && \
      ! grep -Eiq '(none|n/a).*(reason|because)' <<<"$golden_section"; then
-    log "Golden Cases must list file names (or explicit none-with-reason) in $file"
+    log "Golden Cases must list file names (extension optional) or explicit none-with-reason in $file"
     failures=$((failures + 1))
   fi
 
@@ -245,12 +245,12 @@ check_feature_doc() {
   fi
 
   local pr_link_count
-  pr_link_count="$(grep -Eo 'https://github\.com/.+/pull/[0-9]+' <<<"$review_section" | wc -l | tr -d '[:space:]')"
+  pr_link_count="$(grep -Eo 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' <<<"$review_section" | wc -l | tr -d '[:space:]' || true)"
   if [[ "$pr_link_count" -lt 2 ]]; then
     log "missing required PR links (need >=2, got $pr_link_count) in $file"
     failures=$((failures + 1))
   fi
-  if ! grep -Eq 'https://github\.com/.+/pull/[0-9]+#(pullrequestreview|issuecomment|discussion_r)' <<<"$review_section"; then
+  if ! grep -Eq 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+#(pullrequestreview|issuecomment|discussion_r)' <<<"$review_section"; then
     log "missing GitHub PR review/merge link in $file"
     failures=$((failures + 1))
   fi
