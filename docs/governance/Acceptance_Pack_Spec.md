@@ -15,6 +15,10 @@ Each implementation PR MUST provide all items below in `docs/features/<change-id
 
 If any item is missing, the PR is non-compliant.
 
+Gate scope and status normalization:
+- gate scope is `status: active|in_review|in-review` (hyphen form normalized to underscore form).
+- if no governed feature doc is found in scope, the gate fails.
+
 ## 2. Item Contract
 
 ### 2.1 Contract Delta
@@ -37,24 +41,29 @@ Must include:
 
 ### 2.4 Observability and Failure Localization
 
-Must cover chain markers:
+Default requirement (runtime-affecting changes): must cover chain markers:
 - start
 - tool_call
 - end
 - fail
 
-Must include locator fields:
+Default requirement (runtime-affecting changes): must include locator fields:
 - run_id
 - tool_call_id
 - capability_id
 - attempt
 - trace_id
 
-Must include at least one error locator:
+Default requirement (runtime-affecting changes): must include at least one error locator:
 - error_code
 - error_type
 - exception_class
 - ToolResult.error
+
+Docs-only exception:
+- If no runtime chain exists, `Observability` may be `N/A`, but MUST include:
+  - explicit reason (`reason`/`because`),
+  - fallback evidence pointer (for example regression commands/results section).
 
 ### 2.5 Structured Review Report
 
@@ -71,6 +80,10 @@ Review links MUST include:
 - intent PR link
 - implementation PR link
 - at least one review comment/review thread link
+
+And MUST satisfy:
+- intent PR and implementation PR must reference different PR numbers.
+- intent merged before implementation is currently a soft check (warning).
 
 ## 4. Gate Command
 

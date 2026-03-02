@@ -1,6 +1,7 @@
 # Evidence Truth Implementation Strategy
 
 > Scope: Governance changes that use `docs/features/*.md` as aggregation entry documents.
+> Governing status scope: `active|in_review|in-review` (hyphen variant is normalized).
 
 ## 1. Goal
 
@@ -43,6 +44,9 @@ Each active/in_review feature aggregation doc MUST include:
 - locator fields: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `trace_id`,
 - at least one error locator: `error_code` / `error_type` / `exception_class` / `ToolResult.error`.
 
+Docs-only exception:
+- if no runtime event chain exists, this section may be `N/A`, but must carry `reason/because` and fallback evidence pointer.
+
 `### Structured Review Report` MUST answer:
 - changed module boundaries / public API,
 - new states (cache/global/singleton),
@@ -61,11 +65,14 @@ Frontmatter mode requirements:
 Use a deterministic script gate:
 - script: `scripts/ci/check_governance_evidence_truth.sh`
 - checks:
-  - required evidence headings exist in active/in_review feature aggregation docs
+  - required evidence headings exist in active/in_review feature aggregation docs (with tolerant heading variants)
   - acceptance-pack semantic markers exist in required sections
   - frontmatter keys satisfy mode contract
   - OpenSpec artifact paths listed in aggregation docs are repository-resolvable files
   - review/merge gate section contains both intent/implementation PR links and at least one review link
+  - intent/implementation links must reference distinct PR numbers
+  - zero governed docs in scope is a hard failure (prevents draft/skip bypass)
+  - intent-before-implementation ordering signal is warning-only in this phase
 
 This phase blocks structurally incomplete and semantically unreviewable records.
 
