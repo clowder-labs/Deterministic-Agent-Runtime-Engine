@@ -17,7 +17,7 @@
 |---|---|---|---|---|---|---|---|
 | CLM-20260302-AG1 | T5-2 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 对齐 D2/D4：thinking + transport 事件链路。 |
 | CLM-20260302-AG2 | T2-1 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 对齐 D5：安全压缩与预算收敛。 |
-| CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | D7 实现与回归已完成，待创建 PR。 |
+| CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | D7 实现与回归已完成，PR #138 待审。 |
 | CLM-20260302-AG4 | T5-3 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 对齐 D1/D3：多模态输入 schema + normalize。 |
 
 ## 2. 当前基线

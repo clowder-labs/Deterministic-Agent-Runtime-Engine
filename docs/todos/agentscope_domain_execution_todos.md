@@ -23,7 +23,7 @@
 |---|---|---|---|---|---|---|---|
 | CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 先处理 P0/P1 的 thinking 与 transport 协议统一。 |
 | CLM-20260302-D5 | D5-1~D5-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 压缩链路：tool pair safe + token-aware + auto trigger。 |
-| CLM-20260302-D7 | D7-1~D7-4 | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | D7 实现与回归已完成，待创建 PR。 |
+| CLM-20260302-D7 | D7-1~D7-4 | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | D7 实现与回归已完成，PR #138 待审。 |
 | CLM-20260302-D1D3 | D1-1~D1-4, D3-1~D3-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 多模态输入 schema 与 assemble normalize。 |
 
 ---
