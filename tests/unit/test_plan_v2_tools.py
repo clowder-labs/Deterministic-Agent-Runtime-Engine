@@ -9,7 +9,7 @@ from dare_framework.plan_v2.tools import (
     ReviseCurrentPlanTool,
     ValidatePlanTool,
 )
-from dare_framework.plan_v2.types import PlannerState, is_valid_state_transition
+from dare_framework.plan_v2.types import PlannerState, Step, is_valid_state_transition
 from dare_framework.tool.types import RunContext
 
 
@@ -30,6 +30,24 @@ def test_plan_state_transition_rules_reject_terminal_reopen() -> None:
     assert is_valid_state_transition("in_progress", "done") is True
     assert is_valid_state_transition("done", "in_progress") is False
     assert is_valid_state_transition("abandoned", "todo") is False
+
+
+def test_sync_completed_step_ids_tolerates_legacy_steps_without_status() -> None:
+    class _LegacyStep:
+        def __init__(self, step_id: str) -> None:
+            self.step_id = step_id
+
+    state = PlannerState(
+        steps=[
+            Step(step_id="s1", description="done step", status="done"),
+            _LegacyStep(step_id="s_legacy"),
+            {"step_id": "s_dict", "status": "done"},
+        ]
+    )
+
+    state.sync_completed_step_ids()
+
+    assert state.completed_step_ids == {"s1", "s_dict"}
 
 
 @pytest.mark.asyncio
@@ -110,4 +128,3 @@ async def test_critical_block_requires_finish_when_all_steps_done() -> None:
     await validate_tool.execute(run_context=_run_context(), success=True)
 
     assert "finish_plan" in state.critical_block
-
