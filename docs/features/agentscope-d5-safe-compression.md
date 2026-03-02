@@ -4,7 +4,7 @@ doc_kind: feature
 topics: ["agentscope", "compression", "context", "react-agent", "budget"]
 created: 2026-03-02
 updated: 2026-03-02
-status: draft
+status: in_review
 mode: openspec
 ---
 
@@ -24,7 +24,8 @@ mode: openspec
 ## Progress
 - 已完成：D5 代码实现（tool-pair-safe、token-aware compression、ReAct pre-model auto-compress）。
 - 已完成：OpenSpec tasks 全部打勾（10/10）。
-- 待完成：提交评审与合并门禁记录补充。
+- 已完成：提交 PR #136，进入评审阶段。
+- 待完成：评审反馈处理与合并门禁记录闭环。
 
 ## Evidence
 
@@ -58,4 +59,5 @@ mode: openspec
 - 回滚：保持自动压缩开关可控，必要时回退到手动压缩路径。
 
 ### Review and Merge Gate Links
-- 待 D5 切片提交 PR 后补充。
+- PR：`https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/136`
+- Merge Gate：待评审通过后补充（approval + merge commit）。
