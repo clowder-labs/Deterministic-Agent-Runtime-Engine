@@ -1561,17 +1561,27 @@ async def main(argv: list[str] | None = None) -> int:
                 watch=approval_watch,
                 auto_approve_tools=auto_tools,
             )
+
+            async def _handle_run_approval_pending(
+                request: dict[str, Any],
+                tool_name: str,
+                capability_id: str,
+            ) -> None:
+                request_id = str(request.get("request_id", "?")).strip() or "?"
+                state.mark_runtime_approval_pending(request_id)
+                await approval_policy.on_pending(request_id, tool_name, capability_id)
+
+            def _handle_run_approval_resolved(request_id: str) -> None:
+                state.mark_runtime_approval_resolved(request_id)
+                approval_watch.mark_resolved(request_id)
+
             pump = EventPump(
                 client_channel=runtime.client_channel,
                 on_event=lambda payload: _on_transport_event(
                     payload,
                     output=output,
-                    on_approval_pending=lambda request, tool_name, capability_id: approval_policy.on_pending(
-                        str(request.get("request_id", "?")).strip() or "?",
-                        tool_name,
-                        capability_id,
-                    ),
-                    on_approval_resolved=approval_watch.mark_resolved,
+                    on_approval_pending=_handle_run_approval_pending,
+                    on_approval_resolved=_handle_run_approval_resolved,
                 ),
             )
             pump.start()
