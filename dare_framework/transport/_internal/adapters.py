@@ -10,8 +10,8 @@ from dare_framework.transport.interaction.controls import AgentControl
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.kernel import ClientChannel, PollableClientChannel
 from dare_framework.transport.types import (
+    canonicalize_transport_event_type,
     EnvelopeKind,
-    normalize_transport_event_type,
     Receiver,
     Sender,
     TransportEnvelope,
@@ -42,7 +42,7 @@ class StdioClientChannel(ClientChannel):
             event_type = _resolve_transport_event_type(msg)
             payload = msg.payload
             if isinstance(payload, dict):
-                if event_type == TransportEventType.RESULT.value:
+                if event_type == TransportEventType.MESSAGE.value:
                     kind = payload.get("kind")
                     resp = payload.get("resp")
                     if kind == "message":
@@ -54,24 +54,14 @@ class StdioClientChannel(ClientChannel):
                         output = resp if resp is not None else payload
                 elif event_type == TransportEventType.ERROR.value:
                     output = payload.get("reason") or payload.get("error")
-                elif event_type == TransportEventType.APPROVAL_PENDING.value:
+                elif event_type == TransportEventType.THINKING.value:
                     resp = payload.get("resp")
-                    request_id = None
                     if isinstance(resp, dict):
-                        request = resp.get("request")
-                        if isinstance(request, dict):
-                            request_id = request.get("request_id")
-                    output = f"approval pending: request_id={request_id or '?'}"
-                elif event_type == TransportEventType.APPROVAL_RESOLVED.value:
-                    resp = payload.get("resp")
-                    request_id = None
-                    decision = None
-                    if isinstance(resp, dict):
-                        request_id = resp.get("request_id")
-                        decision = resp.get("decision")
-                    output = f"approval resolved: request_id={request_id or '?'} decision={decision or '?'}"
-                elif event_type == TransportEventType.HOOK.value:
-                    output = payload.get("event")
+                        output = resp.get("output") or resp.get("thinking") or resp
+                    else:
+                        output = resp if resp is not None else payload
+                elif event_type == TransportEventType.STATUS.value:
+                    output = _render_status_output(payload)
                 else:
                     output = payload
             else:
@@ -300,8 +290,31 @@ def _default_deserialize(raw: Any) -> TransportEnvelope:
 def _resolve_transport_event_type(msg: TransportEnvelope) -> str | None:
     """Resolve event_type for receiver routing."""
     if isinstance(msg.event_type, str):
-        return normalize_transport_event_type(msg.event_type)
+        return canonicalize_transport_event_type(msg.event_type)
     return None
+
+
+def _render_status_output(payload: dict[str, Any]) -> Any:
+    """Render canonical status payload into a concise stdio output."""
+    resp = payload.get("resp")
+    if isinstance(resp, dict):
+        request_id = resp.get("request_id")
+        decision = resp.get("decision")
+        if isinstance(resp.get("request"), dict):
+            request_id = resp["request"].get("request_id")
+        if request_id and decision is not None:
+            return f"approval resolved: request_id={request_id} decision={decision}"
+        if request_id:
+            return f"approval pending: request_id={request_id}"
+        return "approval update"
+
+    if isinstance(resp, dict) and "phase" in resp:
+        return resp.get("phase")
+    if "phase" in payload:
+        return payload.get("phase")
+    if "event" in payload:
+        return payload.get("event")
+    return payload
 
 
 __all__ = ["StdioClientChannel", "WebSocketClientChannel", "DirectClientChannel"]

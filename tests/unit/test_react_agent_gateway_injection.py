@@ -9,6 +9,7 @@ from dare_framework.config import Config
 from dare_framework.context import Context
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityType, ToolResult
+from dare_framework.transport import TransportEventType
 
 
 class _SequenceModel:
@@ -98,6 +99,39 @@ class _RecordingGateway:
         return ToolResult(success=True, output={"gateway": self.label, "params": params})
 
 
+class _RecordingTransport:
+    def __init__(self) -> None:
+        self.sent: list[Any] = []
+
+    async def send(self, envelope: Any) -> None:
+        self.sent.append(envelope)
+
+
+class _ThinkingSequenceModel:
+    def __init__(self) -> None:
+        self._responses = [
+            ModelResponse(
+                content="calling tool",
+                thinking_content="need tool data",
+                tool_calls=[
+                    {
+                        "id": "tc_1",
+                        "name": "tool:echo",
+                        "arguments": {"value": "ping"},
+                    }
+                ],
+            ),
+            ModelResponse(content="final answer", tool_calls=[]),
+        ]
+        self._idx = 0
+
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        response = self._responses[self._idx]
+        self._idx += 1
+        return response
+
+
 @pytest.mark.asyncio
 async def test_react_agent_prefers_injected_gateway_over_context_gateway() -> None:
     context_gateway = _RecordingGateway("context")
@@ -156,3 +190,33 @@ async def test_react_agent_stops_repeated_identical_tool_loop() -> None:
     assert result.success is True
     assert "连续重复调用相同工具" in str(result.output_text)
     assert len(gateway.invoke_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_react_agent_emits_intermediate_transport_events_in_order() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+    transport = _RecordingTransport()
+
+    agent = ReactAgent(
+        name="react-test-transport-events",
+        model=_ThinkingSequenceModel(),
+        context=context,
+        tool_gateway=gateway,
+    )
+
+    result = await agent.execute("test", transport=transport)
+
+    assert result.success is True
+    event_types = [getattr(envelope, "event_type", None) for envelope in transport.sent]
+    assert event_types == [
+        TransportEventType.THINKING.value,
+        TransportEventType.TOOL_CALL.value,
+        TransportEventType.TOOL_RESULT.value,
+        TransportEventType.MESSAGE.value,
+    ]
+    payloads = [getattr(envelope, "payload", None) for envelope in transport.sent]
+    assert payloads[0]["ok"] is True
+    assert payloads[1]["resp"]["name"] == "tool:echo"
+    assert payloads[2]["resp"]["success"] is True
+    assert payloads[3]["resp"]["output"] == "final answer"

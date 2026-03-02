@@ -15,7 +15,7 @@
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
-| CLM-20260302-AG1 | T5-2 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 对齐 D2/D4：thinking + transport 事件链路。 |
+| CLM-20260302-AG1 | T5-2 | mindfn | active | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 对齐 D2/D4：thinking + transport 事件链路。 |
 | CLM-20260302-AG2 | T2-1 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 对齐 D5：安全压缩与预算收敛。 |
 | CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | 先按 AgentScope gap 切片推进 plan 状态机能力。 |
 | CLM-20260302-AG4 | T5-3 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 对齐 D1/D3：多模态输入 schema + normalize。 |

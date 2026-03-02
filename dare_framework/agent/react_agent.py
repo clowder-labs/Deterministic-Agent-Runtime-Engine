@@ -91,7 +91,9 @@ from dare_framework.plan.types import Envelope
 from dare_framework.plan.types import RunResult
 from dare_framework.plan.types import Task
 from dare_framework.tool import IToolGateway, IToolProvider
+from dare_framework.transport.interaction.payloads import build_error_payload, build_success_payload
 from dare_framework.transport.kernel import AgentChannel
+from dare_framework.transport.types import EnvelopeKind, TransportEnvelope, TransportEventType, new_envelope_id
 
 
 class ReactAgent(BaseAgent):
@@ -151,7 +153,6 @@ class ReactAgent(BaseAgent):
         transport: AgentChannel | None = None,
     ) -> RunResult:
         """原始基础 ReAct 循环实现。"""
-        _ = transport
         task_description = task.description if isinstance(task, Task) else task
         user_message = Message(role="user", content=task_description)
         self._context.stm_add(user_message)
@@ -204,6 +205,14 @@ class ReactAgent(BaseAgent):
                     latest_usage = usage
             n_tools = len(response.tool_calls) if response.tool_calls else 0
             print(f"[{self.name}] 模型返回, tool_calls={n_tools}", flush=True)
+            thinking_content = (response.thinking_content or "").strip()
+            if thinking_content:
+                await self._emit_transport_success(
+                    transport=transport,
+                    event_type=TransportEventType.THINKING.value,
+                    target="model",
+                    resp={"output": thinking_content},
+                )
 
             if usage is not None:
                 tokens = _usage_total_tokens(usage)
@@ -217,6 +226,7 @@ class ReactAgent(BaseAgent):
                     final_text = "模型未返回可显示的文本回复。请重试，或明确要求先调用 ask_user 再继续。"
                 assistant_message = Message(role="assistant", content=final_text)
                 self._context.stm_add(assistant_message)
+                await self._emit_terminal_transport_message(transport=transport, output=final_text)
                 output = build_output_envelope(
                     final_text,
                     usage=latest_usage,
@@ -237,6 +247,7 @@ class ReactAgent(BaseAgent):
             if repeated_tool_rounds >= 3:
                 loop_guard = "模型连续重复调用相同工具，已停止自动循环。请换一种描述，或明确要求先调用 ask_user 再继续。"
                 self._context.stm_add(Message(role="assistant", content=loop_guard))
+                await self._emit_terminal_transport_message(transport=transport, output=loop_guard)
                 output = build_output_envelope(loop_guard, usage=latest_usage)
                 return RunResult(success=True, output=output, output_text=output["content"])
 
@@ -252,6 +263,16 @@ class ReactAgent(BaseAgent):
                 name = tool_call.get("name", "")
                 tool_call_id = tool_call.get("id", "")
                 params = _normalize_tool_args(tool_call.get("arguments", {}))
+                await self._emit_transport_success(
+                    transport=transport,
+                    event_type=TransportEventType.TOOL_CALL.value,
+                    target=name or "tool_call",
+                    resp={
+                        "id": tool_call_id,
+                        "name": name,
+                        "arguments": params,
+                    },
+                )
                 # 打印工具调用信息：名称、参数
                 params_str = json.dumps(params, ensure_ascii=False)
                 params_preview = params_str[:300] + ("..." if len(params_str) > 300 else "")
@@ -260,6 +281,12 @@ class ReactAgent(BaseAgent):
                 try:
                     result = await gateway.invoke(name, envelope=envelope, **params)
                 except Exception as exc:
+                    await self._emit_transport_error(
+                        transport=transport,
+                        target=name or "tool_call",
+                        code="TOOL_CALL_FAILED",
+                        reason=str(exc).strip() or exc.__class__.__name__,
+                    )
                     result = type("R", (), {"success": False, "output": {}, "error": str(exc)})()
 
                 success = getattr(result, "success", False)
@@ -268,6 +295,18 @@ class ReactAgent(BaseAgent):
                 out_preview = _preview_output(output)
                 print(f"[{self.name}] 工具结果: {name} | success={success} | {out_preview}", flush=True)
                 error = getattr(result, "error", "") or ""
+                await self._emit_transport_success(
+                    transport=transport,
+                    event_type=TransportEventType.TOOL_RESULT.value,
+                    target=name or "tool_result",
+                    resp={
+                        "id": tool_call_id,
+                        "name": name,
+                        "success": bool(success),
+                        "output": output,
+                        "error": error,
+                    },
+                )
 
                 tool_content = json.dumps(
                     {"success": success, "output": output, "error": error} if not success
@@ -278,6 +317,7 @@ class ReactAgent(BaseAgent):
                 self._context.stm_add(tool_msg)
 
         final_message = "模型在工具循环中未收敛（达到最大轮次）。请缩小范围，或明确要求先调用 ask_user 再继续。"
+        await self._emit_terminal_transport_message(transport=transport, output=final_message)
         output = build_output_envelope(final_message, usage=latest_usage)
         return RunResult(
             success=True,
@@ -521,6 +561,73 @@ class ReactAgent(BaseAgent):
             output=final_message,
             output_text=final_message,
         )
+
+    async def _emit_terminal_transport_message(
+        self,
+        *,
+        transport: AgentChannel | None,
+        output: str,
+    ) -> None:
+        """Emit terminal MESSAGE for direct execute() transport calls."""
+        # BaseAgent emits terminal RESULT envelopes in transport-loop execution.
+        # Avoid emitting duplicate terminal MESSAGE events in that path.
+        if self._is_transport_loop_execution(transport=transport):
+            return
+        await self._emit_transport_success(
+            transport=transport,
+            event_type=TransportEventType.MESSAGE.value,
+            target="prompt",
+            resp={"output": output},
+        )
+
+    async def _emit_transport_success(
+        self,
+        *,
+        transport: AgentChannel | None,
+        event_type: str,
+        target: str,
+        resp: dict[str, Any],
+    ) -> None:
+        """Emit a canonical success payload to transport when available."""
+        if transport is None:
+            return
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.MESSAGE,
+            event_type=event_type,
+            payload=build_success_payload(kind="message", target=target, resp=resp),
+        )
+        try:
+            await transport.send(envelope)
+        except Exception:
+            self._logger.exception("react agent transport success emission failed")
+
+    async def _emit_transport_error(
+        self,
+        *,
+        transport: AgentChannel | None,
+        target: str,
+        code: str,
+        reason: str,
+    ) -> None:
+        """Emit a canonical error payload to transport when available."""
+        if transport is None:
+            return
+        envelope = TransportEnvelope(
+            id=new_envelope_id(),
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.ERROR.value,
+            payload=build_error_payload(
+                kind="message",
+                target=target,
+                code=code,
+                reason=reason,
+            ),
+        )
+        try:
+            await transport.send(envelope)
+        except Exception:
+            self._logger.exception("react agent transport error emission failed")
 
 
 def _preview_output(output: Any, max_len: int = 120) -> str:

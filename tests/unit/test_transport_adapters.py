@@ -212,3 +212,28 @@ async def test_stdio_receiver_does_not_route_by_payload_type_without_event_type(
     captured = capsys.readouterr()
     assert "Assistant: {'type': 'result'" in captured.out
     assert "Assistant: hello" not in captured.out
+
+
+@pytest.mark.asyncio
+async def test_stdio_receiver_handles_canonical_thinking_event(capsys) -> None:
+    channel = StdioClientChannel()
+    receiver = channel.agent_envelope_receiver()
+
+    await receiver(
+        TransportEnvelope(
+            id="evt-thinking",
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.THINKING.value,
+            payload={
+                "kind": "message",
+                "target": "model",
+                "ok": True,
+                "resp": {
+                    "output": "need tool data",
+                },
+            },
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert "Assistant: need tool data" in captured.out

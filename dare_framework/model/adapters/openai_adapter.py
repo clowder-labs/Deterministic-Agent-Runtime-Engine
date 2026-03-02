@@ -103,11 +103,13 @@ class OpenAIModelAdapter(IModelAdapter):
         
         tool_calls = self._extract_tool_calls(response)
         usage = self._extract_usage(response)
+        thinking_content = self._extract_thinking_content(response)
         
         return ModelResponse(
             content=response.content or "",
             tool_calls=tool_calls,
             usage=usage,
+            thinking_content=thinking_content,
         )
 
     def _ensure_client(self) -> Any:
@@ -231,11 +233,52 @@ class OpenAIModelAdapter(IModelAdapter):
         """Extract usage information from the response."""
         usage = getattr(response, "response_metadata", {}).get("token_usage")
         if usage:
-            return {
+            normalized = {
                 "prompt_tokens": usage.get("prompt_tokens", 0),
                 "completion_tokens": usage.get("completion_tokens", 0),
                 "total_tokens": usage.get("total_tokens", 0),
             }
+            reasoning_tokens = self._extract_reasoning_tokens(usage)
+            if reasoning_tokens is not None:
+                normalized["reasoning_tokens"] = reasoning_tokens
+            return normalized
+        return None
+
+    def _extract_reasoning_tokens(self, usage: dict[str, Any]) -> int | None:
+        """Extract reasoning token count from provider-specific usage payloads."""
+        candidates: list[Any] = [
+            usage.get("reasoning_tokens"),
+            usage.get("output_tokens_details", {}).get("reasoning")
+            if isinstance(usage.get("output_tokens_details"), dict)
+            else None,
+            usage.get("completion_tokens_details", {}).get("reasoning_tokens")
+            if isinstance(usage.get("completion_tokens_details"), dict)
+            else None,
+        ]
+        for candidate in candidates:
+            try:
+                if candidate is None:
+                    continue
+                return int(candidate)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _extract_thinking_content(self, response: Any) -> str | None:
+        """Extract provider reasoning text into framework-level thinking content."""
+        additional_kwargs = getattr(response, "additional_kwargs", {})
+        if isinstance(additional_kwargs, dict):
+            for key in ("reasoning_content", "reasoning", "thinking"):
+                content = _coerce_text(additional_kwargs.get(key))
+                if content:
+                    return content
+
+        response_metadata = getattr(response, "response_metadata", {})
+        if isinstance(response_metadata, dict):
+            for key in ("reasoning_content", "reasoning", "thinking"):
+                content = _coerce_text(response_metadata.get(key))
+                if content:
+                    return content
         return None
 
     def _log_client_config(self, client: Any) -> None:
@@ -277,3 +320,25 @@ class OpenAIModelAdapter(IModelAdapter):
 
 
 __all__ = ["OpenAIModelAdapter"]
+
+
+def _coerce_text(value: Any) -> str | None:
+    """Coerce heterogenous provider reasoning payloads into a non-empty string."""
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, dict):
+        for key in ("text", "content", "reasoning", "thinking"):
+            text = _coerce_text(value.get(key))
+            if text:
+                return text
+        return None
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            text = _coerce_text(item)
+            if text:
+                parts.append(text)
+        if parts:
+            return "\n".join(parts)
+    return None

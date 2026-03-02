@@ -20,8 +20,15 @@ class EnvelopeKind(StrEnum):
 class TransportEventType(StrEnum):
     """Canonical event categories carried by message envelopes."""
 
-    RESULT = "result"
+    MESSAGE = "message"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    THINKING = "thinking"
     ERROR = "error"
+    STATUS = "status"
+
+    # Legacy aliases kept for backward compatibility with existing emitters/consumers.
+    RESULT = "result"
     HOOK = "hook"
     APPROVAL_PENDING = "approval.pending"
     APPROVAL_RESOLVED = "approval.resolved"
@@ -31,6 +38,15 @@ _LEGACY_PAYLOAD_EVENT_TYPE_MAP: dict[str, str] = {
     # Only legacy aliases that differ from canonical event_type values.
     "approval_pending": TransportEventType.APPROVAL_PENDING.value,
     "approval_resolved": TransportEventType.APPROVAL_RESOLVED.value,
+    "tool.result": TransportEventType.TOOL_RESULT.value,
+    "tool.call": TransportEventType.TOOL_CALL.value,
+}
+
+_LEGACY_TO_CANONICAL_EVENT_TYPE_MAP: dict[str, str] = {
+    TransportEventType.RESULT.value: TransportEventType.MESSAGE.value,
+    TransportEventType.HOOK.value: TransportEventType.STATUS.value,
+    TransportEventType.APPROVAL_PENDING.value: TransportEventType.STATUS.value,
+    TransportEventType.APPROVAL_RESOLVED.value: TransportEventType.STATUS.value,
 }
 
 
@@ -42,6 +58,14 @@ def normalize_transport_event_type(raw: str | None) -> str | None:
     if not normalized:
         return None
     return _LEGACY_PAYLOAD_EVENT_TYPE_MAP.get(normalized, normalized)
+
+
+def canonicalize_transport_event_type(raw: str | None) -> str | None:
+    """Canonicalize legacy event aliases into the stable transport taxonomy."""
+    normalized = normalize_transport_event_type(raw)
+    if normalized is None:
+        return None
+    return _LEGACY_TO_CANONICAL_EVENT_TYPE_MAP.get(normalized, normalized)
 
 
 @dataclass(frozen=True)
@@ -95,6 +119,7 @@ __all__ = [
     "EnvelopeKind",
     "TransportEventType",
     "normalize_transport_event_type",
+    "canonicalize_transport_event_type",
     "TransportEnvelope",
     "new_envelope_id",
     "Sender",
