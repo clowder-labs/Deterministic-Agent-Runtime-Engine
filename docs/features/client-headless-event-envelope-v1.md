@@ -74,3 +74,4 @@ mode: openspec
 ### Review and Merge Gate Links
 
 - Slice A intent gate (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141`
+- Slice B implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145`
