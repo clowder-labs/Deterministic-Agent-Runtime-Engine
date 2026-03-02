@@ -27,10 +27,10 @@ Each active/in_review feature aggregation doc MUST include:
 - `### Risks and Rollback`
 - `### Review and Merge Gate Links`
 
-`### Contract Delta` MUST describe:
-- schema changes,
-- error code changes,
-- retry semantic changes.
+`### Contract Delta` MUST declare these dimensions (changed or `none/n.a + reason`):
+- schema impact,
+- error semantics (`error_code`/`error_type`/`exception_class`/`ToolResult.error` mapping),
+- retry semantics.
 
 `### Golden Cases` MUST list newly added/updated golden files (file names are mandatory).
 
@@ -40,7 +40,8 @@ Each active/in_review feature aggregation doc MUST include:
 
 `### Observability and Failure Localization` MUST include:
 - event chain coverage: `start` / `tool_call` / `end` / `fail`,
-- locator fields: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `error_code`, `trace_id`.
+- locator fields: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `trace_id`,
+- at least one error locator: `error_code` / `error_type` / `exception_class` / `ToolResult.error`.
 
 `### Structured Review Report` MUST answer:
 - changed module boundaries / public API,

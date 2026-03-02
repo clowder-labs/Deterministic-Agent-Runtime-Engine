@@ -41,7 +41,7 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 
 ### Contract Delta
 - `schema`: evidence contract now requires a full acceptance-pack layout in every active feature doc (`Contract Delta`, `Golden Cases`, `Regression Summary`, `Observability and Failure Localization`, `Structured Review Report`).
-- `error_code`: no runtime API `error_code` schema change; governance gate failures now surface deterministic missing-section signals that block merge.
+- `error semantics`: no runtime API `error_code` enum change; this gate now accepts framework-native error semantics (`error_code`/`error_type`/`exception_class`/`ToolResult.error`) and blocks missing declarations.
 - `retry`: CI retry does not bypass policy checks; rerun only after evidence/doc fixes, with no semantic downgrade on retry.
 
 ### Golden Cases
@@ -58,7 +58,7 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 
 ### Observability and Failure Localization
 - Event chain coverage includes `start`, `tool_call`, `end`, and `fail` events for traceable execution lifecycle.
-- Failure localization fields required for triage and review are: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `error_code`, `trace_id`.
+- Failure localization fields required for triage and review are: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `trace_id`, plus at least one error locator (`error_code`/`error_type`/`exception_class`/`ToolResult.error`).
 - Gate failures must emit enough context to locate the exact document/section mismatch without full code deep-dive.
 
 ### Structured Review Report

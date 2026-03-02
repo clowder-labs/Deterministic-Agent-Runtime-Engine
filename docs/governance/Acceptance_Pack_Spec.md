@@ -19,10 +19,10 @@ If any item is missing, the PR is non-compliant.
 
 ### 2.1 Contract Delta
 
-Must describe all three dimensions:
-- schema change
-- error_code change
-- retry semantics change
+Must declare all three dimensions (changed or `none/n.a + reason`):
+- schema impact
+- error semantics (`error_code`/`error_type`/`exception_class`/`ToolResult.error`)
+- retry semantics
 
 ### 2.2 Golden Cases
 
@@ -48,8 +48,13 @@ Must include locator fields:
 - tool_call_id
 - capability_id
 - attempt
-- error_code
 - trace_id
+
+Must include at least one error locator:
+- error_code
+- error_type
+- exception_class
+- ToolResult.error
 
 ### 2.5 Structured Review Report
 

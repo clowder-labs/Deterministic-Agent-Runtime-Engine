@@ -32,7 +32,7 @@ Do not use this skill for document-only relocation/classification tasks; use `do
 Each active/in_review feature aggregation doc MUST contain an `## Evidence` section with at least:
 - commands executed (exact commands)
 - command results (pass/fail + key output summary)
-- contract delta (`schema`/`error_code`/`retry`)
+- contract delta (`schema`/`error semantics`/`retry`; each as changed or `none/n.a + reason`)
 - golden case file updates
 - regression summary (runner output)
 - observability/failure localization (`start/tool_call/end/fail` + locator fields)

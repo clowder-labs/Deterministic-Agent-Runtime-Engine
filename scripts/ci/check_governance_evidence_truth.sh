@@ -152,8 +152,8 @@ check_feature_doc() {
     log "Contract Delta missing schema semantics in $file"
     failures=$((failures + 1))
   fi
-  if ! grep -Eiq 'error[_[:space:]-]?code' <<<"$contract_section"; then
-    log "Contract Delta missing error_code semantics in $file"
+  if ! grep -Eiq '(error[_[:space:]-]?code|error[_[:space:]-]?type|exception[_[:space:]-]?class|toolresult\.error|error semantics)' <<<"$contract_section"; then
+    log "Contract Delta missing error semantics (error_code/error_type/exception_class/ToolResult.error) in $file"
     failures=$((failures + 1))
   fi
   if ! grep -Eiq 'retry' <<<"$contract_section"; then
@@ -185,12 +185,16 @@ check_feature_doc() {
       failures=$((failures + 1))
     fi
   done
-  for field in run_id tool_call_id capability_id attempt error_code trace_id; do
+  for field in run_id tool_call_id capability_id attempt trace_id; do
     if ! grep -Eiq "\\b${field}\\b" <<<"$observability_section"; then
       log "Observability section missing locator field '${field}' in $file"
       failures=$((failures + 1))
     fi
   done
+  if ! grep -Eiq '(error[_[:space:]-]?code|error[_[:space:]-]?type|exception[_[:space:]-]?class|toolresult\.error|error[[:space:]_-]?message)' <<<"$observability_section"; then
+    log "Observability section missing error locator semantics (error_code/error_type/exception_class/ToolResult.error) in $file"
+    failures=$((failures + 1))
+  fi
 
   structured_review_section="$(extract_subsection "$file" "### Structured Review Report")"
   for topic in \

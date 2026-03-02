@@ -26,13 +26,13 @@ If this PR is a large diff (>300 changed lines), explain why split PRs are not p
 - [ ] Criteria 2
 
 ## Acceptance Pack (required)
-- Contract Delta (`schema` / `error_code` / `retry` semantics):
+- Contract Delta (`schema` / `error semantics` / `retry` dimensions; each as changed or `none/n.a + reason`):
   - `...`
 - Golden Cases (new/updated file names):
   - `...`
 - Regression Summary (runner outputs):
   - `...`
-- Observability and Failure Localization (`start/tool_call/end/fail` + `run_id/tool_call_id/capability_id/attempt/error_code/trace_id`):
+- Observability and Failure Localization (`start/tool_call/end/fail` + `run_id/tool_call_id/capability_id/attempt/trace_id` + one of `error_code`/`error_type`/`exception_class`/`ToolResult.error`):
   - `...`
 - Structured Review Report attached: [ ] Yes
 
