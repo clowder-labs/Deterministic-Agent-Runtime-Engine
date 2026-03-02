@@ -21,10 +21,10 @@
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
-| CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 先处理 P0/P1 的 thinking 与 transport 协议统一。 |
-| CLM-20260302-D5 | D5-1~D5-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 压缩链路：tool pair safe + token-aware + auto trigger。 |
-| CLM-20260302-D7 | D7-1~D7-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | plan 状态机与 finish/revise 原生工具补齐。 |
-| CLM-20260302-D1D3 | D1-1~D1-4, D3-1~D3-4 | mindfn | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 多模态输入 schema 与 assemble normalize。 |
+| CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d2-d4-thinking-transport` | 先处理 P0/P1 的 thinking 与 transport 协议统一。 |
+| CLM-20260302-D5 | D5-1~D5-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d5-safe-compression` | 压缩链路：tool pair safe + token-aware + auto trigger。 |
+| CLM-20260302-D7 | D7-1~D7-4 | zts212653 | active | 2026-03-02 | 2026-03-09 | `agentscope-d7-plan-state-tools` | D7 实现与回归已完成，待创建 PR。 |
+| CLM-20260302-D1D3 | D1-1~D1-4, D3-1~D3-4 | zts212653 | planned | 2026-03-02 | 2026-03-09 | `agentscope-d1-d3-message-pipeline` | 多模态输入 schema 与 assemble normalize。 |
 
 ---
 
@@ -220,10 +220,10 @@
 
 | ID | 任务 | 主要代码改动 | 支持能力 | 依赖 | 状态 | 输出证据 |
 |---|---|---|---|---|---|---|
-| D7-1 | 状态机 | Step/Plan 状态字段+迁移规则 | P1 | 无（独立） | todo | 非法迁移拒绝测试 |
-| D7-2 | finish/revise 工具 | 新 plan tools + schema | P2/P3 | D7-1 | todo | 示例可无 shim 调用 |
-| D7-3 | 状态提示联动 | critical_block 规则更新 | 执行引导一致性 | D7-1/2 | todo | plan 提示准确 |
-| D7-4 | 回归测试 | plan 全流程测试 | Plan 能力稳定 | D7-1/2/3 | todo | create/revise/finish 全通过 |
+| D7-1 | 状态机 | Step/Plan 状态字段+迁移规则 | P1 | 无（独立） | done | `tests/unit/test_plan_v2_tools.py::test_plan_state_transition_rules_reject_terminal_reopen` |
+| D7-2 | finish/revise 工具 | 新 plan tools + schema | P2/P3 | D7-1 | done | `tests/unit/test_plan_v2_tools.py::test_planner_exposes_revise_and_finish_plan_tools`，`tests/unit/test_plan_v2_tools.py::test_revise_current_plan_preserves_done_steps_by_step_id` |
+| D7-3 | 状态提示联动 | critical_block 规则更新 | 执行引导一致性 | D7-1/2 | done | `tests/unit/test_plan_v2_tools.py::test_critical_block_requires_finish_when_all_steps_done` |
+| D7-4 | 回归测试 | plan 全流程测试 | Plan 能力稳定 | D7-1/2/3 | done | `pytest -q tests/unit/test_plan_v2_tools.py tests/unit/test_react_agent_gateway_injection.py tests/unit/test_dare_agent_step_driven_mode.py`（31 passed）+ `pytest -q`（518 passed, 12 skipped, 1 warning） |
 
 ---
 
