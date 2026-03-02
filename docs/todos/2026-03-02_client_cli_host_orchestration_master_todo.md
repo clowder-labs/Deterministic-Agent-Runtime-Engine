@@ -21,7 +21,7 @@ mode: openspec
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
-| CLM-20260302-CCLI-A | CCLI-001~CCLI-002 | codex | active | 2026-03-02 | 2026-03-09 | `client-host-orchestration-doc-baseline` | Slice A: 建立宿主编排 docs baseline、OpenSpec artifacts 与 intent PR payload。 |
+| CLM-20260302-CCLI-A | CCLI-001~CCLI-002 | bouillipx | active | 2026-03-02 | 2026-03-09 | `client-host-orchestration-doc-baseline` | Slice A: 建立宿主编排 docs baseline、OpenSpec artifacts 与 intent PR payload。 |
 
 ## 切片规划
 
@@ -36,8 +36,8 @@ mode: openspec
 
 | ID | Priority | Status | Gap ID | Planned OpenSpec Change | Task | Owner | Evidence | Last Updated |
 |---|---|---|---|---|---|---|---|---|
-| CCLI-001 | P0 | done | CCLI-GAP-006 | `client-host-orchestration-doc-baseline` | 更新 `client/DESIGN.md`，新增“宿主编排 / headless / control plane / capability discovery / 错误语义”章节，作为后续实现唯一设计输入。 | codex | `client/DESIGN.md`；`openspec/changes/client-host-orchestration-doc-baseline/design.md` | 2026-03-02 |
-| CCLI-002 | P0 | done | CCLI-GAP-006 | `client-host-orchestration-doc-baseline` | 更新 `client/README.md`，明确当前 `--output json` 是 legacy automation schema，补充后续宿主协议模式的兼容说明。 | codex | `client/README.md`；`docs/features/client-host-orchestration-doc-baseline.md` | 2026-03-02 |
+| CCLI-001 | P0 | done | CCLI-GAP-006 | `client-host-orchestration-doc-baseline` | 更新 `client/DESIGN.md`，新增“宿主编排 / headless / control plane / capability discovery / 错误语义”章节，作为后续实现唯一设计输入。 | bouillipx | `client/DESIGN.md`；`openspec/changes/client-host-orchestration-doc-baseline/design.md` | 2026-03-02 |
+| CCLI-002 | P0 | done | CCLI-GAP-006 | `client-host-orchestration-doc-baseline` | 更新 `client/README.md`，明确当前 `--output json` 是 legacy automation schema，补充后续宿主协议模式的兼容说明。 | bouillipx | `client/README.md`；`docs/features/client-host-orchestration-doc-baseline.md` | 2026-03-02 |
 | CCLI-003 | P1 | todo | CCLI-GAP-001 | `client-headless-event-envelope-v1` | 为 `client` 设计并实现显式 headless 模式，定义禁止 prompt / 禁止内联审批 / 只输出协议帧的行为边界。 | TBD | `client/main.py`；相关 OpenSpec design/specs/tasks | 2026-03-02 |
 | CCLI-004 | P1 | todo | CCLI-GAP-002 | `client-headless-event-envelope-v1` | 设计并实现 versioned event envelope（至少含 `schema_version`、`run_id`、`seq`、`event`、`data`），并定义与现有 JSON 输出的兼容策略。 | TBD | `client/main.py`；`client/render/json.py`；相关测试 | 2026-03-02 |
 | CCLI-005 | P1 | todo | CCLI-GAP-003 | `client-external-control-plane-v1` | 设计外部控制协议入口（如 `control-stdin` 或 loopback RPC），覆盖 approvals / MCP / skills / status 的结构化控制。 | TBD | `client/main.py`；`client/runtime/action_client.py`；相关 OpenSpec design/specs/tasks | 2026-03-02 |
