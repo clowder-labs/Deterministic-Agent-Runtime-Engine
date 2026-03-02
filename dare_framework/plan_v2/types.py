@@ -36,6 +36,24 @@ def _normalize_state(value: Any, *, default: PlanStateName) -> PlanStateName:
     return default
 
 
+def _step_id(step: Any) -> str | None:
+    """Read step_id from Step-like objects with legacy dict fallback."""
+    raw = getattr(step, "step_id", None)
+    if raw is None and isinstance(step, dict):
+        raw = step.get("step_id")
+    if isinstance(raw, str) and raw.strip():
+        return raw
+    return None
+
+
+def _step_state(step: Any) -> PlanStateName:
+    """Read lifecycle state from Step-like objects with legacy dict fallback."""
+    raw = getattr(step, "status", None)
+    if raw is None and isinstance(step, dict):
+        raw = step.get("status")
+    return _normalize_state(raw, default="todo")
+
+
 # -----------------------------------------------------------------------------
 # Input / Output for collaboration
 # -----------------------------------------------------------------------------
@@ -125,9 +143,14 @@ class PlannerState:
 
     def sync_completed_step_ids(self) -> None:
         """Rebuild compatibility completed-step set from step statuses."""
-        self.completed_step_ids = {
-            step.step_id for step in self.steps if _normalize_state(step.status, default="todo") == "done"
-        }
+        completed: set[str] = set()
+        for step in self.steps:
+            if _step_state(step) != "done":
+                continue
+            step_id = _step_id(step)
+            if step_id is not None:
+                completed.add(step_id)
+        self.completed_step_ids = completed
 
     def get_step(self, step_id: str) -> Step | None:
         """Lookup a step by identifier."""
