@@ -46,6 +46,36 @@ mode: openspec
 - 全量回归：`518 passed, 12 skipped, 1 warning`。
 - OpenSpec status：artifacts `proposal/design/specs/tasks` 全部 `done`。
 
+### Contract Delta
+- `schema`: `Step.status` 与 `PlannerState.plan_status` 引入 `todo/in_progress/done/abandoned` 显式状态语义，`revise_current_plan` 与 `finish_plan` 进入 plan tool 契约。
+- `error_code`: 未新增跨服务 API `error_code` 表；工具失败路径统一返回可判定错误字符串（如 pending step 拒绝 `finish_plan(done)`、非法状态迁移）。
+- `retry`: 重试语义收敛为“仅对非终态 step/plan 允许继续推进”；终态（`done/abandoned`）拒绝回退重试。
+
+### Golden Cases
+- 新增/更新 golden 证据文件：`tests/unit/test_plan_v2_tools.py`。
+- 契约文档同步：`openspec/changes/agentscope-d7-plan-state-tools/specs/plan-runtime/spec.md`。
+- 提示策略同步：`openspec/changes/agentscope-d7-plan-state-tools/specs/chat-runtime/spec.md`。
+
+### Regression Summary
+- Runner commands:
+  - `pytest -q tests/unit/test_plan_v2_tools.py`
+  - `pytest -q tests/unit/test_plan_v2_tools.py tests/unit/test_react_agent_gateway_injection.py tests/unit/test_dare_agent_step_driven_mode.py`
+  - `pytest -q`
+- Summary: pass 518, fail 0, skip 12.
+- Warnings: 1 warning（与 D7 变更无新增失败关联）。
+
+### Observability and Failure Localization
+- 生命周期观测链覆盖 `start` / `tool_call` / `end` / `fail` 四类事件。
+- 失败定位字段要求保留：`run_id`, `tool_call_id`, `capability_id`, `attempt`, `error_code`, `trace_id`。
+- 重点定位点：`finish_plan` 失败分支（pending step 保护）、`transition_step/transition_plan` 非法迁移拒绝、sub-agent 调用后状态推进一致性。
+
+### Structured Review Report
+- Changed Module Boundaries / Public API: `plan_v2` 新增 `revise_current_plan`、`finish_plan` 两个公开工具，并扩展 `types` 状态机接口。
+- New State: 新增 `Step.status` 与 `PlannerState.plan_status` 状态字段；`completed_step_ids` 继续保留为兼容派生状态。
+- Concurrency / Timeout / Retry: 未新增并发执行模型；新增工具超时上限分别为 `30s`（revise）与 `20s`（finish）；重试仅允许在非终态路径。
+- Side Effects and Idempotency: 主要副作用是 plan 状态推进与 `critical_block` 文本更新；终态回退被拒绝以防重复副作用。
+- Coverage and Residual Risk: 覆盖状态迁移、finish/revise、critical_block 分支与回归路径；残余风险在于 legacy step 对象混用场景仍依赖兼容分支。
+
 ### Behavior Verification
 - Happy path：
   - `Planner` 暴露 `revise_current_plan`、`finish_plan` 工具；
@@ -61,6 +91,7 @@ mode: openspec
 - 回滚：保留现有 plan_v2 工具路径与兼容字段（`completed_step_ids`），必要时回退新状态机入口。
 
 ### Review and Merge Gate Links
-- PR：`https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/138`
+- Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/138`
+- Implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/138`
 - Review 请求：`https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/138#issuecomment-3982413008`
 - Merge Gate：待评审通过后补充。
