@@ -9,7 +9,9 @@ from dare_framework.plan_v2.types import PlannerState
 from dare_framework.plan_v2.tools import (
     CreatePlanTool,
     DecomposeTaskTool,
+    FinishPlanTool,
     ReflectTool,
+    ReviseCurrentPlanTool,
     SubAgentTool,
     ValidatePlanTool,
     VerifyMilestoneTool,
@@ -35,6 +37,8 @@ class Planner(IToolProvider):
             self._tools.extend([
                 CreatePlanTool(self._state),
                 ValidatePlanTool(self._state),
+                ReviseCurrentPlanTool(self._state),
+                FinishPlanTool(self._state),
                 VerifyMilestoneTool(self._state),
                 ReflectTool(self._state),
                 DecomposeTaskTool(self._state),
