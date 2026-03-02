@@ -37,6 +37,7 @@ mode: openspec
 - `openspec change --help`
 - `openspec show client-host-orchestration-doc-baseline --type change --json --no-interactive`
 - `openspec validate client-host-orchestration-doc-baseline --type change --strict`
+- `./scripts/ci/check_governance_evidence_truth.sh`
 
 ### Results
 
@@ -44,6 +45,7 @@ mode: openspec
 - `openspec --help` and `openspec change --help`: confirmed the local CLI supports `show` / `validate`, but not `new` / `status`.
 - `openspec show client-host-orchestration-doc-baseline --type change --json --no-interactive`: confirmed the change exposes 4 `ADDED` deltas under `client-host-orchestration`.
 - `openspec validate client-host-orchestration-doc-baseline --type change --strict`: passed (`1/1` change valid, `0` issues).
+- `./scripts/ci/check_governance_evidence_truth.sh`: passed after the PR link was added to this feature doc.
 
 ### Behavior Verification
 
@@ -57,4 +59,4 @@ mode: openspec
 
 ### Review and Merge Gate Links
 
-- Pending in current branch（待创建 docs-only intent PR 后补充）。
+- Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141`
