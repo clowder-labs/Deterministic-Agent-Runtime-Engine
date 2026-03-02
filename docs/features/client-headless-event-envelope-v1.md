@@ -42,6 +42,7 @@ mode: openspec
 - `openspec show client-headless-event-envelope-v1 --type change --json --no-interactive`
 - `openspec validate client-headless-event-envelope-v1 --type change --strict --json --no-interactive`
 - `../../.venv/bin/python --version`
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'resets_timeout_watch_between_tasks'`
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`
 - `./scripts/ci/check_governance_evidence_truth.sh`
@@ -57,8 +58,9 @@ mode: openspec
 - `openspec show client-headless-event-envelope-v1 --type change --json --no-interactive`: the change exposes 2 `ADDED` deltas under `client-host-orchestration`.
 - `openspec validate client-headless-event-envelope-v1 --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 - `../../.venv/bin/python --version`: confirmed the project virtualenv provides Python `3.14.0`, which is new enough for the current runtime/tests.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'resets_timeout_watch_between_tasks'`: failed before the fix because the second scripted task inherited the first task's approval timeout clock; passed after resetting the approval watch per foreground task.
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`40` tests, `0` failures).
-- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`10` tests, `0` failures), including the `script --headless` approval-timeout regression coverage added after PR review.
+- `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`11` tests, `0` failures), including the `script --headless` approval-timeout regression coverage and the scripted timeout-watch reset regression added after PR review.
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice B evidence block was updated with landed verification commands.
 
 ### Behavior Verification
@@ -75,3 +77,5 @@ mode: openspec
 
 - Slice A intent gate (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141`
 - Slice B implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145`
+- Review thread fixed by this follow-up: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145#discussion_r2871270479`
+- Related owner comment acknowledged after fix: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145#issuecomment-3983060182`

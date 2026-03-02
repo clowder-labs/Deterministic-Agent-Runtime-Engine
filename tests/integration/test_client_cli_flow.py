@@ -527,6 +527,77 @@ async def test_main_script_headless_times_out_with_structured_failure(
 
 
 @pytest.mark.asyncio
+async def test_main_script_headless_resets_timeout_watch_between_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    pending_event = {
+        "type": "approval_pending",
+        "resp": {
+            "request": {"request_id": "req-script-headless-reset-1"},
+            "capability_id": "run_command",
+        },
+    }
+    runtime = _FakeRuntime(config=config, events=[pending_event])
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "ok"}
+        errors: list[str] = []
+
+    calls: list[str] = []
+
+    async def _script_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        calls.append(task_text)
+        await asyncio.sleep(1.0 if len(calls) == 1 else 0.1)
+        return _OkResult()
+
+    script_path = tmp_path / "headless-reset.script.txt"
+    script_path.write_text("task one\ntask two\n", encoding="utf-8")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _script_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "script",
+            "--file",
+            str(script_path),
+            "--headless",
+            "--approval-timeout-seconds",
+            "0.2",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    task_events = [(line["event"], line["data"].get("task")) for line in lines if line["event"].startswith("task.")]
+
+    assert rc == 1
+    assert task_events == [
+        ("task.started", "task one"),
+        ("task.failed", "task one"),
+        ("task.started", "task two"),
+        ("task.completed", "task two"),
+    ]
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
 async def test_main_run_auto_approves_configured_tool(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

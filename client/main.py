@@ -342,6 +342,11 @@ class _ApprovalWatchState:
     request_id: str | None = None
     pending_since_monotonic: float | None = None
 
+    def reset(self) -> None:
+        """Drop pending approval timing state before/after each foreground task."""
+        self.request_id = None
+        self.pending_since_monotonic = None
+
     def mark_pending(self, request_id: str) -> None:
         normalized = request_id.strip() if request_id.strip() else "?"
         if self.request_id == normalized and self.pending_since_monotonic is not None:
@@ -542,6 +547,9 @@ async def _execute_task_with_approval_timeout(
     approval_timeout_seconds: float | None,
 ) -> bool:
     """Run one task and fail fast when approval waits exceed the configured budget."""
+    # Approval timeout is scoped to a single task execution. Reset any stale
+    # pending approval timestamp from a previous scripted line before starting.
+    approval_watch.reset()
     task = asyncio.create_task(
         _execute_task_and_report(
             runtime=runtime,
@@ -590,6 +598,8 @@ async def _execute_task_with_approval_timeout(
         except asyncio.CancelledError:
             return False
     finally:
+        approval_watch.reset()
+        state.clear_runtime_approvals()
         if not task.done():
             task.cancel()
             try:
