@@ -247,6 +247,7 @@ is_command_like_token() {
   local normalized
   local words=()
   local idx cmd remainder
+  local first_stage first_words=() first_idx first_cmd
   normalized="$(sed -E 's/^[[:space:]]+|[[:space:]]+$//g' <<<"$token")"
   if [[ -z "$normalized" ]]; then
     return 1
@@ -289,11 +290,30 @@ is_command_like_token() {
     return 0
   fi
 
-  if grep -Eq '[|&;]' <<<"$normalized"; then
-    return 0
-  fi
   if grep -Eq '(^|[[:space:]])-[A-Za-z0-9-]+' <<<"$remainder"; then
     return 0
+  fi
+  if grep -Eq '[|&;]' <<<"$normalized"; then
+    # For separator-based commands, require a concrete executable-like first command.
+    first_stage="$(sed -E 's/[|&;].*$//' <<<"$normalized" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+    read -r -a first_words <<<"$first_stage"
+    first_idx=0
+    while ((first_idx < ${#first_words[@]})); do
+      if grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*$' <<<"${first_words[$first_idx]}"; then
+        first_idx=$((first_idx + 1))
+        continue
+      fi
+      break
+    done
+
+    if ((first_idx >= ${#first_words[@]})); then
+      return 1
+    fi
+    first_cmd="${first_words[$first_idx]}"
+    if is_known_single_command "$first_cmd" || [[ "$first_cmd" == ./* || "$first_cmd" == /* ]]; then
+      return 0
+    fi
+    return 1
   fi
 
   return 1
@@ -612,7 +632,7 @@ check_feature_doc() {
       log "missing required PR links (need >=2, got $pr_link_count) in $file"
       failures=$((failures + 1))
     fi
-    if ! grep -Eq 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+#(pullrequestreview|issuecomment|discussion_r)' <<<"$review_section"; then
+    if ! grep -Eq 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+#(pullrequestreview-[0-9]+|issuecomment-[0-9]+|discussion_r[0-9]+)' <<<"$review_section"; then
       log "missing GitHub PR review/merge link in $file"
       failures=$((failures + 1))
     fi

@@ -281,6 +281,16 @@ echo still in command output
         self.assertEqual(result.returncode, 0)
         self.assertIn("passed", result.stdout)
 
+    def test_review_link_fragment_requires_numeric_id(self) -> None:
+        doc = _base_doc(status="in_review").replace(
+            "- Review thread: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/120#issuecomment-3983984020",
+            "- Review thread: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/120#issuecomment",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing GitHub PR review/merge link", result.stdout)
+
     def test_error_message_only_is_not_accepted_as_error_locator(self) -> None:
         observability_body = (
             "- Markers: start, tool_call, end, fail.\n"
@@ -420,6 +430,16 @@ echo still in command output
         doc = _base_doc(status="in_review").replace(
             "- Runner: `pytest -q tests/unit/test_governance_evidence_truth_gate.py`",
             "- Runner: `totally fake`",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Regression Summary missing runner commands", result.stdout)
+
+    def test_in_review_regression_separator_only_token_is_not_runner(self) -> None:
+        doc = _base_doc(status="in_review").replace(
+            "- Runner: `pytest -q tests/unit/test_governance_evidence_truth_gate.py`",
+            "- Runner: `pass|fail|skip`",
         )
         result = self._run_gate_with_doc(doc)
 
