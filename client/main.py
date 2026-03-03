@@ -284,6 +284,26 @@ async def _read_control_stdin_line() -> str | None:
     return await _get_control_stdin_reader().read_line()
 
 
+_HOST_CONTROL_ACTIONS: tuple[ResourceAction, ...] = (
+    ResourceAction.APPROVALS_LIST,
+    ResourceAction.APPROVALS_POLL,
+    ResourceAction.APPROVALS_GRANT,
+    ResourceAction.APPROVALS_DENY,
+    ResourceAction.APPROVALS_REVOKE,
+    ResourceAction.MCP_LIST,
+    ResourceAction.MCP_RELOAD,
+    ResourceAction.MCP_SHOW_TOOL,
+    ResourceAction.SKILLS_LIST,
+)
+
+
+def _control_surface_actions() -> list[str]:
+    """Return the current CLI host-protocol action surface."""
+    actions = {action.value for action in _HOST_CONTROL_ACTIONS}
+    actions.update({"actions:list", "status:get"})
+    return sorted(actions)
+
+
 def _status_snapshot(state: CLISessionState) -> dict[str, Any]:
     """Project CLI session state into a stable host-control snapshot."""
     running = state.status == SessionStatus.RUNNING or _is_execution_running(state)
@@ -305,20 +325,12 @@ async def _dispatch_control_action(
     action_client: TransportActionClient,
 ) -> Any:
     """Bridge host control actions onto the current CLI/runtime surface."""
+    if action_id == ResourceAction.ACTIONS_LIST.value:
+        return {"actions": _control_surface_actions()}
     if action_id == "status:get":
         return _status_snapshot(state)
     resolved = ResourceAction.value_of(action_id)
-    if resolved in {
-        ResourceAction.APPROVALS_LIST,
-        ResourceAction.APPROVALS_POLL,
-        ResourceAction.APPROVALS_GRANT,
-        ResourceAction.APPROVALS_DENY,
-        ResourceAction.APPROVALS_REVOKE,
-        ResourceAction.MCP_LIST,
-        ResourceAction.MCP_RELOAD,
-        ResourceAction.MCP_SHOW_TOOL,
-        ResourceAction.SKILLS_LIST,
-    }:
+    if resolved in _HOST_CONTROL_ACTIONS:
         return await action_client.invoke_action(resolved, **params)
     _ = runtime
     raise ActionClientError(

@@ -512,6 +512,26 @@ async def test_main_run_headless_control_stdin_bridges_approvals_list(
     ("action_id", "params", "expected_result", "expected_call"),
     [
         (
+            "actions:list",
+            {},
+            {
+                "actions": [
+                    "actions:list",
+                    "approvals:deny",
+                    "approvals:grant",
+                    "approvals:list",
+                    "approvals:poll",
+                    "approvals:revoke",
+                    "mcp:list",
+                    "mcp:reload",
+                    "mcp:show-tool",
+                    "skills:list",
+                    "status:get",
+                ]
+            },
+            None,
+        ),
+        (
             "skills:list",
             {},
             {"skills": [{"name": "development-workflow"}]},
@@ -618,7 +638,10 @@ async def test_main_run_headless_control_stdin_bridges_additional_host_actions(
     assert control_frames[0]["id"] == f"ctl-{action_id}-1"
     assert control_frames[0]["ok"] is True
     assert control_frames[0]["result"] == expected_result
-    assert expected_call in _FakeActionClient.calls
+    if expected_call is None:
+        assert _FakeActionClient.calls == []
+    else:
+        assert expected_call in _FakeActionClient.calls
     assert runtime.closed is True
 
 
@@ -703,6 +726,250 @@ async def test_main_script_headless_control_stdin_status_get_reports_active_task
     assert control_frames[0]["result"]["status"] == "running"
     assert control_frames[0]["result"]["running"] is True
     assert control_frames[0]["result"]["active_task"] == "task one"
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_script_headless_control_stdin_bridges_actions_list(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.2)
+        return _OkResult()
+
+    control_lines = iter(
+        [
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": "ctl-script-actions-1",
+                    "action": "actions:list",
+                    "params": {},
+                }
+            ),
+            None,
+        ]
+    )
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0)
+        return next(control_lines)
+
+    script_path = tmp_path / "headless-actions.script.txt"
+    script_path.write_text("task one\n", encoding="utf-8")
+
+    _FakeActionClient.calls = []
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "TransportActionClient", _FakeActionClient)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "script",
+            "--file",
+            str(script_path),
+            "--headless",
+            "--control-stdin",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    control_frames = [line for line in lines if line["schema_version"] == "client-control-stdin.v1"]
+
+    assert rc == 0
+    assert len(control_frames) == 1
+    assert control_frames[0]["id"] == "ctl-script-actions-1"
+    assert control_frames[0]["ok"] is True
+    assert "actions:list" in control_frames[0]["result"]["actions"]
+    assert _FakeActionClient.calls == []
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_run_headless_control_stdin_actions_list_coexists_with_existing_control_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.2)
+        return _OkResult()
+
+    control_lines = iter(
+        [
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": "ctl-actions-1",
+                    "action": "actions:list",
+                    "params": {},
+                }
+            ),
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": "ctl-approvals-2",
+                    "action": "approvals:list",
+                    "params": {},
+                }
+            ),
+            None,
+        ]
+    )
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0)
+        return next(control_lines)
+
+    _FakeActionClient.calls = []
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "TransportActionClient", _FakeActionClient)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+            "--headless",
+            "--control-stdin",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    control_frames = [line for line in lines if line["schema_version"] == "client-control-stdin.v1"]
+
+    assert rc == 0
+    assert [frame["id"] for frame in control_frames] == ["ctl-actions-1", "ctl-approvals-2"]
+    assert control_frames[0]["ok"] is True
+    assert "actions:list" in control_frames[0]["result"]["actions"]
+    assert control_frames[1]["ok"] is True
+    assert control_frames[1]["result"] == {"pending": [], "rules": []}
+    assert _FakeActionClient.calls == [("approvals:list", {})]
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_run_headless_control_stdin_does_not_emit_startup_handshake_without_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.2)
+        return _OkResult()
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0)
+        return None
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+            "--headless",
+            "--control-stdin",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    headless_events = [line for line in lines if line["schema_version"] == "client-headless-event-envelope.v1"]
+    control_frames = [line for line in lines if line["schema_version"] == "client-control-stdin.v1"]
+
+    assert rc == 0
+    assert [line["event"] for line in headless_events[:3]] == [
+        "session.started",
+        "task.started",
+        "task.completed",
+    ]
+    assert control_frames == []
     assert runtime.closed is True
 
 
