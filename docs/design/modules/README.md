@@ -14,6 +14,7 @@
 - context: `docs/design/modules/context/README.md` (assessment: `docs/design/modules/context/Assessment.md`)
 - tool: `docs/design/modules/tool/README.md`
 - plan: `docs/design/modules/plan/README.md`
+- plan_v2: `docs/design/modules/plan_v2/README.md`
 - model (overview): `docs/design/modules/model/README.md` (assessment: `docs/design/modules/model/Assessment.md`)
 - model (prompt): `docs/design/modules/model/Model_Prompt_Management.md`
 - security: `docs/design/modules/security/README.md`

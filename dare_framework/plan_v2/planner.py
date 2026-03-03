@@ -9,7 +9,9 @@ from dare_framework.plan_v2.types import PlannerState
 from dare_framework.plan_v2.tools import (
     CreatePlanTool,
     DecomposeTaskTool,
+    FinishPlanTool,
     ReflectTool,
+    ReviseCurrentPlanTool,
     SubAgentTool,
     ValidatePlanTool,
     VerifyMilestoneTool,
@@ -32,13 +34,17 @@ class Planner(IToolProvider):
 
         self._tools: list[ITool] = []
         if plan_tools:
-            self._tools.extend([
-                CreatePlanTool(self._state),
-                ValidatePlanTool(self._state),
-                VerifyMilestoneTool(self._state),
-                ReflectTool(self._state),
-                DecomposeTaskTool(self._state),
-            ])
+            self._tools.extend(
+                [
+                    CreatePlanTool(self._state),
+                    ValidatePlanTool(self._state),
+                    ReviseCurrentPlanTool(self._state),
+                    FinishPlanTool(self._state),
+                    VerifyMilestoneTool(self._state),
+                    ReflectTool(self._state),
+                    DecomposeTaskTool(self._state),
+                ]
+            )
         if self._registry is not None:
             for sub_id in self._registry.ids():
                 self._tools.append(SubAgentTool(self._registry, sub_id, self._state))
