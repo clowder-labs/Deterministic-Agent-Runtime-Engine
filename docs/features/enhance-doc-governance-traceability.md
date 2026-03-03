@@ -30,16 +30,14 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 ## Evidence
 
 ### Commands
-- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py`
-- `bash -n scripts/ci/check_governance_traceability.sh`
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`
 - `./scripts/ci/check_governance_traceability.sh`
 - `./scripts/ci/check_governance_evidence_truth.sh`
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
 
 ### Results
-- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py`: passed (`9 passed`) after extending the traceability gate regression suite to also cover stale active index entries, discrete `todo_ids` token matching, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
-- `bash -n scripts/ci/check_governance_traceability.sh`: passed, confirming the new gate script is shell-valid before execution.
-- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after adding the feature template, archive index, and active feature index entries.
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`44 passed`) after extending the traceability gate regression suite to also cover stale active index entries, `Active Entries`-only membership checks, discrete `todo_ids` token matching, same-record TODO/change validation, claim-scope range resolution, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
+- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after tightening active/archive index membership to canonical sections and resolving pilot `todo_ids` through either direct ledger rows or same-claim scope ranges.
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed, confirming the new traceability assets do not break the existing evidence-first contract.
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 
@@ -58,12 +56,11 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 
 ### Regression Summary
 - Runner commands:
-  - `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py`
-  - `bash -n scripts/ci/check_governance_traceability.sh`
+  - `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`
   - `./scripts/ci/check_governance_traceability.sh`
   - `./scripts/ci/check_governance_evidence_truth.sh`
   - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
-- Summary: pass 5, fail 0, skip 0.
+- Summary: pass 4, fail 0, skip 0.
 
 ### Observability and Failure Localization
 - N/A for runtime event chain in this docs/CI governance slice.
@@ -78,8 +75,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - Coverage and Residual Risk: template/index/skill-mapping/TODO-linkage checks are covered; residual risk is that broader frontmatter enforcement across `docs/guides/**` and `docs/design/**` is still pending.
 
 ### Behavior Verification
-- Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id.
-- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the active index, when the template/archive index is missing, when checkpoint-skill mapping drifts, or when declared `todo_ids` cannot be resolved back to a TODO ledger.
+- Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id, including claim-ledger scope ranges such as `D2-1~D2-4, D4-1~D4-4`.
+- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the `## Active Entries` section, when the template/archive index is missing, when checkpoint-skill mapping drifts, or when declared `todo_ids` and `change_ids` only co-occur in different ledger records.
 
 ### Risks and Rollback
 - Risk: `3.2-3.4` are still open, so the new gate does not yet enforce full frontmatter coverage for every governance-tracked doc family or full master-TODO/task completeness.
@@ -90,12 +87,15 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126`
 - Implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/137`
 - Current implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175`
-- Current implementation commit: `83e1f1a`
 - Review request: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976690386`
 - Key owner feedback: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976707233`
 - Active fix threads:
-  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#discussion_r2867257929`
-  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#discussion_r2867257932`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878449796`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878449803`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878551469`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878551474`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878634816`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878634820`
 
 ## Next Milestone
 Implement the remaining CI depth tasks: widen frontmatter enforcement beyond feature docs and add machine-checkable TODO/task and master-TODO/change-slice consistency checks before closeout.

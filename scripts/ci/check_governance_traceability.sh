@@ -122,6 +122,107 @@ file_has_discrete_token() {
   grep -Eq "(^|[^A-Za-z0-9_-])${escaped}([^A-Za-z0-9_-]|$)" "$file"
 }
 
+text_has_discrete_token() {
+  local text="$1"
+  local token="$2"
+  local escaped
+  escaped="$(escape_extended_regex "$token")"
+  grep -Eq "(^|[^A-Za-z0-9_-])${escaped}([^A-Za-z0-9_-]|$)" <<<"$text"
+}
+
+trim_whitespace() {
+  sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<<"$1"
+}
+
+normalize_scope_segment() {
+  local segment="$1"
+  segment="$(trim_whitespace "$segment")"
+  sed -E 's/[[:space:]]*[（(].*$//' <<<"$segment"
+}
+
+todo_id_within_range() {
+  local todo_id="$1"
+  local range_start="$2"
+  local range_end="$3"
+  local todo_prefix todo_number start_prefix start_number end_prefix end_number
+
+  if [[ ! "$todo_id" =~ ^([A-Za-z0-9]+)-([0-9]+)$ ]]; then
+    return 1
+  fi
+  todo_prefix="${BASH_REMATCH[1]}"
+  todo_number="${BASH_REMATCH[2]}"
+
+  if [[ ! "$range_start" =~ ^([A-Za-z0-9]+)-([0-9]+)$ ]]; then
+    return 1
+  fi
+  start_prefix="${BASH_REMATCH[1]}"
+  start_number="${BASH_REMATCH[2]}"
+
+  if [[ ! "$range_end" =~ ^([A-Za-z0-9]+)-([0-9]+)$ ]]; then
+    return 1
+  fi
+  end_prefix="${BASH_REMATCH[1]}"
+  end_number="${BASH_REMATCH[2]}"
+
+  if [[ "$todo_prefix" != "$start_prefix" || "$start_prefix" != "$end_prefix" ]]; then
+    return 1
+  fi
+
+  (( 10#$todo_number >= 10#$start_number && 10#$todo_number <= 10#$end_number ))
+}
+
+scope_contains_todo_id() {
+  local scope="$1"
+  local todo_id="$2"
+  local segment range_start range_end
+
+  while IFS= read -r segment; do
+    segment="$(normalize_scope_segment "$segment")"
+    [[ -z "$segment" ]] && continue
+    if [[ "$segment" == "$todo_id" ]]; then
+      return 0
+    fi
+    if [[ "$segment" == *"~"* ]]; then
+      range_start="$(trim_whitespace "${segment%%~*}")"
+      range_end="$(trim_whitespace "${segment##*~}")"
+      if todo_id_within_range "$todo_id" "$range_start" "$range_end"; then
+        return 0
+      fi
+    fi
+  done < <(tr ',' '\n' <<<"$scope")
+
+  return 1
+}
+
+section_has_index_entry() {
+  local index_file="$1"
+  local section_heading="$2"
+  local path="$3"
+  grep -Fq -- "\`$path\`" < <(extract_markdown_section "$index_file" "$section_heading")
+}
+
+file_has_tokens_in_same_record() {
+  local file="$1"
+  local first_token="$2"
+  local second_token="$3"
+  local line scope_field
+
+  while IFS= read -r line; do
+    if ! text_has_discrete_token "$line" "$second_token"; then
+      continue
+    fi
+    if text_has_discrete_token "$line" "$first_token"; then
+      return 0
+    fi
+    scope_field="$(awk -F'|' 'NF >= 4 {field=$3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", field); print field}' <<<"$line")"
+    if [[ -n "$scope_field" ]] && scope_contains_todo_id "$scope_field" "$first_token"; then
+      return 0
+    fi
+  done <"$file"
+
+  return 1
+}
+
 check_index_entry_targets() {
   local index_file="$1"
   local section_heading="$2"
@@ -163,14 +264,14 @@ check_feature_indexes() {
   fi
 
   while IFS= read -r file; do
-    if ! grep -Fq -- "\`$file\`" "$active_index"; then
+    if ! section_has_index_entry "$active_index" "## Active Entries" "$file"; then
       log "missing active feature index entry for $file"
       failures=$((failures + 1))
     fi
   done < <(find docs/features -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | sort)
 
   while IFS= read -r file; do
-    if ! grep -Fq -- "\`$file\`" "$archive_index"; then
+    if ! section_has_index_entry "$archive_index" "## Archived Entries" "$file"; then
       log "missing archived feature index entry for $file"
       failures=$((failures + 1))
     fi
@@ -264,7 +365,7 @@ check_feature_doc() {
       fi
       while IFS= read -r change_id; do
         [[ -z "$change_id" ]] && continue
-        if file_has_discrete_token "$candidate" "$change_id"; then
+        if file_has_tokens_in_same_record "$candidate" "$todo_id" "$change_id"; then
           matched=1
           break
         fi

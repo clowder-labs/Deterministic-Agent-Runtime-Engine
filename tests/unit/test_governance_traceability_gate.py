@@ -179,6 +179,24 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing active feature index entry", result.stdout)
 
+    def test_gate_requires_active_membership_inside_active_entries_section(self) -> None:
+        def mutate(root: Path) -> None:
+            readme = root / "docs" / "features" / "README.md"
+            readme.write_text(
+                readme.read_text(encoding="utf-8").replace(
+                    "## Migration Rules\n- Move completed docs to `docs/features/archive/`.\n",
+                    "## Migration Rules\n"
+                    "- Move completed docs to `docs/features/archive/`.\n"
+                    "- Migration note keeps `docs/features/demo-change.md` as an example path.\n",
+                ).replace("- `docs/features/demo-change.md`\n", ""),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing active feature index entry", result.stdout)
+
     def test_gate_fails_when_active_index_contains_stale_feature_path(self) -> None:
         def mutate(root: Path) -> None:
             readme = root / "docs" / "features" / "README.md"
@@ -258,6 +276,31 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing TODO mapping for feature doc", result.stdout)
 
+    def test_gate_requires_todo_and_change_in_same_ledger_record(self) -> None:
+        def mutate(root: Path) -> None:
+            feature_doc = root / "docs" / "features" / "demo-change.md"
+            feature_doc.write_text(
+                feature_doc.read_text(encoding="utf-8").replace('todo_ids: ["D2-1", "D2-2"]', 'todo_ids: ["D2-1"]'),
+                encoding="utf-8",
+            )
+            todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
+            todo_doc.write_text(
+                """# Demo TODO
+
+## Claim Ledger
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| CLM-TODO | D2-1 | demo | active | 2026-03-03 | 2026-03-10 | `other-change` | wrong change |
+| CLM-CHANGE | D9-9 | demo | active | 2026-03-03 | 2026-03-10 | `demo-change` | wrong todo |
+""",
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing TODO mapping for feature doc", result.stdout)
+
     def test_gate_accepts_date_prefixed_archived_change_tasks(self) -> None:
         def mutate(root: Path) -> None:
             feature_doc = root / "docs" / "features" / "demo-change.md"
@@ -277,6 +320,40 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
             _write(
                 root / "openspec" / "changes" / "archive" / "2026-03-03-archived-change" / "tasks.md",
                 "- [x] archived\n",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
+
+    def test_gate_accepts_todo_ids_covered_by_claim_scope_for_same_change(self) -> None:
+        def mutate(root: Path) -> None:
+            todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
+            todo_doc.write_text(
+                """# Demo TODO
+
+## Claim Ledger
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| CLM-DEMO | D2-1~D2-4, D4-1~D4-4 | demo | active | 2026-03-03 | 2026-03-10 | `demo-change` | demo |
+
+## Detail Board
+| ID | Task | Status |
+|---|---|---|
+| D2-1 | task 1 | done |
+| D2-2 | task 2 | done |
+| D4-3 | task 3 | done |
+""",
+                encoding="utf-8",
+            )
+            feature_doc = root / "docs" / "features" / "demo-change.md"
+            feature_doc.write_text(
+                feature_doc.read_text(encoding="utf-8").replace(
+                    'todo_ids: ["D2-1", "D2-2"]',
+                    'todo_ids: ["D2-2", "D4-3"]',
+                ),
+                encoding="utf-8",
             )
 
         result = self._run_gate(mutate)
