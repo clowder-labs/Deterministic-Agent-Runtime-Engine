@@ -74,4 +74,5 @@ mode: openspec
 - Historical owner feedback thread: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/117`
 - Final verification PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/163`
 - PR #163 review thread: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/163#discussion_r2875871921`
+- Completion-archive PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/168`
 - Archive target: `openspec/changes/archive/2026-03-03-refactor-dare-agent-structure-split/`
