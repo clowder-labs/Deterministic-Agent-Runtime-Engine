@@ -584,24 +584,6 @@ class ReactAgent(BaseAgent):
             output_text=final_message,
         )
 
-    async def _emit_terminal_transport_message(
-        self,
-        *,
-        transport: AgentChannel | None,
-        output: str,
-    ) -> None:
-        """Emit terminal MESSAGE for direct execute() transport calls."""
-        # BaseAgent emits a terminal RESULT envelope for transport-loop executions,
-        # so ReactAgent should not emit an extra terminal MESSAGE event in that path.
-        if self._is_transport_loop_execution(transport=transport):
-            return
-        await self._emit_transport_success(
-            transport=transport,
-            event_type=TransportEventType.MESSAGE.value,
-            target="prompt",
-            resp={"output": output},
-        )
-
     def _build_model_messages(self, assembled: Any) -> list[Message]:
         """Build model-facing messages including system prompt and plan state injection."""
         messages = list(assembled.messages)
