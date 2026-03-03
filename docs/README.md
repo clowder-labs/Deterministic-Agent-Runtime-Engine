@@ -103,6 +103,8 @@
 | `features/README.md` | 特性聚合文档规范：单一状态源、证据回写与归档迁移 |
 | `guides/Team_Agent_Collab_Playbook.md` | 团队并行开发协作手册，含 spec-driven 认领粒度与 execution board 规则 |
 | `guides/Tool_Approval_Memory.md` | 工具审批记忆使用指南：pending/grant/deny/revoke、scope/matcher、持久化与接线方式 |
+| `features/templates/feature_aggregation_template.md` | 特性聚合模板：用于新建 `docs/features/<change-id>.md` |
+| `features/archive/README.md` | 特性聚合归档索引：记录已归档 change 的入口与迁移规则 |
 
 ---
 

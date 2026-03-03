@@ -144,8 +144,12 @@ CI MUST validate:
 - required skill files exist,
 - checkpoint mapping is declared,
 - governance frontmatter required keys by mode (OpenSpec vs TODO fallback) are present,
+- feature aggregation template and active/archive feature indexes are present,
+- active feature index entries resolve to real feature docs and archive index entries resolve to archived docs,
+- declared `todo_ids` can be resolved back to a TODO ledger that also names the owning change-id,
 - feature aggregation links to real OpenSpec artifact paths,
 - evidence block required fields (commands/results/behavior checks/risks/rollback/review links) are present for active items,
+- traceability gate command `./scripts/ci/check_governance_traceability.sh` passes,
 - evidence-truth gate command `./scripts/ci/check_governance_evidence_truth.sh` passes,
 - required assets and linkages are present.
 

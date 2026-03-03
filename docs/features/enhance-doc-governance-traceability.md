@@ -3,7 +3,7 @@ change_ids: ["enhance-doc-governance-traceability"]
 doc_kind: feature
 topics: ["documentation-governance", "traceability", "skills"]
 created: 2026-02-28
-updated: 2026-03-02
+updated: 2026-03-03
 status: active
 mode: openspec
 ---
@@ -30,51 +30,61 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 ## Evidence
 
 ### Commands
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py`
+- `bash -n scripts/ci/check_governance_traceability.sh`
+- `./scripts/ci/check_governance_traceability.sh`
 - `./scripts/ci/check_governance_evidence_truth.sh`
-- `openspec validate --changes enhance-doc-governance-traceability`
-- `openspec status --change enhance-doc-governance-traceability --json`
+- `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
 
 ### Results
-- `check_governance_evidence_truth.sh`: pass.
-- `openspec validate`: pass.
-- `openspec status`: pass, `isComplete: true`.
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py`: passed (`5 passed`) after adding regression coverage for the new traceability gate around template presence, active/archive indexes, checkpoint-skill mapping, and TODO-to-change pilot linkage.
+- `bash -n scripts/ci/check_governance_traceability.sh`: passed, confirming the new gate script is shell-valid before execution.
+- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after adding the feature template, archive index, and active feature index entries.
+- `./scripts/ci/check_governance_evidence_truth.sh`: passed, confirming the new traceability assets do not break the existing evidence-first contract.
+- `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 
 ### Contract Delta
-- `schema`: evidence contract now requires a full acceptance-pack layout in every active feature doc (`Contract Delta`, `Golden Cases`, `Regression Summary`, `Observability and Failure Localization`, `Structured Review Report`).
-- `error semantics`: no runtime API `error_code` enum change; this gate now accepts framework-native error semantics (`error_code`/`error_type`/`exception_class`/`ToolResult.error`) and blocks missing declarations.
-- `retry`: CI retry does not bypass policy checks; rerun only after evidence/doc fixes, with no semantic downgrade on retry.
+- `schema`: added a canonical feature aggregation template, active/archive feature indexes, and a machine-checkable backlog-id pilot linkage for one active change.
+- `error semantics`: no runtime API change; the new traceability gate fails structurally on missing template/index/mapping assets with deterministic file-scoped messages.
+- `retry`: no retry semantic change; this slice is docs/CI only, and reruns remain deterministic after fixing the flagged governance asset.
 
 ### Golden Cases
-- Updated evidence contract baseline: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
-- Added acceptance-pack canonical spec: `docs/governance/Acceptance_Pack_Spec.md`.
-- Updated PR authoring baseline: `.github/pull_request_template.md`.
+- `docs/features/templates/feature_aggregation_template.md`
+- `docs/features/README.md`
+- `docs/features/archive/README.md`
+- `scripts/ci/check_governance_traceability.sh`
+- `tests/unit/test_governance_traceability_gate.py`
+- `docs/features/agentscope-d2-d4-thinking-transport.md`
 
 ### Regression Summary
 - Runner commands:
+  - `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py`
+  - `bash -n scripts/ci/check_governance_traceability.sh`
+  - `./scripts/ci/check_governance_traceability.sh`
   - `./scripts/ci/check_governance_evidence_truth.sh`
-  - `openspec validate --changes enhance-doc-governance-traceability`
-  - `openspec status --change enhance-doc-governance-traceability --json`
-- Summary: pass 3, fail 0, skip 0.
+  - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
+- Summary: pass 5, fail 0, skip 0.
 
 ### Observability and Failure Localization
-- Event chain coverage includes `start`, `tool_call`, `end`, and `fail` events for traceable execution lifecycle.
-- Failure localization fields required for triage and review are: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `trace_id`, plus at least one error locator (`error_code`/`error_type`/`exception_class`/`ToolResult.error`).
-- Gate failures must emit enough context to locate the exact document/section mismatch without full code deep-dive.
+- N/A for runtime event chain in this docs/CI governance slice.
+- Reason: this slice only adds document topology and traceability checks; it does not modify runtime event emission.
+- Fallback evidence: unit tests and both governance gate commands above exercise the failing/passing paths for template/index/mapping localization.
 
 ### Structured Review Report
 - Changed Module Boundaries / Public API: governance scope only; no new runtime public API added.
-- New State: no new cache/global/singleton runtime state; only documentation governance state tightened.
-- Concurrency / Timeout / Retry: no new concurrent runtime path; retry policy is documentation gate rerun after fixes, with unchanged timeout semantics.
-- Side Effects and Idempotency: side effects are limited to docs/CI gate outputs; idempotency relies on deterministic section checks and repeatable command outputs.
-- Coverage and Residual Risk: governance evidence and OpenSpec validation are covered; residual risk is false positives from regex-based checks when section names drift from canonical wording.
+- New State: adds one new repository gate script, one new gate test file, and canonical docs/index/template assets under `docs/features/`.
+- Concurrency / Timeout / Retry: no concurrency change; gate runs are single-process document scans with deterministic rerun behavior after fixes.
+- Side Effects and Idempotency: side effects are limited to CI/log output; repeated runs are idempotent against unchanged docs.
+- Coverage and Residual Risk: template/index/skill-mapping/TODO-linkage checks are covered; residual risk is that broader frontmatter enforcement across `docs/guides/**` and `docs/design/**` is still pending.
 
 ### Behavior Verification
-- Happy path: governance flow remains `analysis -> master TODO -> OpenSpec slice execution` with docs as canonical source.
-- Error/fallback path: TODO fallback metadata now requires `mode: todo_fallback` + `topic_slug`, with explicit migration back to OpenSpec.
+- Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id.
+- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the active index, when the template/archive index is missing, when checkpoint-skill mapping drifts, or when declared `todo_ids` cannot be resolved back to a TODO ledger.
 
 ### Risks and Rollback
-- Risk: CI checks not yet fully implemented as scripts may leave policy drift windows.
-- Rollback: keep contract wording changes, temporarily downgrade new CI gate checks to warning if false positives block delivery.
+- Risk: `3.2-3.4` are still open, so the new gate does not yet enforce full frontmatter coverage for every governance-tracked doc family or full master-TODO/task completeness.
+- Risk: active/archive indexes are now explicit manual ledgers, so closeout changes that forget to update them will fail the new gate.
+- Rollback: remove `governance-traceability` from `.github/workflows/ci-gate.yml` and revert the template/index additions if the new gate produces unexpected false positives.
 
 ### Review and Merge Gate Links
 - Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126`
@@ -86,4 +96,4 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#discussion_r2867257932`
 
 ## Next Milestone
-Implement tasks group 1-2 (taxonomy contract + standards alignment).
+Implement the remaining CI depth tasks: widen frontmatter enforcement beyond feature docs and add machine-checkable TODO/task and master-TODO/change-slice consistency checks before closeout.
