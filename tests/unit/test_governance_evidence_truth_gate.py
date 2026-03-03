@@ -329,6 +329,26 @@ mode: openspec
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Regression Summary missing runner commands", result.stdout)
 
+    def test_in_review_regression_accepts_single_token_runner_command(self) -> None:
+        doc = _base_doc(status="in_review").replace(
+            "- Runner: `pytest -q tests/unit/test_governance_evidence_truth_gate.py`",
+            "- Runner: `pytest`",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
+
+    def test_in_review_regression_parses_unlabeled_command_lines(self) -> None:
+        doc = _base_doc(status="in_review").replace(
+            "- Runner: `pytest -q tests/unit/test_governance_evidence_truth_gate.py`",
+            "- `pytest -q tests/unit/test_governance_evidence_truth_gate.py`",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
+
     def test_evidence_section_stops_at_top_level_heading_boundary(self) -> None:
         doc = _base_doc(status="in_review")
         doc = doc.replace(

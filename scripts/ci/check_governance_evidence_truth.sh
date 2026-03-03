@@ -183,6 +183,18 @@ is_file_like_token() {
   [[ "$token" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$token" != */ ]] && [[ "$token" != -* ]]
 }
 
+is_known_single_command() {
+  local token="$1"
+  local normalized
+  normalized="$(tr '[:upper:]' '[:lower:]' <<<"$token" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  case "$normalized" in
+  pytest | tox | nox | make | just | uv | uvx | poetry | pip | pipx | python | python3 | bash | sh | zsh | npm | pnpm | yarn | node | npx | go | cargo | ruff | mypy | coverage)
+    return 0
+    ;;
+  esac
+  return 1
+}
+
 count_file_like_backticked_tokens() {
   local section="$1"
   local count=0
@@ -212,8 +224,12 @@ is_command_like_token() {
     return 1
   fi
 
-  # Require shell-like shape (command + args/path/operator) to reject arbitrary placeholders.
+  # Accept shell-like shape (command + args/path/operator/path).
   if grep -Eq '[[:space:]/|&;=]' <<<"$normalized" || [[ "$normalized" == ./* ]]; then
+    return 0
+  fi
+  # Accept known single-token runners (for example: pytest, tox, make).
+  if is_known_single_command "$normalized"; then
     return 0
   fi
   return 1
@@ -236,7 +252,7 @@ count_command_like_backticked_tokens() {
         count=$((count + 1))
       fi
     done < <(grep -Eo '`[^`]+`' <<<"$line" | sed -E 's/^`(.*)`$/\1/' || true)
-  done < <(grep -Ei '(runner|command)' <<<"$section" || true)
+  done <<<"$section"
 
   echo "$count"
 }

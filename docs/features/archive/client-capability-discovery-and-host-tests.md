@@ -85,3 +85,4 @@ mode: openspec
 - Slice D implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/158`
 - Slice D completion-archive PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/160`
 - Slice D archive target: `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/`
+- Slice D governance review thread: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/156#issuecomment-3985132981`
