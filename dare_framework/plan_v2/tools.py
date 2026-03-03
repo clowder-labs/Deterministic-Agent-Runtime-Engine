@@ -62,9 +62,30 @@ def _step_state(step: Any) -> PlanStateName:
     return "todo"
 
 
+def _step_has_explicit_status(step: Any) -> bool:
+    """Return True when status is explicitly stored on the step object."""
+    if isinstance(step, dict):
+        return "status" in step
+    return hasattr(step, "status")
+
+
 def _pending_steps(state: PlannerState) -> list[Any]:
-    """Return non-terminal steps."""
-    return [step for step in state.steps if _step_state(step) in _PENDING_STATES]
+    """Return non-terminal steps, honoring legacy completed markers when status is absent."""
+    pending: list[Any] = []
+    for step in state.steps:
+        if _step_state(step) not in _PENDING_STATES:
+            continue
+        step_id = _step_id(step)
+        if (
+            step_id is not None
+            and step_id in state.completed_step_ids
+            and not _step_has_explicit_status(step)
+        ):
+            # Legacy restored sessions may store completion only in completed_step_ids.
+            # Avoid reclassifying these steps as pending when status was never persisted.
+            continue
+        pending.append(step)
+    return pending
 
 
 def _format_critical_block(state: PlannerState) -> str:
