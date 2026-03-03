@@ -13,7 +13,10 @@
 
 ## 3. Verification and regression protection
 
-- [ ] 3.1 Add/adjust targeted unit tests for extracted execution units (success/failure/approval/policy/retry branches).
+- [x] 3.1 Add/adjust targeted unit tests for extracted execution units (success/failure/approval/policy/retry branches).  
+  Evidence: `tests/unit/test_dare_agent_orchestration_split.py`（新增 execute hook-policy block、execute no-tool success、tool preflight deny、tool done-predicate retry、milestone plan-policy failure 五条 direct unit tests，直接覆盖 `_internal` 模块而非仅 facade delegation）  
+  Commands: `../../.venv/bin/python -m pytest -q tests/unit/test_dare_agent_orchestration_split.py -k 'before_model_hook_blocks or no_tool_calls or preflight_denies or done_predicate_is_satisfied or plan_policy_failure'` => `4 passed, 5 deselected, 1 warning`；`../../.venv/bin/python -m pytest -q tests/unit/test_dare_agent_orchestration_split.py` => `9 passed, 1 warning`；`../../.venv/bin/python -m pytest -q tests/unit/test_five_layer_agent.py tests/unit/test_dare_agent_hook_governance.py tests/unit/test_dare_agent_hook_transport_boundary.py` => `39 passed, 1 warning`  
+  Last Updated: `2026-03-03`
 - [x] 3.2 Run affected unit test suites for agent execute/tool/milestone paths and fix regressions.
 - [x] 3.3 Run design-doc drift and compile checks to ensure governance and structural integrity remain green.
 
