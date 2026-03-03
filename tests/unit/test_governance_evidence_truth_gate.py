@@ -408,6 +408,16 @@ mode: openspec
         self.assertIn("missing 'fail' summary token", result.stdout)
         self.assertIn("missing 'skip' summary token", result.stdout)
 
+    def test_in_review_fenced_hash_line_does_not_end_evidence_section(self) -> None:
+        doc = _base_doc(status="in_review").replace(
+            "### Commands\n- `pytest -q tests/unit/test_governance_evidence_truth_gate.py`\n",
+            "### Commands\n```bash\n# this comment line must stay inside the Commands block\npytest -q tests/unit/test_governance_evidence_truth_gate.py\n```\n- `pytest -q tests/unit/test_governance_evidence_truth_gate.py`\n",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
+
     def test_evidence_section_stops_at_top_level_heading_boundary(self) -> None:
         doc = _base_doc(status="in_review")
         doc = doc.replace(

@@ -91,8 +91,9 @@ extract_section() {
   local start_heading="$2"
   awk -v start="$start_heading" '
     $0 == start {in_section=1; next}
-    in_section && $0 ~ /^#[[:space:]]+/ {in_section=0}
-    in_section && $0 ~ /^##[[:space:]]+/ {in_section=0}
+    in_section && $0 ~ /^```/ {in_fence = !in_fence; print; next}
+    in_section && !in_fence && $0 ~ /^#[[:space:]]+/ {in_section=0}
+    in_section && !in_fence && $0 ~ /^##[[:space:]]+/ {in_section=0}
     in_section {print}
   ' "$file"
 }
@@ -102,8 +103,9 @@ extract_subsection() {
   local start_heading="$2"
   awk -v start="$start_heading" '
     $0 == start {in_section=1; next}
-    in_section && $0 ~ /^###[[:space:]]+/ {in_section=0}
-    in_section && $0 ~ /^##[[:space:]]+/ {in_section=0}
+    in_section && $0 ~ /^```/ {in_fence = !in_fence; print; next}
+    in_section && !in_fence && $0 ~ /^###[[:space:]]+/ {in_section=0}
+    in_section && !in_fence && $0 ~ /^##[[:space:]]+/ {in_section=0}
     in_section {print}
   ' "$file"
 }
@@ -113,7 +115,8 @@ extract_subsection_from_section() {
   local start_heading="$2"
   awk -v start="$start_heading" '
     $0 == start {in_section=1; next}
-    in_section && $0 ~ /^###[[:space:]]+/ {in_section=0}
+    in_section && $0 ~ /^```/ {in_fence = !in_fence; print; next}
+    in_section && !in_fence && $0 ~ /^###[[:space:]]+/ {in_section=0}
     in_section {print}
   ' <<<"$section"
 }
