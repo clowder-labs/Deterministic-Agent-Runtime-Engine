@@ -240,10 +240,26 @@ class CreatePlanTool(ITool):
                     "next_action": "Do NOT call create_plan again. Call validate_plan(success=True), then delegate each step exactly once with task=<任务目标 + 交付件 + 目标路径> (no execution steps).",
                 },
             )
+        seen_step_ids: set[str] = set()
+        duplicate_step_ids: set[str] = set()
+        for raw_step in steps:
+            step_id = str(raw_step.get("step_id", "")).strip()
+            if not step_id:
+                continue
+            if step_id in seen_step_ids:
+                duplicate_step_ids.add(step_id)
+            seen_step_ids.add(step_id)
+        if duplicate_step_ids:
+            duplicates = sorted(duplicate_step_ids)
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"duplicate step_id values are not allowed: {duplicates}",
+            )
         self._state.plan_description = plan_description
         self._state.steps = [
             Step(
-                step_id=s.get("step_id", ""),
+                step_id=str(s.get("step_id", "")).strip(),
                 description=s.get("description", ""),
                 params=s.get("params") or {},
                 status="todo",
@@ -531,18 +547,18 @@ class FinishPlanTool(ITool):
                 error=f"pending steps exist: {pending}",
             )
 
+        try:
+            self._state.transition_plan(target_state)
+        except ValueError as exc:
+            return ToolResult(success=False, output=None, error=str(exc))
+
         if target_state == "abandoned":
-            for step in _pending_steps(self._state):
+            for step in pending_steps:
                 step_id = _step_id(step)
                 if step_id:
                     self._state.transition_step(step_id, "abandoned")
                 else:
                     _set_step_state(step, "abandoned")
-
-        try:
-            self._state.transition_plan(target_state)
-        except ValueError as exc:
-            return ToolResult(success=False, output=None, error=str(exc))
 
         if summary:
             self._state.last_remediation_summary = str(summary)

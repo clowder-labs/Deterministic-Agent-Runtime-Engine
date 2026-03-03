@@ -79,6 +79,33 @@ def test_transition_step_tolerates_legacy_step_without_status() -> None:
     assert getattr(state.steps[0], "status") == "in_progress"
 
 
+def test_transition_plan_rejects_unknown_target_state() -> None:
+    state = PlannerState(plan_status="todo")
+
+    with pytest.raises(ValueError, match="unknown plan state"):
+        state.transition_plan("invalid")
+
+
+@pytest.mark.asyncio
+async def test_create_plan_rejects_duplicate_step_ids() -> None:
+    state = PlannerState()
+    create_tool = CreatePlanTool(state)
+
+    result = await create_tool.execute(
+        run_context=_run_context(),
+        plan_description="duplicate-step-ids",
+        steps=[
+            {"step_id": "s1", "description": "first"},
+            {"step_id": "s1", "description": "second"},
+        ],
+    )
+
+    assert result.success is False
+    assert isinstance(result.error, str)
+    assert "duplicate step_id" in result.error
+    assert state.steps == []
+
+
 @pytest.mark.asyncio
 async def test_finish_plan_rejects_done_when_pending_steps_exist() -> None:
     state = PlannerState()
@@ -505,3 +532,22 @@ async def test_finish_plan_abandoned_marks_invalid_id_pending_step_abandoned() -
     assert result.success is True
     assert state.plan_status == "abandoned"
     assert state.steps[0].status == "abandoned"
+
+
+@pytest.mark.asyncio
+async def test_finish_plan_abandoned_is_atomic_when_plan_transition_invalid() -> None:
+    state = PlannerState(
+        plan_description="abandon-atomicity",
+        steps=[Step(step_id="s1", description="pending step", status="todo")],
+        plan_status="done",
+        plan_validated=True,
+    )
+    finish_tool = FinishPlanTool(state)
+
+    result = await finish_tool.execute(run_context=_run_context(), target_state="abandoned")
+
+    assert result.success is False
+    assert isinstance(result.error, str)
+    assert "invalid plan transition" in result.error
+    assert state.plan_status == "done"
+    assert state.steps[0].status == "todo"

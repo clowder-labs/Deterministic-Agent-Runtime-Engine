@@ -175,7 +175,9 @@ class PlannerState:
     def transition_plan(self, next_state: PlanStateName) -> None:
         """Transition plan state with legality checks."""
         current = _normalize_state(self.plan_status, default="todo")
-        normalized_next = _normalize_state(next_state, default="todo")
+        if not isinstance(next_state, str) or next_state not in _ALLOWED_STATE_TRANSITIONS:
+            raise ValueError(f"unknown plan state: {next_state}")
+        normalized_next = next_state
         if not is_valid_state_transition(current, normalized_next):
             raise ValueError(f"invalid plan transition: {current} -> {normalized_next}")
         self.plan_status = normalized_next
