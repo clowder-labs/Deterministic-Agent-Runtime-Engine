@@ -1,6 +1,6 @@
 # Agent TODO
 
-> 更新日期：2026-02-27
+> 更新日期：2026-03-03
 > 说明：Agent 模块唯一补齐清单（用于范围讨论与执行跟踪）
 
 ## 1. 本轮范围建议（用于你我讨论）
@@ -34,7 +34,7 @@
   - `dare_framework/agent/_internal/milestone_orchestrator.py`
   - `dare_framework/agent/_internal/execute_engine.py`
   - `dare_framework/agent/_internal/tool_executor.py`
-  - `tests/unit/test_dare_agent_orchestration_split.py`（新增委托边界测试）
+  - `tests/unit/test_dare_agent_orchestration_split.py`（委托边界测试 + `_internal` execute/tool/milestone 分支定向单测）
   - 受影响回归：`tests/unit/test_five_layer_agent.py`、`tests/unit/test_dare_agent_hook_governance.py`、`tests/unit/test_dare_agent_hook_transport_boundary.py`
 
 ### A-102 step-driven 路径闭环（P1）
