@@ -339,6 +339,24 @@ async def test_critical_block_honors_legacy_completed_markers_without_status() -
 
 
 @pytest.mark.asyncio
+async def test_critical_block_does_not_suggest_finish_when_pending_step_id_is_invalid() -> None:
+    state = PlannerState(
+        plan_description="invalid-step-id",
+        steps=[Step(step_id="   ", description="unnamed pending step", status="todo")],
+        plan_status="in_progress",
+        plan_validated=True,
+    )
+    validate_tool = ValidatePlanTool(state)
+
+    result = await validate_tool.execute(run_context=_run_context(), success=True)
+
+    assert result.success is True
+    assert "- Pending: ['<unknown:1>']" in state.critical_block
+    assert "finish_plan" not in state.critical_block
+    assert "ask_user" in state.critical_block
+
+
+@pytest.mark.asyncio
 async def test_sub_agent_tool_blocks_legacy_completed_step_delegation() -> None:
     class _LegacyStep:
         def __init__(self, step_id: str, description: str) -> None:
@@ -418,3 +436,21 @@ async def test_sub_agent_tool_progress_excludes_legacy_completed_steps_from_pend
     assert isinstance(progress, str)
     assert "Completed: ['s1', 's2']" in progress
     assert "Pending: []" in progress
+
+
+@pytest.mark.asyncio
+async def test_finish_plan_done_rejects_pending_step_without_valid_id() -> None:
+    state = PlannerState(
+        plan_description="finish-guard-invalid-id",
+        steps=[Step(step_id="   ", description="unnamed pending step", status="todo")],
+        plan_status="in_progress",
+        plan_validated=True,
+    )
+    finish_tool = FinishPlanTool(state)
+
+    result = await finish_tool.execute(run_context=_run_context(), target_state="done")
+
+    assert result.success is False
+    assert state.plan_status != "done"
+    assert isinstance(result.error, str)
+    assert "pending steps exist" in result.error

@@ -104,8 +104,9 @@ def _format_critical_block(state: PlannerState) -> str:
             "- **NEXT**: Call create_plan with plan_description and steps."
         )
     state.sync_completed_step_ids()
+    pending_steps = _pending_steps(state)
     completed = [step_id for step in state.steps if _is_step_completed(state, step) if (step_id := _step_id(step))]
-    pending = [step_id for step in _pending_steps(state) if (step_id := _step_id(step))]
+    pending = [(_step_id(step) or f"<unknown:{i + 1}>") for i, step in enumerate(pending_steps)]
     abandoned = [step_id for step in state.steps if _step_state(step) == "abandoned" if (step_id := _step_id(step))]
     lines = [
         "## [Plan State] (check before every action)",
@@ -126,15 +127,22 @@ def _format_critical_block(state: PlannerState) -> str:
         return "\n".join(lines)
     if not state.plan_validated:
         lines.append("- **NEXT**: Call validate_plan(success=True) to confirm the plan.")
-    elif pending and not completed:
+    elif pending_steps and not completed:
         lines.append("- **NEXT**: Call ask_user to show the plan and ask for approval (执行/修改计划/取消). Only proceed to delegate when user chooses 执行.")
-    elif pending:
-        next_step = next(step for step in state.steps if _step_id(step) == pending[0])
+    elif pending_steps:
+        next_step = pending_steps[0]
+        next_step_id = _step_id(next_step)
+        if not next_step_id:
+            lines.append(
+                "- **NEXT**: Call revise_current_plan to assign valid step_id values for pending steps "
+                "before delegation or finish_plan."
+            )
+            return "\n".join(lines)
         params = next_step.params if isinstance(next_step, Step) else next_step.get("params", {}) if isinstance(next_step, dict) else {}
         deliverable = params.get("deliverable", "") if isinstance(params, dict) else ""
         dl_hint = f" 交付件: {deliverable}" if deliverable else ""
         lines.append(
-            f"- **NEXT**: Call sub-agent with task=<任务目标 + 交付件 + 目标路径> and step_id={pending[0]}.{dl_hint} "
+            f"- **NEXT**: Call sub-agent with task=<任务目标 + 交付件 + 目标路径> and step_id={next_step_id}.{dl_hint} "
             f"Do NOT add execution steps to task. Do NOT fabricate file paths. Do NOT repeat completed steps."
         )
     else:
@@ -506,8 +514,9 @@ class FinishPlanTool(ITool):
         if not self._state.steps:
             return ToolResult(success=False, output=None, error="no active plan to finish")
 
-        pending = [step_id for step in _pending_steps(self._state) if (step_id := _step_id(step))]
-        if target_state == "done" and pending:
+        pending_steps = _pending_steps(self._state)
+        pending = [(_step_id(step) or f"<unknown:{i + 1}>") for i, step in enumerate(pending_steps)]
+        if target_state == "done" and pending_steps:
             return ToolResult(
                 success=False,
                 output=None,
