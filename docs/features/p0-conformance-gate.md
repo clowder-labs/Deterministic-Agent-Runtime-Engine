@@ -96,12 +96,11 @@ mode: openspec
 ### Review and Merge Gate Links
 
 - Current continuation branch: `codex/p0-conformance-gate`
-- Current implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/172`
 - Historical PR for task `2.4`: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/130`
 - Historical PR for task `5.1` baseline recovery path: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/113`
 - Historical review evidence: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/130#pullrequestreview-3872526843`
 - Historical merge evidence: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/130`
-- PR status for this continuation branch: implementation PR opened at `#172`
+- PR status for this continuation branch: not opened yet
 
 ## Next Milestone
 
