@@ -231,3 +231,27 @@ async def test_critical_block_requires_finish_when_all_steps_done() -> None:
     await validate_tool.execute(run_context=_run_context(), success=True)
 
     assert "finish_plan" in state.critical_block
+
+
+@pytest.mark.asyncio
+async def test_critical_block_honors_legacy_completed_markers_without_status() -> None:
+    class _LegacyStep:
+        def __init__(self, step_id: str, description: str) -> None:
+            self.step_id = step_id
+            self.description = description
+            self.params = {}
+
+    state = PlannerState(
+        plan_description="legacy-critical-block",
+        steps=[_LegacyStep(step_id="s1", description="legacy done step")],
+        plan_status="in_progress",
+        plan_validated=True,
+    )
+    state.completed_step_ids = {"s1"}
+    validate_tool = ValidatePlanTool(state)
+
+    await validate_tool.execute(run_context=_run_context(), success=True)
+
+    assert "- Completed: ['s1']" in state.critical_block
+    assert "- Pending: []" in state.critical_block
+    assert "finish_plan" in state.critical_block

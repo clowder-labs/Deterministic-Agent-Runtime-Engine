@@ -69,18 +69,25 @@ def _step_has_explicit_status(step: Any) -> bool:
     return hasattr(step, "status")
 
 
+def _is_step_completed(state: PlannerState, step: Any) -> bool:
+    """Return whether a step should be treated as completed, including legacy markers."""
+    if _step_state(step) == "done":
+        return True
+    step_id = _step_id(step)
+    return (
+        step_id is not None
+        and step_id in state.completed_step_ids
+        and not _step_has_explicit_status(step)
+    )
+
+
 def _pending_steps(state: PlannerState) -> list[Any]:
     """Return non-terminal steps, honoring legacy completed markers when status is absent."""
     pending: list[Any] = []
     for step in state.steps:
         if _step_state(step) not in _PENDING_STATES:
             continue
-        step_id = _step_id(step)
-        if (
-            step_id is not None
-            and step_id in state.completed_step_ids
-            and not _step_has_explicit_status(step)
-        ):
+        if _is_step_completed(state, step):
             # Legacy restored sessions may store completion only in completed_step_ids.
             # Avoid reclassifying these steps as pending when status was never persisted.
             continue
@@ -97,8 +104,8 @@ def _format_critical_block(state: PlannerState) -> str:
             "- **NEXT**: Call create_plan with plan_description and steps."
         )
     state.sync_completed_step_ids()
-    completed = [step_id for step in state.steps if _step_state(step) == "done" if (step_id := _step_id(step))]
-    pending = [step_id for step in state.steps if _step_state(step) in _PENDING_STATES if (step_id := _step_id(step))]
+    completed = [step_id for step in state.steps if _is_step_completed(state, step) if (step_id := _step_id(step))]
+    pending = [step_id for step in _pending_steps(state) if (step_id := _step_id(step))]
     abandoned = [step_id for step in state.steps if _step_state(step) == "abandoned" if (step_id := _step_id(step))]
     lines = [
         "## [Plan State] (check before every action)",
