@@ -100,6 +100,52 @@ require_line() {
   fi
 }
 
+require_section_line() {
+  local needle="$1"
+  local file="$2"
+  local heading="$3"
+  local label="$4"
+  if ! grep -Fq -- "$needle" < <(extract_markdown_section "$file" "$heading"); then
+    log "missing $label in $file"
+    failures=$((failures + 1))
+  fi
+}
+
+require_checkpoint_skill_pair() {
+  local checkpoint="$1"
+  local file="$2"
+  local heading="$3"
+  local skills_raw
+  shift 3
+  local IFS=$'\034'
+  skills_raw="$*"
+
+  if ! awk -v checkpoint="$checkpoint" -v skills="$skills_raw" -v heading="$heading" '
+    function line_has_all_skills(line, skills_raw,    n, i, arr) {
+      n = split(skills_raw, arr, "\034")
+      for (i = 1; i <= n; i++) {
+        if (arr[i] != "" && index(line, arr[i]) == 0) {
+          return 0
+        }
+      }
+      return 1
+    }
+
+    $0 == heading {in_section=1; next}
+    in_section && /^##[[:space:]]+/ {exit}
+    in_section && index($0, "- " checkpoint " ->") == 1 {
+      if (line_has_all_skills($0, skills)) {
+        found=1
+        exit
+      }
+    }
+    END {exit found ? 0 : 1}
+  ' "$file"; then
+    log "missing checkpoint-to-skill pair in $file"
+    failures=$((failures + 1))
+  fi
+}
+
 extract_markdown_section() {
   local file="$1"
   local heading="$2"
@@ -297,6 +343,11 @@ check_checkpoint_skill_mapping() {
     require_line "verification" "$model" "verification checkpoint"
     require_line "review-merge-gate" "$model" "review-merge-gate checkpoint"
     require_line "completion-archive" "$model" "completion-archive checkpoint"
+    require_checkpoint_skill_pair "kickoff" "$model" "## 7. Checkpoint-to-Skill Mapping" '`development-workflow`' '`documentation-management`'
+    require_checkpoint_skill_pair "execution-sync" "$model" "## 7. Checkpoint-to-Skill Mapping" '`development-workflow`' '`documentation-management`'
+    require_checkpoint_skill_pair "verification" "$model" "## 7. Checkpoint-to-Skill Mapping" '`development-workflow`'
+    require_checkpoint_skill_pair "review-merge-gate" "$model" "## 7. Checkpoint-to-Skill Mapping" '`development-workflow`' '`documentation-management`'
+    require_checkpoint_skill_pair "completion-archive" "$model" "## 7. Checkpoint-to-Skill Mapping" '`development-workflow`' '`documentation-management`'
   fi
 }
 

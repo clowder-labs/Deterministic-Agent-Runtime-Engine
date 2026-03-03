@@ -127,7 +127,7 @@ mode: openspec
 - execution-sync -> `development-workflow` + `documentation-management`
 - verification -> `development-workflow`
 - review-merge-gate -> `development-workflow` + `documentation-management`
-- completion-archive -> `documentation-management`
+- completion-archive -> `development-workflow` + `documentation-management`
 """,
     )
     _write(root / ".codex" / "skills" / "documentation-management" / "SKILL.md", "# doc skill\n")
@@ -242,6 +242,33 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing execution-sync checkpoint", result.stdout)
         self.assertIn("missing review-merge-gate checkpoint", result.stdout)
+
+    def test_gate_requires_explicit_checkpoint_to_skill_pairs(self) -> None:
+        def mutate(root: Path) -> None:
+            model = root / "docs" / "governance" / "Documentation_Management_Model.md"
+            model.write_text(
+                """# Documentation Management Model
+
+## 7. Checkpoint-to-Skill Mapping
+
+Required lifecycle checkpoints MUST be skillized:
+- kickoff
+- execution-sync
+- verification
+- review-merge-gate
+- completion-archive
+
+Skill contract (minimum two skills):
+- management skill: `.codex/skills/documentation-management/SKILL.md`
+- workflow skill: `.codex/skills/development-workflow/SKILL.md`
+""",
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing checkpoint-to-skill pair", result.stdout)
 
     def test_gate_fails_when_declared_todo_id_has_no_matching_todo_ledger(self) -> None:
         def mutate(root: Path) -> None:

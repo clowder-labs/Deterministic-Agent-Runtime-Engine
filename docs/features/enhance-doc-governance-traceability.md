@@ -36,8 +36,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
 
 ### Results
-- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`44 passed`) after extending the traceability gate regression suite to also cover stale active index entries, `Active Entries`-only membership checks, discrete `todo_ids` token matching, same-record TODO/change validation, claim-scope range resolution, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
-- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after tightening active/archive index membership to canonical sections and resolving pilot `todo_ids` through either direct ledger rows or same-claim scope ranges.
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`45 passed`) after extending the traceability gate regression suite to also cover stale active index entries, `Active Entries`-only membership checks, explicit checkpoint-to-skill pair rows, discrete `todo_ids` token matching, same-record TODO/change validation, claim-scope range resolution, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
+- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after tightening active/archive index membership to canonical sections, requiring explicit checkpoint-to-skill pair rows in Section 7, and resolving pilot `todo_ids` through either direct ledger rows or same-claim scope ranges.
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed, confirming the new traceability assets do not break the existing evidence-first contract.
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 
@@ -76,7 +76,7 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 
 ### Behavior Verification
 - Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id, including claim-ledger scope ranges such as `D2-1~D2-4, D4-1~D4-4`.
-- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the `## Active Entries` section, when the template/archive index is missing, when checkpoint-skill mapping drifts, or when declared `todo_ids` and `change_ids` only co-occur in different ledger records.
+- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the `## Active Entries` section, when the template/archive index is missing, when Section 7 keeps checkpoint names but drops the actual `checkpoint -> skill` mapping rows, or when declared `todo_ids` and `change_ids` only co-occur in different ledger records.
 
 ### Risks and Rollback
 - Risk: `3.2-3.4` are still open, so the new gate does not yet enforce full frontmatter coverage for every governance-tracked doc family or full master-TODO/task completeness.
@@ -96,6 +96,7 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878551474`
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878634816`
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878634820`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878773226`
 
 ## Next Milestone
 Implement the remaining CI depth tasks: widen frontmatter enforcement beyond feature docs and add machine-checkable TODO/task and master-TODO/change-slice consistency checks before closeout.
