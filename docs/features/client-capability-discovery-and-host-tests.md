@@ -39,6 +39,7 @@ mode: openspec
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'actions_list or startup_handshake or bridges_additional_host_actions or control_stdin_bridges_actions_list'`
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`
+- `git push origin codex/client-capability-discovery-and-host-tests`
 - `openspec list`
 - `openspec show client-capability-discovery-and-host-tests --type change --json --no-interactive`
 - `openspec validate client-capability-discovery-and-host-tests --type change --strict --json --no-interactive`
@@ -53,6 +54,7 @@ mode: openspec
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'actions_list or startup_handshake or bridges_additional_host_actions or control_stdin_bridges_actions_list'`: passed (`8` tests), covering run/script discovery, coexistence with approvals, and the absence of unsolicited startup handshake frames.
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`45` tests, `0` failures) after the Slice D discovery bridge landed.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`25` tests, `0` failures) after the Slice D capability-discovery regressions were added.
+- `git push origin codex/client-capability-discovery-and-host-tests`: published the implementation branch for review and enabled PR `#158`.
 - `openspec list`: shows the change as `client-capability-discovery-and-host-tests     ✓ Complete` after implementation, docs, and evidence tasks were synchronized.
 - `openspec show client-capability-discovery-and-host-tests --type change --json --no-interactive`: confirms the change exposes `1` `MODIFIED` delta under `client-host-orchestration`.
 - `openspec validate client-capability-discovery-and-host-tests --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
@@ -74,3 +76,4 @@ mode: openspec
 - Slice C implementation gate (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/151`
 - Slice C archive target: `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/`
 - Slice D intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/156`
+- Slice D implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/158`
