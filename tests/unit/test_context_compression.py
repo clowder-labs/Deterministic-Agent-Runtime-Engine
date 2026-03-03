@@ -108,6 +108,32 @@ def test_compress_context_tool_pair_safe_drops_orphan_tool_results_with_mixed_id
     assert "tc_orphan" not in tool_names
 
 
+def test_compress_context_tool_pair_safe_preserves_assistant_id_and_mark_when_filtering_calls() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(
+        Message(
+            role="assistant",
+            content="mixed tool calls",
+            id="assistant-state",
+            mark=MessageMark.PERSISTENT,
+            metadata={
+                "tool_calls": [
+                    {"id": "tc_1", "name": "demo_tool", "arguments": {"x": 1}},
+                    {"id": "tc_missing", "name": "demo_tool", "arguments": {"x": 2}},
+                ]
+            },
+        )
+    )
+    ctx.stm_add(Message(role="tool", name="tc_1", content='{"success": true}'))
+
+    compress_context(ctx, strategy="truncate", max_messages=10, tool_pair_safe=True)
+
+    assistant_message = next(message for message in ctx.stm_get() if message.role == "assistant")
+    assert assistant_message.id == "assistant-state"
+    assert assistant_message.mark == MessageMark.PERSISTENT
+    assert _tool_ids(assistant_message) == ["tc_1"]
+
+
 def test_compress_context_target_tokens_trims_long_history() -> None:
     ctx = Context(config=Config())
     for idx in range(8):

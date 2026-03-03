@@ -194,6 +194,8 @@ def _enforce_tool_pair_safety(messages: List[Message]) -> Tuple[List[Message], i
                     content=message.content,
                     name=message.name,
                     metadata=metadata,
+                    mark=getattr(message, "mark", MessageMark.TEMPORARY),
+                    id=getattr(message, "id", None),
                 )
             )
         else:
