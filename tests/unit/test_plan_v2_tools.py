@@ -552,6 +552,38 @@ async def test_sub_agent_tool_progress_includes_pending_placeholder_for_invalid_
 
 
 @pytest.mark.asyncio
+async def test_sub_agent_tool_rejects_no_step_id_when_plan_terminal() -> None:
+    class _DummyAgent:
+        calls = 0
+
+        async def run(self, message: str, **kwargs: object) -> dict[str, str]:
+            _ = message
+            _ = kwargs
+            type(self).calls += 1
+            return {"ok": "true"}
+
+    state = PlannerState(
+        plan_description="terminal-plan",
+        steps=[Step(step_id="s1", description="done step", status="done")],
+        plan_status="done",
+        plan_validated=True,
+    )
+    registry = SubAgentRegistry()
+    registry.register("worker", "test worker", _DummyAgent)
+    tool = SubAgentTool(registry, "worker", state)
+
+    result = await tool.execute(
+        run_context=_run_context(),
+        task="should not execute on terminal plan",
+    )
+
+    assert result.success is False
+    assert isinstance(result.error, str)
+    assert "plan already terminal" in result.error
+    assert _DummyAgent.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_finish_plan_done_rejects_pending_step_without_valid_id() -> None:
     state = PlannerState(
         plan_description="finish-guard-invalid-id",

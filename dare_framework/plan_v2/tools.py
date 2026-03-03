@@ -906,6 +906,12 @@ class SubAgentTool(ITool):
         """Run the sub-agent with the given task (e.g. step description). Returns the sub-agent result.
         When step_id is provided and call succeeds, marks that step as completed and adds progress to output."""
         _ = run_context
+        if self._state and self._state.plan_status in _TERMINAL_STATES:
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"plan already terminal: {self._state.plan_status}",
+            )
         task_preview = (task[:600] + "...") if len(task) > 600 else task
         print(f"{_ANSI_GREEN}\n>>> 委托 {self._sub_agent_id}: {task_preview}\n{_ANSI_RESET}", flush=True)
         if step_id and self._state:
