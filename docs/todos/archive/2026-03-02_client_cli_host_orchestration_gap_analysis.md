@@ -3,8 +3,8 @@ change_ids: []
 doc_kind: analysis
 topics: ["client-cli", "host-orchestration", "issue-135", "headless-protocol"]
 created: 2026-03-02
-updated: 2026-03-02
-status: active
+updated: 2026-03-03
+status: archived
 mode: openspec
 ---
 
@@ -14,6 +14,7 @@ mode: openspec
 > 范围：`/client` 作为“可被外部宿主稳定编排的 CLI agent”时的协议与控制面差距
 > 关联 issue：GitHub `#135`
 > 评审基线：当前仓库 `client/` 实现、`client/DESIGN.md`、`client/README.md`、相关测试与 transport action/event 契约
+> Archive Note：Issue #135 的 Slice A / B / C / D 已全部落地并于 2026-03-03 完成归档；对应执行闭环见 `docs/todos/archive/2026-03-02_client_cli_host_orchestration_master_todo.md`。
 
 ---
 

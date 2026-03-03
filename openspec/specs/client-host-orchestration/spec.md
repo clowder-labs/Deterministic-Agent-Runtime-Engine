@@ -73,14 +73,21 @@ The system SHALL provide a structured local control plane for host-orchestrated 
 ### Requirement: Host capabilities are discoverable without hardcoded matrices
 The system SHALL provide a deterministic capability discovery surface for host orchestration.
 
-- Hosts MUST be able to discover supported actions for the active client/runtime.
-- Capability discovery MAY be exposed via an explicit action such as `actions:list` or an equivalent startup handshake.
+- v1 capability discovery MUST be exposed as an explicit `actions:list` request over the structured local control plane.
+- The discovery response MUST return the currently supported canonical action ids as structured data.
+- v1 MUST NOT require an unsolicited startup handshake before a host can interact with the session.
 
-#### Scenario: Host queries supported actions
-- **GIVEN** a host needs to determine whether the client supports dynamic MCP reload
-- **WHEN** it requests capability discovery
-- **THEN** the client returns a structured list of supported actions
+#### Scenario: Host queries supported actions over control plane
+- **GIVEN** a host is attached to a running headless session through `--control-stdin`
+- **WHEN** it sends action `actions:list`
+- **THEN** the client returns a structured list of currently supported canonical action ids
 - **AND** the host does not need to infer support by parsing help text or natural-language output
+
+#### Scenario: Startup does not emit unsolicited capability handshake
+- **GIVEN** a host starts a headless session and has not sent a discovery request
+- **WHEN** the session begins running
+- **THEN** the client does not emit an unsolicited capability handshake frame
+- **AND** capability discovery remains available through an explicit structured request
 
 ### Requirement: Control plane v1 reuses canonical action identifiers
 The system SHALL expose control-plane actions using canonical stable identifiers.

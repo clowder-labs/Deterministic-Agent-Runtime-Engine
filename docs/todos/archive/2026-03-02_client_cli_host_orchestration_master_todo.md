@@ -3,28 +3,28 @@ change_ids: []
 doc_kind: todo
 topics: ["client-cli", "host-orchestration", "issue-135", "headless-protocol"]
 created: 2026-03-02
-updated: 2026-03-02
-status: active
+updated: 2026-03-03
+status: archived
 mode: openspec
 ---
 
 # 2026-03-02 Client CLI 宿主编排 Master TODO（Issue #135）
 
-> 来源：`docs/todos/2026-03-02_client_cli_host_orchestration_gap_analysis.md`
+> 来源：`docs/todos/archive/2026-03-02_client_cli_host_orchestration_gap_analysis.md`
 > 执行模型：docs baseline -> OpenSpec slice -> docs-only intent PR -> implementation -> evidence -> archive
 > 范围：仅覆盖 `client/` 作为外部宿主可编排 CLI 的协议与治理闭环
 
 ## 认领声明（Claim Ledger）
 
-> 当前状态：Slice A / Slice B / Slice C 已于 2026-03-02 完成并合入 `main`；Slice C 已归档到 `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/`。
-> Slice D 的 docs-only intent PR `#156` 已合入；当前分支已落地显式 `actions:list` capability discovery 与宿主协议回归测试，等待实现 PR / review gate。
+> 当前状态：Issue #135 的 Slice A / B / C / D 已全部完成并合入 `main`。
+> Archive Note：2026-03-03 已完成最终归档；Slice D change 已迁移到 `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/`，本 master TODO 不再处于活跃执行态。
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
 | CLM-20260302-CCLI-A | CCLI-001~CCLI-002 | bouillipx | done | 2026-03-02 | 2026-03-09 | `client-host-orchestration-doc-baseline` | Slice A: docs baseline 已随 PR `#141` 合入 `main`，并已归档到 `openspec/changes/archive/2026-03-02-client-host-orchestration-doc-baseline/`。 |
 | CLM-20260302-CCLI-B | CCLI-003~CCLI-004 | bouillipx | done | 2026-03-02 | 2026-03-09 | `client-headless-event-envelope-v1` | Slice B: headless event envelope v1 已随 PR `#145` 合入 `main`，并已归档到 `openspec/changes/archive/2026-03-02-client-headless-event-envelope-v1/`。 |
 | CLM-20260302-CCLI-C | CCLI-005~CCLI-006 | bouillipx | done | 2026-03-02 | 2026-03-09 | `client-external-control-plane-v1` | Slice C: docs-only intent PR `#148` 与实现 PR `#151` 已合入；change 已归档到 `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/`，feature evidence 已迁移到 `docs/features/archive/client-external-control-plane-v1.md`。 |
-| CLM-20260302-CCLI-D | CCLI-007~CCLI-008 | bouillipx | active | 2026-03-02 | 2026-03-09 | `client-capability-discovery-and-host-tests` | Slice D: docs-only intent PR `#156` 已合入；当前已落地显式 `actions:list` host bridge 与宿主协议回归测试，待实现 PR / review gate。 |
+| CLM-20260302-CCLI-D | CCLI-007~CCLI-008 | bouillipx | done | 2026-03-02 | 2026-03-09 | `client-capability-discovery-and-host-tests` | Slice D: docs-only intent PR `#156` 与实现 PR `#158` 已合入；change 已归档到 `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/`，feature evidence 已迁移到 `docs/features/archive/client-capability-discovery-and-host-tests.md`。 |
 
 ## 切片规划
 
@@ -45,8 +45,8 @@ mode: openspec
 | CCLI-004 | P1 | done | CCLI-GAP-002 | `client-headless-event-envelope-v1` | 设计并实现 versioned event envelope（至少含 `schema_version`、`run_id`、`seq`、`event`、`data`），并定义与现有 JSON 输出的兼容策略。 | bouillipx | `client/render/headless.py`；`tests/unit/test_client_cli.py`；`tests/integration/test_client_cli_flow.py`；`docs/features/archive/client-headless-event-envelope-v1.md` | 2026-03-02 |
 | CCLI-005 | P1 | done | CCLI-GAP-003 | `client-external-control-plane-v1` | 设计外部控制协议入口（如 `control-stdin` 或 loopback RPC），覆盖 approvals / MCP / skills / status 的结构化控制。 | bouillipx | `client/main.py`；`client/render/control.py`；`tests/unit/test_client_cli.py`；`tests/integration/test_client_cli_flow.py`；`docs/features/archive/client-external-control-plane-v1.md`；`openspec/changes/archive/2026-03-02-client-external-control-plane-v1/` | 2026-03-02 |
 | CCLI-006 | P2 | done | CCLI-GAP-005 | `client-external-control-plane-v1` | 将当前 canonical MCP actions（首批为 `mcp:list/reload/show-tool`）接入外部 control plane，并明确运行中生效与错误处理语义。CLI 层 `unload` 待后续补 canonical action 后再纳入宿主协议面。 | bouillipx | `client/main.py`；`tests/integration/test_client_cli_flow.py`；`docs/features/archive/client-external-control-plane-v1.md`；`openspec/changes/archive/2026-03-02-client-external-control-plane-v1/` | 2026-03-02 |
-| CCLI-007 | P2 | doing | CCLI-GAP-004 | `client-capability-discovery-and-host-tests` | 将 `actions:list` 提升到 CLI 宿主协议面，并收敛为显式 discovery action；启动握手不纳入当前 v1 scope。 | bouillipx | `client/main.py`；`client/DESIGN.md`；`client/README.md`；`tests/integration/test_client_cli_flow.py`；`docs/features/client-capability-discovery-and-host-tests.md`；相关 OpenSpec design/specs/tasks | 2026-03-02 |
-| CCLI-008 | P1 | doing | CCLI-GAP-006 | `client-capability-discovery-and-host-tests` | 新增 headless 协议稳定性、外部控制、能力发现三组集成测试，并回写 README / 设计文档中的验证锚点。 | bouillipx | `tests/integration/test_client_cli_flow.py`；`client/DESIGN.md`；`client/README.md`；`docs/features/client-capability-discovery-and-host-tests.md`；相关 OpenSpec design/specs/tasks | 2026-03-02 |
+| CCLI-007 | P2 | done | CCLI-GAP-004 | `client-capability-discovery-and-host-tests` | 将 `actions:list` 提升到 CLI 宿主协议面，并收敛为显式 discovery action；启动握手不纳入当前 v1 scope。 | bouillipx | `client/main.py`；`client/DESIGN.md`；`client/README.md`；`tests/integration/test_client_cli_flow.py`；`docs/features/archive/client-capability-discovery-and-host-tests.md`；`openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/` | 2026-03-03 |
+| CCLI-008 | P1 | done | CCLI-GAP-006 | `client-capability-discovery-and-host-tests` | 新增 headless 协议稳定性、外部控制、能力发现三组集成测试，并回写 README / 设计文档中的验证锚点。 | bouillipx | `tests/integration/test_client_cli_flow.py`；`client/DESIGN.md`；`client/README.md`；`docs/features/archive/client-capability-discovery-and-host-tests.md`；`openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/` | 2026-03-03 |
 
 ---
 

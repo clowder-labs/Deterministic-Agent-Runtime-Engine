@@ -4,8 +4,8 @@ doc_kind: feature
 topics: ["client-cli", "host-orchestration", "capability-discovery", "issue-135"]
 todo_ids: ["CCLI-007", "CCLI-008"]
 created: 2026-03-02
-updated: 2026-03-02
-status: active
+updated: 2026-03-03
+status: archived
 mode: openspec
 ---
 
@@ -17,11 +17,11 @@ mode: openspec
 
 ## OpenSpec Artifacts
 
-- Proposal: `openspec/changes/client-capability-discovery-and-host-tests/proposal.md`
-- Design: `openspec/changes/client-capability-discovery-and-host-tests/design.md`
+- Proposal: `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/proposal.md`
+- Design: `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/design.md`
 - Specs:
-  - `openspec/changes/client-capability-discovery-and-host-tests/specs/client-host-orchestration/spec.md`
-- Tasks: `openspec/changes/client-capability-discovery-and-host-tests/tasks.md`
+  - `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/specs/client-host-orchestration/spec.md`
+- Tasks: `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/tasks.md`
 
 ## TODO Coverage
 
@@ -34,6 +34,7 @@ mode: openspec
 
 - `git fetch origin`
 - `git worktree add .worktrees/client-capability-discovery-and-host-tests -b codex/client-capability-discovery-and-host-tests origin/main`
+- `git merge --ff-only origin/main`
 - `openspec archive client-external-control-plane-v1 -y`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_additional_host_actions'`
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'actions_list or startup_handshake or bridges_additional_host_actions or control_stdin_bridges_actions_list'`
@@ -43,22 +44,27 @@ mode: openspec
 - `openspec list`
 - `openspec show client-capability-discovery-and-host-tests --type change --json --no-interactive`
 - `openspec validate client-capability-discovery-and-host-tests --type change --strict --json --no-interactive`
+- `openspec archive client-capability-discovery-and-host-tests -y`
+- `openspec validate --specs --strict --json --no-interactive`
 - `./scripts/ci/check_governance_evidence_truth.sh`
 
 ### Results
 
 - `git fetch origin`: confirmed `origin/main` has merged Slice C via PR `#151`.
 - `git worktree add .worktrees/client-capability-discovery-and-host-tests -b codex/client-capability-discovery-and-host-tests origin/main`: created an isolated Slice D workspace from merged `main` at commit `cce6e4d`.
+- `git merge --ff-only origin/main`: fast-forwarded the Slice D worktree onto merged `main` commit `9f8f992` before running final archive operations.
 - `openspec archive client-external-control-plane-v1 -y`: archived the completed Slice C change to `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/` and synced the landed control-plane deltas back into the main `client-host-orchestration` spec.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'bridges_additional_host_actions'`: failed before the implementation because `actions:list` returned `ok=false` as an unsupported control action; passed after exposing explicit discovery on the CLI host bridge.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q -k 'actions_list or startup_handshake or bridges_additional_host_actions or control_stdin_bridges_actions_list'`: passed (`8` tests), covering run/script discovery, coexistence with approvals, and the absence of unsolicited startup handshake frames.
 - `../../.venv/bin/python -m pytest tests/unit/test_client_cli.py -q`: passed (`45` tests, `0` failures) after the Slice D discovery bridge landed.
 - `../../.venv/bin/python -m pytest tests/integration/test_client_cli_flow.py -q`: passed (`25` tests, `0` failures) after the Slice D capability-discovery regressions were added.
 - `git push origin codex/client-capability-discovery-and-host-tests`: published the implementation branch for review and enabled PR `#158`.
-- `openspec list`: shows the change as `client-capability-discovery-and-host-tests     ✓ Complete` after implementation, docs, and evidence tasks were synchronized.
+- `openspec list`: before archive it showed `client-capability-discovery-and-host-tests     ✓ Complete`; after archive the change no longer appears in the active list, confirming closeout moved it out of execution scope.
 - `openspec show client-capability-discovery-and-host-tests --type change --json --no-interactive`: confirms the change exposes `1` `MODIFIED` delta under `client-host-orchestration`.
 - `openspec validate client-capability-discovery-and-host-tests --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
-- `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice D implementation evidence was synchronized with the updated tasks and README / DESIGN claims.
+- `openspec archive client-capability-discovery-and-host-tests -y`: archived the completed Slice D change to `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/` and synced the explicit `actions:list` / no-startup-handshake requirement back into the main `client-host-orchestration` spec.
+- `openspec validate --specs --strict --json --no-interactive`: passed (`39/39` specs valid, `0` failures); the updated main `client-host-orchestration` spec validates after folding in Slice D.
+- `./scripts/ci/check_governance_evidence_truth.sh`: passed after the Slice D archive moves, artifact link rewrites, and TODO index updates were synchronized.
 
 ### Behavior Verification
 
@@ -77,3 +83,4 @@ mode: openspec
 - Slice C archive target: `openspec/changes/archive/2026-03-02-client-external-control-plane-v1/`
 - Slice D intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/156`
 - Slice D implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/158`
+- Slice D archive target: `openspec/changes/archive/2026-03-03-client-capability-discovery-and-host-tests/`

@@ -11,8 +11,8 @@
 - `2026-02-27_full_design_review_gap_todo.md`：全量设计文档评审对应 TODO 清单（持续治理中）。
 - `2026-02-27_design_reconstructability_gap_analysis.md`：可重建性差异分析（P0/P1 已闭环，后续与 full-review 联动）。
 - `2026-02-27_design_reconstructability_gap_todo.md`：可重建性治理 TODO 清单（已回写 done，待按周期归档）。
-- `2026-03-02_client_cli_host_orchestration_gap_analysis.md`：Issue #135 的 `/client` 宿主编排协议差距分析（活跃）。
-- `2026-03-02_client_cli_host_orchestration_master_todo.md`：Issue #135 对应 master TODO 与切片规划（活跃）。
+- `archive/2026-03-02_client_cli_host_orchestration_gap_analysis.md`：Issue #135 的 `/client` 宿主编排协议差距分析（已归档，2026-03-03 完成 A/B/C/D 全部切片）。
+- `archive/2026-03-02_client_cli_host_orchestration_master_todo.md`：Issue #135 对应 master TODO 与切片规划（已归档，2026-03-03 完成 A/B/C/D 全部切片）。
 - `archive/2026-02-27_design_code_gap_analysis.md`：当前设计与实现差异分析基线（文档先行治理，已归档）。
 - `archive/2026-02-27_design_code_gap_todo.md`：由 gap 分析推导出的执行 TODO 清单（已归档）。
 - `templates/change_execution_todo_template.md`：活跃 change 执行协作板模板。
