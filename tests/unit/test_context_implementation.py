@@ -111,6 +111,20 @@ class _FakeRetrieval:
         return 0
 
 
+class _CompressionRecordingSTM(_FakeRetrieval):
+    def __init__(self, messages: list[Message]) -> None:
+        super().__init__(messages)
+        self.compress_calls: list[dict[str, object]] = []
+
+    def compress(self, **kwargs: object) -> int:
+        self.compress_calls.append(dict(kwargs))
+        raw_limit = kwargs.get("max_messages")
+        limit = raw_limit if isinstance(raw_limit, int) and raw_limit >= 0 else None
+        if limit is not None and len(self._messages) > limit:
+            self._messages = self._messages[-limit:]
+        return 0
+
+
 def test_context_assemble_fuses_ltm_and_knowledge_with_latest_user_query():
     ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
     knowledge = _FakeRetrieval([Message(role="assistant", content="knowledge-hit")])
@@ -426,3 +440,57 @@ def test_context_assemble_handles_overflowing_numeric_ratio_config() -> None:
     contents = [message.content for message in assembled.messages]
     assert contents == ["query", "ltm-hit"]
     assert assembled.metadata["retrieval"]["ltm_count"] == 1
+
+
+def test_context_compress_max_messages_uses_backend_compress_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    stm = _CompressionRecordingSTM(
+        [
+            Message(role="user", content="m0"),
+            Message(role="assistant", content="m1"),
+            Message(role="user", content="m2"),
+        ]
+    )
+    ctx = Context(config=Config(), short_term_memory=stm)
+
+    def _unexpected_compress_context(*args: object, **kwargs: object) -> None:
+        _ = (args, kwargs)
+        raise AssertionError("compress_context should not be called for basic max_messages compression")
+
+    monkeypatch.setattr(
+        "dare_framework.compression.core.compress_context",
+        _unexpected_compress_context,
+    )
+
+    ctx.compress(max_messages=2)
+
+    assert len(stm.compress_calls) == 1
+    assert stm.compress_calls[0].get("max_messages") == 2
+    assert [message.content for message in ctx.stm_get()] == ["m1", "m2"]
+
+
+def test_context_compress_advanced_path_preserves_backend_semantics(monkeypatch: pytest.MonkeyPatch) -> None:
+    stm = _CompressionRecordingSTM(
+        [
+            Message(role="user", content="m0"),
+            Message(role="assistant", content="m1"),
+            Message(role="user", content="m2"),
+        ]
+    )
+    ctx = Context(config=Config(), short_term_memory=stm)
+    calls: list[dict[str, object]] = []
+
+    def _record_compress_context(context: Context, **kwargs: object) -> None:
+        _ = context
+        calls.append(dict(kwargs))
+
+    monkeypatch.setattr(
+        "dare_framework.compression.core.compress_context",
+        _record_compress_context,
+    )
+
+    ctx.compress(max_messages=2, target_tokens=100, strategy="truncate", tool_pair_safe=True)
+
+    assert len(stm.compress_calls) == 1
+    assert stm.compress_calls[0].get("max_messages") == 2
+    assert calls and calls[0].get("max_messages") == 2
+    assert [message.content for message in ctx.stm_get()] == ["m1", "m2"]

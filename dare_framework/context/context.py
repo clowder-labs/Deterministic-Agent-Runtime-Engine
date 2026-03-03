@@ -180,6 +180,26 @@ class Context(IContext):
         """Compress context to fit within budget."""
         from dare_framework.compression.core import compress_context
 
+        # Preserve backend STM semantics (for example SmartSTM mark-based retention)
+        # before applying advanced compression strategies.
+        compress_impl = getattr(self._short_term_memory, "compress", None)
+        has_advanced_options = any(
+            key in options
+            for key in ("target_tokens", "tool_pair_safe", "strategy", "phase")
+        )
+        raw_max_messages = options.get("max_messages")
+        max_messages = (
+            raw_max_messages
+            if isinstance(raw_max_messages, int) and raw_max_messages >= 0
+            else None
+        )
+        if callable(compress_impl):
+            if not has_advanced_options:
+                compress_impl(max_messages=max_messages)
+                return
+            if max_messages is not None:
+                compress_impl(max_messages=max_messages)
+
         compress_context(self, **options)
 
 

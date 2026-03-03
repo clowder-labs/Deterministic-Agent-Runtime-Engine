@@ -395,9 +395,30 @@ class ReactAgent(BaseAgent):
             messages = self._context.order_messages_for_llm(messages, sys_prompt_message)
 
             # 注入 _next_round_reflection_prompt：普通工具轮后提示，仅本次 LLM 调用传入，不写 STM
+            injected_reflection_prompt = self._next_round_reflection_prompt
             if self._next_round_reflection_prompt is not None:
                 messages.append(self._next_round_reflection_prompt)
                 self._next_round_reflection_prompt = None
+
+            if self._maybe_auto_compress(messages):
+                assembled = self._context.assemble()
+                messages = list(assembled.messages)
+                prompt_def = getattr(assembled, "sys_prompt", None)
+                sys_prompt_message = (
+                    Message(
+                        role=prompt_def.role,
+                        content=prompt_def.content,
+                        name=prompt_def.name,
+                        metadata=dict(prompt_def.metadata),
+                        mark=MessageMark.IMMUTABLE,
+                        id="sys_prompt",
+                    )
+                    if prompt_def is not None
+                    else None
+                )
+                messages = self._context.order_messages_for_llm(messages, sys_prompt_message)
+                if injected_reflection_prompt is not None:
+                    messages.append(injected_reflection_prompt)
 
             # Inject critical_block from plan_provider (maintained by plan tools)
             # Disabled: skip injection to observe plan agent behavior without it

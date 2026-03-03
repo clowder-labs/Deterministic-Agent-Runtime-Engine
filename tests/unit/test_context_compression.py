@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dare_framework.compression.core import compress_context
 from dare_framework.config import Config
-from dare_framework.context import Context, Message
+from dare_framework.context import Context, Message, MessageMark
 
 
 def _tool_ids(message: Message) -> list[str]:
@@ -138,3 +138,54 @@ def test_compress_context_negative_max_messages_keeps_unbounded_semantics() -> N
     assert [message.content for message in after_messages] == [
         message.content for message in before_messages
     ]
+
+
+def test_compress_context_annotate_preserves_message_identity_fields() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(
+        Message(
+            role="assistant",
+            content="keep identity",
+            id="assistant-1",
+            mark=MessageMark.PERSISTENT,
+        )
+    )
+    ctx.stm_add(Message(role="user", content="latest"))
+
+    compress_context(ctx, strategy="dedup_then_truncate", max_messages=1, phase="pre_tool")
+
+    head = ctx.stm_get()[0]
+    assert head.id == "assistant-1"
+    assert head.mark == MessageMark.PERSISTENT
+    assert head.metadata.get("compressed") is True
+    assert head.metadata.get("strategy") == "dedup_then_truncate"
+
+
+def test_compress_context_max_messages_preserves_protected_marks() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(
+        Message(
+            role="system",
+            content="immutable",
+            id="imm-1",
+            mark=MessageMark.IMMUTABLE,
+        )
+    )
+    ctx.stm_add(
+        Message(
+            role="assistant",
+            content="persistent",
+            id="persist-1",
+            mark=MessageMark.PERSISTENT,
+        )
+    )
+    for idx in range(4):
+        ctx.stm_add(Message(role="user", content=f"temp-{idx}", id=f"tmp-{idx}"))
+
+    compress_context(ctx, strategy="truncate", max_messages=3, target_tokens=10_000)
+
+    messages = ctx.stm_get()
+    ids = [message.id for message in messages]
+    assert "imm-1" in ids
+    assert "persist-1" in ids
+    assert len(messages) == 3

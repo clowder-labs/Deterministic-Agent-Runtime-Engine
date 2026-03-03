@@ -7,6 +7,7 @@ import pytest
 from dare_framework.agent.react_agent import ReactAgent
 from dare_framework.config import Config
 from dare_framework.context import Context
+from dare_framework.context.smartcontext import SmartContext
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityType, ToolResult
 from dare_framework.transport import TransportEventType
@@ -152,6 +153,16 @@ class _ThinkingSequenceModel:
 
 
 class _CompressionRecordingContext(Context):
+    def __init__(self, *, config: Config) -> None:
+        super().__init__(config=config)
+        self.compress_calls: list[dict[str, Any]] = []
+
+    def compress(self, **options: Any) -> None:
+        self.compress_calls.append(dict(options))
+        super().compress(**options)
+
+
+class _CompressionRecordingSmartContext(SmartContext):
     def __init__(self, *, config: Config) -> None:
         super().__init__(config=config)
         self.compress_calls: list[dict[str, Any]] = []
@@ -394,6 +405,28 @@ async def test_react_agent_without_auto_compress_keeps_legacy_behavior() -> None
 
     assert result.success is True
     assert context.compress_calls == []
+
+
+@pytest.mark.asyncio
+async def test_react_agent_auto_compress_triggers_in_smart_context_path() -> None:
+    context = _CompressionRecordingSmartContext(config=Config())
+    context.budget.max_tokens = 100
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-smartcontext-auto-compress",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=True,
+        compress_trigger_ratio=0.01,
+        compress_target_ratio=0.5,
+    )
+
+    result = await agent("smart context compress")
+
+    assert result.success is True
+    assert len(context.compress_calls) >= 1
+    assert context.compress_calls[0].get("tool_pair_safe") is True
 
 
 @pytest.mark.asyncio

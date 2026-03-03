@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, List, Tuple
 
-from dare_framework.context.types import Message as CtxMessage
+from dare_framework.context.types import Message as CtxMessage, MessageMark
 from dare_framework.model import ModelInput
 
 if TYPE_CHECKING:
@@ -111,7 +111,19 @@ def _trim_to_target_tokens(messages: List[Message], target_tokens: int | None) -
     trimmed = list(messages)
     removed = 0
     while len(trimmed) > 1 and _estimate_tokens(trimmed) > target_tokens:
-        trimmed.pop(0)
+        removable_idx = next(
+            (
+                idx
+                for idx, message in enumerate(trimmed)
+                if getattr(message, "mark", MessageMark.TEMPORARY)
+                not in (MessageMark.IMMUTABLE, MessageMark.PERSISTENT)
+            ),
+            None,
+        )
+        if removable_idx is None:
+            # Nothing removable left (all protected by mark semantics).
+            break
+        trimmed.pop(removable_idx)
         removed += 1
     return trimmed, removed
 
@@ -222,6 +234,8 @@ def _annotate_strategy(messages: List[Message], strategy: str) -> List[Message]:
         content=head.content,
         name=head.name,
         metadata=metadata,
+        mark=getattr(head, "mark", MessageMark.TEMPORARY),
+        id=getattr(head, "id", None),
     )
     return messages
 
@@ -299,8 +313,36 @@ def compress_context(
         removed_total += len(messages)
         messages = []
     elif len(messages) > max_messages:
-        removed_total += len(messages) - max_messages
-        messages = messages[-max_messages:]
+        protected = [
+            message
+            for message in messages
+            if getattr(message, "mark", MessageMark.TEMPORARY)
+            in (MessageMark.IMMUTABLE, MessageMark.PERSISTENT)
+        ]
+        temporary = [
+            message
+            for message in messages
+            if getattr(message, "mark", MessageMark.TEMPORARY)
+            not in (MessageMark.IMMUTABLE, MessageMark.PERSISTENT)
+        ]
+        keep_temporary = max(max_messages - len(protected), 0)
+        if keep_temporary <= 0:
+            kept_tail = []
+        elif keep_temporary < len(temporary):
+            kept_tail = temporary[-keep_temporary:]
+        else:
+            kept_tail = temporary
+        kept_tail_refs = {id(message) for message in kept_tail}
+        messages = [
+            message
+            for message in messages
+            if (
+                getattr(message, "mark", MessageMark.TEMPORARY)
+                in (MessageMark.IMMUTABLE, MessageMark.PERSISTENT)
+            )
+            or id(message) in kept_tail_refs
+        ]
+        removed_total += len(protected) + len(temporary) - len(messages)
 
     # Step 4: token-aware 截断（按估算 token 控制）
     messages, removed = _trim_to_target_tokens(messages, target_tokens)
