@@ -100,6 +100,46 @@ require_line() {
   fi
 }
 
+extract_markdown_section() {
+  local file="$1"
+  local heading="$2"
+  awk -v heading="$heading" '
+    $0 == heading {in_section=1; next}
+    in_section && /^##[[:space:]]+/ {exit}
+    in_section {print}
+  ' "$file"
+}
+
+escape_extended_regex() {
+  printf '%s' "$1" | sed -E 's/[][(){}.^$*+?|\\/]/\\&/g'
+}
+
+file_has_discrete_token() {
+  local file="$1"
+  local token="$2"
+  local escaped
+  escaped="$(escape_extended_regex "$token")"
+  grep -Eq "(^|[^A-Za-z0-9_-])${escaped}([^A-Za-z0-9_-]|$)" "$file"
+}
+
+check_index_entry_targets() {
+  local index_file="$1"
+  local section_heading="$2"
+  local stale_label="$3"
+  local path
+
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if [[ ! -f "$path" ]]; then
+      log "stale $stale_label index entry in $index_file: $path"
+      failures=$((failures + 1))
+    fi
+  done < <(
+    extract_markdown_section "$index_file" "$section_heading" \
+      | sed -n 's/.*`\([^`]*\)`.*/\1/p'
+  )
+}
+
 check_feature_indexes() {
   local active_index="docs/features/README.md"
   local archive_index="docs/features/archive/README.md"
@@ -135,6 +175,9 @@ check_feature_indexes() {
       failures=$((failures + 1))
     fi
   done < <(find docs/features/archive -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | sort)
+
+  check_index_entry_targets "$active_index" "## Active Entries" "active feature"
+  check_index_entry_targets "$archive_index" "## Archived Entries" "archived feature"
 }
 
 check_checkpoint_skill_mapping() {
@@ -214,9 +257,12 @@ check_feature_doc() {
     matched=0
     while IFS= read -r candidate; do
       [[ -z "$candidate" ]] && continue
+      if ! file_has_discrete_token "$candidate" "$todo_id"; then
+        continue
+      fi
       while IFS= read -r change_id; do
         [[ -z "$change_id" ]] && continue
-        if grep -Fq -- "$change_id" "$candidate"; then
+        if file_has_discrete_token "$candidate" "$change_id"; then
           matched=1
           break
         fi
@@ -224,13 +270,7 @@ check_feature_doc() {
       if [[ "$matched" -eq 1 ]]; then
         break
       fi
-    done < <(
-      if command -v rg >/dev/null 2>&1; then
-        rg -lF -- "$todo_id" docs/todos || true
-      else
-        find docs/todos -type f -name '*.md' -exec grep -Fl -- "$todo_id" {} + 2>/dev/null || true
-      fi
-    )
+    done < <(find docs/todos -type f -name '*.md' | sort)
 
     if [[ "$matched" -eq 0 ]]; then
       log "missing TODO mapping for feature doc $file: $todo_id"

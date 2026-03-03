@@ -86,6 +86,7 @@ def _base_tree(root: Path) -> None:
 - Move docs here only after closeout.
 """,
     )
+    _write(root / "docs" / "features" / "archive" / "archived-change.md", "# archived\n")
     _write(
         root / "docs" / "features" / "templates" / "feature_aggregation_template.md",
         """# Feature Aggregation Template
@@ -176,6 +177,22 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing active feature index entry", result.stdout)
 
+    def test_gate_fails_when_active_index_contains_stale_feature_path(self) -> None:
+        def mutate(root: Path) -> None:
+            readme = root / "docs" / "features" / "README.md"
+            readme.write_text(
+                readme.read_text(encoding="utf-8").replace(
+                    "## Archive Index\n",
+                    "- `docs/features/missing-change.md`\n\n## Archive Index\n",
+                ),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stale active feature index entry", result.stdout)
+
     def test_gate_fails_when_checkpoint_skill_mapping_is_missing(self) -> None:
         def mutate(root: Path) -> None:
             model = root / "docs" / "governance" / "Documentation_Management_Model.md"
@@ -189,6 +206,30 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
     def test_gate_fails_when_declared_todo_id_has_no_matching_todo_ledger(self) -> None:
         def mutate(root: Path) -> None:
             (root / "docs" / "todos" / "demo_master_todo.md").write_text("# empty\n", encoding="utf-8")
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing TODO mapping for feature doc", result.stdout)
+
+    def test_gate_matches_todo_ids_as_discrete_tokens(self) -> None:
+        def mutate(root: Path) -> None:
+            feature_doc = root / "docs" / "features" / "demo-change.md"
+            feature_doc.write_text(
+                feature_doc.read_text(encoding="utf-8").replace('todo_ids: ["D2-1", "D2-2"]', 'todo_ids: ["D2-1"]'),
+                encoding="utf-8",
+            )
+            todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
+            todo_doc.write_text(
+                """# Demo TODO
+
+## Claim Ledger
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| CLM-DEMO | D2-10 | demo | active | 2026-03-03 | 2026-03-10 | `demo-change` | demo |
+""",
+                encoding="utf-8",
+            )
 
         result = self._run_gate(mutate)
 
