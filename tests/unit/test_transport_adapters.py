@@ -254,3 +254,26 @@ async def test_stdio_receiver_handles_canonical_thinking_event(capsys) -> None:
 
     captured = capsys.readouterr()
     assert "Assistant: need tool data" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_stdio_receiver_renders_structured_status_phase_from_resp(capsys) -> None:
+    channel = StdioClientChannel()
+    receiver = channel.agent_envelope_receiver()
+
+    await receiver(
+        TransportEnvelope(
+            id="evt-status",
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.STATUS.value,
+            payload={
+                "kind": "message",
+                "target": "agent",
+                "ok": True,
+                "resp": {"phase": "before_tool"},
+            },
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert "Assistant: before_tool" in captured.out

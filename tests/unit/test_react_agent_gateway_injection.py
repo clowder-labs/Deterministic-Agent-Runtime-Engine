@@ -7,6 +7,7 @@ import pytest
 from dare_framework.agent.react_agent import ReactAgent
 from dare_framework.config import Config
 from dare_framework.context import Context
+from dare_framework.context.smartcontext import SmartContext
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityType, ToolResult
 from dare_framework.transport import TransportEventType
@@ -149,6 +150,51 @@ class _ThinkingSequenceModel:
         response = self._responses[self._idx]
         self._idx += 1
         return response
+
+
+class _CompressionRecordingContext(Context):
+    def __init__(self, *, config: Config) -> None:
+        super().__init__(config=config)
+        self.compress_calls: list[dict[str, Any]] = []
+
+    def compress(self, **options: Any) -> None:
+        self.compress_calls.append(dict(options))
+        super().compress(**options)
+
+
+class _CompressionRecordingSmartContext(SmartContext):
+    def __init__(self, *, config: Config) -> None:
+        super().__init__(config=config)
+        self.compress_calls: list[dict[str, Any]] = []
+
+    def compress(self, **options: Any) -> None:
+        self.compress_calls.append(dict(options))
+        super().compress(**options)
+
+
+class _FinalOnlyModel:
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        return ModelResponse(content="final", tool_calls=[])
+
+
+class _NonConvergingToolModel:
+    def __init__(self) -> None:
+        self._idx = 0
+
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = (model_input, options)
+        self._idx += 1
+        return ModelResponse(
+            content="keep going",
+            tool_calls=[
+                {
+                    "id": f"tc_{self._idx}",
+                    "name": "tool:echo",
+                    "arguments": {"value": f"ping-{self._idx}"},
+                }
+            ],
+        )
 
 
 @pytest.mark.asyncio
@@ -317,3 +363,132 @@ async def test_react_agent_emits_terminal_message_for_max_round_exit() -> None:
     last_envelope = transport.sent[-1]
     assert getattr(last_envelope, "event_type", None) == TransportEventType.MESSAGE.value
     assert "达到最大轮次" in str(getattr(last_envelope, "payload", {}).get("resp", {}).get("output", ""))
+
+
+@pytest.mark.asyncio
+async def test_react_agent_auto_compress_triggers_before_model_call() -> None:
+    context = _CompressionRecordingContext(config=Config())
+    context.budget.max_tokens = 100
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-auto-compress",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=True,
+        compress_trigger_ratio=0.01,
+        compress_target_ratio=0.5,
+    )
+
+    result = await agent("test auto compress trigger")
+
+    assert result.success is True
+    assert len(context.compress_calls) >= 1
+    first_call = context.compress_calls[0]
+    assert first_call.get("tool_pair_safe") is True
+    assert first_call.get("target_tokens") is not None
+
+
+@pytest.mark.asyncio
+async def test_react_agent_auto_compress_nan_ratios_fallback_to_defaults() -> None:
+    context = _CompressionRecordingContext(config=Config())
+    context.budget.max_tokens = 100
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-auto-compress-nan-ratios",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=True,
+        compress_trigger_ratio=float("nan"),
+        compress_target_ratio=float("nan"),
+    )
+
+    result = await agent("x" * 600)
+
+    assert result.success is True
+    assert len(context.compress_calls) >= 1
+    first_call = context.compress_calls[0]
+    assert first_call.get("target_tokens") == 75
+
+
+@pytest.mark.asyncio
+async def test_react_agent_without_auto_compress_keeps_legacy_behavior() -> None:
+    context = _CompressionRecordingContext(config=Config())
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-no-auto-compress",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=False,
+    )
+
+    result = await agent("test no auto compress")
+
+    assert result.success is True
+    assert context.compress_calls == []
+
+
+@pytest.mark.asyncio
+async def test_react_agent_auto_compress_triggers_in_smart_context_path() -> None:
+    context = _CompressionRecordingSmartContext(config=Config())
+    context.budget.max_tokens = 100
+    gateway = _RecordingGateway("injected")
+    agent = ReactAgent(
+        name="react-test-smartcontext-auto-compress",
+        model=_FinalOnlyModel(),
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=True,
+        compress_trigger_ratio=0.01,
+        compress_target_ratio=0.5,
+    )
+
+    result = await agent("smart context compress")
+
+    assert result.success is True
+    assert len(context.compress_calls) >= 1
+    assert context.compress_calls[0].get("tool_pair_safe") is True
+
+
+@pytest.mark.asyncio
+async def test_react_agent_loop_guard_emits_terminal_message_event() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+    transport = _RecordingTransport()
+    agent = ReactAgent(
+        name="react-test-loop-guard-terminal-message",
+        model=_RepeatingToolModel(),
+        context=context,
+        tool_gateway=gateway,
+        max_tool_rounds=10,
+    )
+
+    result = await agent.execute("test loop guard", transport=transport)
+
+    assert result.success is True
+    assert getattr(transport.sent[-1], "event_type", None) == TransportEventType.MESSAGE.value
+    terminal_payload = getattr(transport.sent[-1], "payload", {})
+    assert "连续重复调用相同工具" in terminal_payload.get("resp", {}).get("output", "")
+
+
+@pytest.mark.asyncio
+async def test_react_agent_max_round_exit_emits_terminal_message_event() -> None:
+    context = Context(config=Config())
+    gateway = _RecordingGateway("injected")
+    transport = _RecordingTransport()
+    agent = ReactAgent(
+        name="react-test-max-round-terminal-message",
+        model=_NonConvergingToolModel(),
+        context=context,
+        tool_gateway=gateway,
+        max_tool_rounds=2,
+    )
+
+    result = await agent.execute("test max rounds", transport=transport)
+
+    assert result.success is True
+    assert getattr(transport.sent[-1], "event_type", None) == TransportEventType.MESSAGE.value
+    terminal_payload = getattr(transport.sent[-1], "payload", {})
+    assert "未收敛" in terminal_payload.get("resp", {}).get("output", "")

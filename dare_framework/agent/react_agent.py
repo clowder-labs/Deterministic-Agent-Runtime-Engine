@@ -6,6 +6,7 @@ to context, and calls the model again until the model returns a final text respo
 
 from __future__ import annotations
 
+import math
 import json
 from typing import Any
 
@@ -113,6 +114,11 @@ class ReactAgent(BaseAgent):
         tool_gateway: IToolGateway,
         plan_provider: IToolProvider | None = None,
         max_tool_rounds: int = 10,
+        auto_compress: bool = False,
+        compress_trigger_ratio: float = 0.9,
+        compress_target_ratio: float = 0.75,
+        compress_max_messages: int | None = None,
+        compress_strategy: str = "dedup_then_truncate",
         agent_channel: AgentChannel | None = None,
     ) -> None:
         super().__init__(name, agent_channel=agent_channel)
@@ -121,6 +127,11 @@ class ReactAgent(BaseAgent):
         self._context = context
         self._tool_gateway = tool_gateway
         self._plan_provider = plan_provider
+        self._auto_compress = bool(auto_compress)
+        self._compress_trigger_ratio = _clamp_ratio(compress_trigger_ratio, default=0.9)
+        self._compress_target_ratio = _clamp_ratio(compress_target_ratio, default=0.75)
+        self._compress_max_messages = compress_max_messages if isinstance(compress_max_messages, int) and compress_max_messages > 0 else None
+        self._compress_strategy = compress_strategy.strip() if isinstance(compress_strategy, str) and compress_strategy.strip() else "dedup_then_truncate"
         self._context.set_tool_gateway(self._tool_gateway)
 
         # 运行时检测是否可以启用 SmartContext 能力
@@ -166,28 +177,10 @@ class ReactAgent(BaseAgent):
         for round_idx in range(self._max_tool_rounds):
             print(f"[{self.name}] Round {round_idx + 1}/{self._max_tool_rounds}: 调用模型中...", flush=True)
             assembled = self._context.assemble()
-            messages = list(assembled.messages)
-            prompt_def = getattr(assembled, "sys_prompt", None)
-            if prompt_def is not None:
-                messages = [
-                    Message(
-                        role=prompt_def.role,
-                        content=prompt_def.content,
-                        name=prompt_def.name,
-                        metadata=dict(prompt_def.metadata),
-                    ),
-                    *messages,
-                ]
-            # Inject critical_block from plan_provider (maintained by plan tools)
-            if self._plan_provider is not None:
-                state = getattr(self._plan_provider, "state", None)
-                critical_block = getattr(state, "critical_block", "") if state else ""
-                if critical_block:
-                    print("\n--- [Plan State] (injected) ---\n" + critical_block + "\n---\n", flush=True)
-                    messages.insert(
-                        1,
-                        Message(role="system", content=critical_block, name="plan_state"),
-                    )
+            messages = self._build_model_messages(assembled)
+            if self._maybe_auto_compress(messages):
+                assembled = self._context.assemble()
+                messages = self._build_model_messages(assembled)
 
             model_input = ModelInput(
                 messages=messages,
@@ -403,9 +396,30 @@ class ReactAgent(BaseAgent):
             messages = self._context.order_messages_for_llm(messages, sys_prompt_message)
 
             # 注入 _next_round_reflection_prompt：普通工具轮后提示，仅本次 LLM 调用传入，不写 STM
+            injected_reflection_prompt = self._next_round_reflection_prompt
             if self._next_round_reflection_prompt is not None:
                 messages.append(self._next_round_reflection_prompt)
                 self._next_round_reflection_prompt = None
+
+            if self._maybe_auto_compress(messages):
+                assembled = self._context.assemble()
+                messages = list(assembled.messages)
+                prompt_def = getattr(assembled, "sys_prompt", None)
+                sys_prompt_message = (
+                    Message(
+                        role=prompt_def.role,
+                        content=prompt_def.content,
+                        name=prompt_def.name,
+                        metadata=dict(prompt_def.metadata),
+                        mark=MessageMark.IMMUTABLE,
+                        id="sys_prompt",
+                    )
+                    if prompt_def is not None
+                    else None
+                )
+                messages = self._context.order_messages_for_llm(messages, sys_prompt_message)
+                if injected_reflection_prompt is not None:
+                    messages.append(injected_reflection_prompt)
 
             # Inject critical_block from plan_provider (maintained by plan tools)
             # Disabled: skip injection to observe plan agent behavior without it
@@ -571,6 +585,62 @@ class ReactAgent(BaseAgent):
             output_text=final_message,
         )
 
+    def _build_model_messages(self, assembled: Any) -> list[Message]:
+        """Build model-facing messages including system prompt and plan state injection."""
+        messages = list(assembled.messages)
+        prompt_def = getattr(assembled, "sys_prompt", None)
+        if prompt_def is not None:
+            messages = [
+                Message(
+                    role=prompt_def.role,
+                    content=prompt_def.content,
+                    name=prompt_def.name,
+                    metadata=dict(prompt_def.metadata),
+                ),
+                *messages,
+            ]
+        if self._plan_provider is not None:
+            state = getattr(self._plan_provider, "state", None)
+            critical_block = getattr(state, "critical_block", "") if state else ""
+            if critical_block:
+                print("\n--- [Plan State] (injected) ---\n" + critical_block + "\n---\n", flush=True)
+                messages.insert(
+                    1,
+                    Message(role="system", content=critical_block, name="plan_state"),
+                )
+        return messages
+
+    def _maybe_auto_compress(self, model_messages: list[Message]) -> bool:
+        """Auto-compress context before model invocation when token estimate is near budget."""
+        if not self._auto_compress:
+            return False
+        max_tokens = self._context.budget.max_tokens
+        if max_tokens is None or max_tokens <= 0:
+            return False
+
+        estimated_tokens = _estimate_messages_tokens(model_messages)
+        trigger_tokens = max(1, int(max_tokens * self._compress_trigger_ratio))
+        if estimated_tokens < trigger_tokens:
+            return False
+
+        stm_messages = self._context.stm_get()
+        if not stm_messages:
+            return False
+        max_messages = self._compress_max_messages
+        if max_messages is None:
+            max_messages = max(1, int(len(stm_messages) * self._compress_target_ratio))
+            if max_messages >= len(stm_messages):
+                max_messages = max(1, len(stm_messages) - 1)
+
+        target_tokens = max(1, int(max_tokens * self._compress_target_ratio))
+        self._context.compress(
+            strategy=self._compress_strategy,
+            max_messages=max_messages,
+            target_tokens=target_tokens,
+            tool_pair_safe=True,
+        )
+        return True
+
     async def _emit_terminal_transport_message(
         self,
         *,
@@ -699,6 +769,28 @@ def _tool_calls_signature(tool_calls: list[dict[str, Any]]) -> tuple[str, ...]:
         args_key = json.dumps(args, ensure_ascii=False, sort_keys=True)
         signature.append(f"{name}:{args_key}")
     return tuple(signature)
+
+
+def _estimate_messages_tokens(messages: list[Message]) -> int:
+    total = 0
+    for message in messages:
+        content = (message.content or "").strip()
+        total += max(1, len(content) // 4) + 8
+    return total
+
+
+def _clamp_ratio(value: Any, *, default: float) -> float:
+    try:
+        ratio = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(ratio):
+        return default
+    if ratio <= 0:
+        return default
+    if ratio > 1:
+        return 1.0
+    return ratio
 
 
 __all__ = ["ReactAgent"]

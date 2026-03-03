@@ -308,7 +308,14 @@ def _render_status_output(payload: dict[str, Any]) -> Any:
             return f"approval resolved: request_id={request_id} decision={decision}"
         if request_id:
             return f"approval pending: request_id={request_id}"
-        return "approval update"
+        if any(key in resp for key in ("request", "request_id", "decision")):
+            return "approval update"
+        if "phase" in resp:
+            return resp.get("phase")
+        if "event" in resp:
+            return resp.get("event")
+        return resp
+
     if "phase" in payload:
         return payload.get("phase")
     if "event" in payload:
