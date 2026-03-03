@@ -58,3 +58,4 @@ mode: openspec
 
 - Historical implementation PR (merged): `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/117`
 - Historical owner feedback thread: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/117`
+- Final verification PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/163`
