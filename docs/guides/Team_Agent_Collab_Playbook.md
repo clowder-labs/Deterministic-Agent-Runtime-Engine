@@ -47,9 +47,11 @@ pytest -q tests/smoke -m smoke
 - `risk-matrix`
 - `test-skip-guard`
 - `lockfile-policy`
+- `p0-gate`（已入 workflow；是否 required 取决于 branch protection rollout）
 
 治理配置说明：
 - `docs/governance/branch-protection.md`
+- `docs/guides/P0_Gate_Runbook.md`
 
 ## 4. 免费版主干护栏（main-guard）
 

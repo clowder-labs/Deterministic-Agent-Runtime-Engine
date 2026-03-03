@@ -38,6 +38,47 @@
 - 版本发布前重复执行并归档结果。
 - 理由：把质量要求前置到提交阶段。
 
+### Decision 5: 先冻结 category matrix，再推动 CI required 化
+- 在 task `1.x` 先固定 `p0-gate` 的 category matrix：每类不变量都要明确当前 anchor tests、后续需要补的 integration anchors、责任模块、required-mode 阈值。
+- 在 task `3.x` 之前，不把 `p0-gate` 写成“当前已启用”的 branch rule，只把它定义为受控 rollout 的下一阶段 required check。
+- 理由：先把 scope 写清，再接 CI；否则后续新增测试时容易漂移成“任何测试都算 p0”。
+
+## Gate Scope Matrix
+
+| Category | Invariant | Current anchor suites | Required new integration anchor | Responsibility modules | Required-mode threshold |
+| --- | --- | --- | --- | --- | --- |
+| `SECURITY_REGRESSION` | trust/policy/approval 决策必须在工具调用前生效，并保持 `allow/deny/approve_required` 语义稳定 | `tests/unit/test_dare_agent_security_boundary.py`, `tests/unit/test_transport_adapters.py`, `tests/unit/test_examples_cli.py`, `tests/unit/test_examples_cli_mcp.py` | `tests/integration/test_p0_conformance_gate.py` 中 security gate 场景，至少覆盖 `allow`, `deny`, `approve_required` 三条主链路 | `dare_framework/security/*`, `dare_framework/tool/_internal/governed_tool_gateway.py`, `dare_framework/transport/_internal/adapters.py`, `examples/05-dare-coding-agent-enhanced/cli.py`, `examples/06-dare-coding-agent-mcp/cli.py` | gate 选中的 security anchors 单次运行 `100%` 通过；任何未分类 security 失败都阻止升为 required |
+| `STEP_EXEC_REGRESSION` | `step_driven` 执行必须保持按序执行、失败即停、并继续受安全策略约束 | `tests/unit/test_dare_agent_step_driven_mode.py` | `tests/integration/test_p0_conformance_gate.py` 中 step-driven 闭环场景，至少覆盖 happy path 与 fail-fast path | `dare_framework/agent/dare_agent.py`, `dare_framework/agent/_internal/execute_engine.py`, `dare_framework/plan/*` | gate 选中的 step-driven anchors 单次运行 `100%` 通过；任何顺序漂移或失败后继续执行都归为 blocker |
+| `AUDIT_CHAIN_REGRESSION` | 默认 SQLite event log 的 append/hash-chain/replay 必须持续可验证，保证审计链可追溯 | `tests/unit/test_event_sqlite_event_log.py`, `tests/unit/test_builder_security_boundary.py` 中 default event log replay 覆盖 | `tests/integration/test_p0_conformance_gate.py` 中 audit 场景，至少覆盖 hash-chain verify 与 replay anchor | `dare_framework/event/_internal/sqlite_event_log.py`, `dare_framework/event/kernel.py`, `dare_framework/observability/_internal/event_trace_bridge.py`, builder wiring | gate 选中的 audit anchors 单次运行 `100%` 通过；任何 hash mismatch / replay 漏字段都阻止升为 required |
+
+## CI Summary Contract
+
+`p0-gate` 的标准 summary 采用按 category 分段的稳定文本格式，至少包含：
+- gate 总体状态：`PASS` / `FAIL`
+- category label
+- failing test identifiers
+- primary modules
+- 建议先排查的入口
+
+最小格式：
+
+```text
+p0-gate: FAIL
+- SECURITY_REGRESSION
+  tests: tests/integration/test_p0_conformance_gate.py::test_security_gate_blocks_merge
+  modules: dare_framework/security, dare_framework/tool/_internal/governed_tool_gateway.py
+  action: inspect trust/policy/approval flow before tool invocation
+```
+
+如果全部通过，则 summary 必须至少输出：
+
+```text
+p0-gate: PASS
+- SECURITY_REGRESSION: 0 failures
+- STEP_EXEC_REGRESSION: 0 failures
+- AUDIT_CHAIN_REGRESSION: 0 failures
+```
+
 ## Risks / Trade-offs
 
 - [Risk] 新门禁增加 CI 时长，影响迭代速度。  

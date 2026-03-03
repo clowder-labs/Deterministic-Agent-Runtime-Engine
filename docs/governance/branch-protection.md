@@ -30,6 +30,11 @@ If your GitHub plan supports merge queue:
 - Phase 1 (now, required): `lint`, `build`
 - Phase 2 (observe first, then required): `smoke-tests`
 - Phase 3 (after 1-2 stable weeks, then required): `risk-matrix`, `test-skip-guard`, `lockfile-policy`
+- Phase 4 (planned after `p0-conformance-gate` lands): `p0-gate`
+  - workflow entrypoint: `.github/workflows/ci-gate.yml` job `p0-gate` runs `python scripts/ci/p0_gate.py`
+  - promotion threshold: security / step-driven / audit category anchors all green in the same run
+  - summary contract: `p0-gate` must emit deterministic category labels and failing test/module pointers before it can become a required branch check
+  - repo-admin action: after this change merges, add `p0-gate` to the protected-branch required checks list / ruleset
 
 ## Fallback if Merge Queue Is Unavailable
 Use pre-merge combined checks:

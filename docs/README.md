@@ -42,6 +42,7 @@
    ├── guides/Development_Constraints.md (开发约束清单)
    ├── guides/Documentation_First_Development_SOP.md (文档先行 SOP，Bug/Feature/Refactor 必走)
    ├── guides/Evidence_Truth_Implementation_Strategy.md (Evidence Truth 固化策略与 CI 落地计划)
+   ├── guides/P0_Gate_Runbook.md (P0 gate 本地运行、发布归档、flaky 处理操作手册)
    ├── governance/Documentation_Management_Model.md (文档目录分层、生命周期、OpenSpec/TODO 双模式协作)
    ├── features/README.md (特性聚合文档规范与归档规则)
    └── design/Design_Doc_Minimum_Standard.md (设计文档最小完备标准)
@@ -97,6 +98,7 @@
 | `guides/Development_Constraints.md` | 开发约束：架构不破坏、测试必备、日志/命名/复用/信任边界等硬性要求 |
 | `guides/Documentation_First_Development_SOP.md` | 文档先行 SOP：先设计文档、再 gap 分析、再 TODO、再 OpenSpec 修复、再归档 |
 | `guides/Evidence_Truth_Implementation_Strategy.md` | Evidence Truth 固化策略：证据结构、审计要求、CI 分阶段落地 |
+| `guides/P0_Gate_Runbook.md` | P0 gate 操作手册：本地执行、失败分诊、发布归档、flaky 策略 |
 | `governance/Documentation_Management_Model.md` | 文档管理模型：目录分层、文档类型规则、生命周期依赖、OpenSpec/无 OpenSpec 协作 |
 | `features/README.md` | 特性聚合文档规范：单一状态源、证据回写与归档迁移 |
 | `guides/Team_Agent_Collab_Playbook.md` | 团队并行开发协作手册，含 spec-driven 认领粒度与 execution board 规则 |

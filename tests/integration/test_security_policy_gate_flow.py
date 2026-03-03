@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,12 @@ class _TwoStepModel:
 
 
 class _RecordingGateway:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        risk_level: str = "non_idempotent_effect",
+        requires_approval: bool = False,
+    ) -> None:
         self.invoke_calls: list[dict[str, Any]] = []
         self._descriptor = CapabilityDescriptor(
             id="run_command",
@@ -49,8 +55,8 @@ class _RecordingGateway:
             description="Run shell command",
             input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
             metadata={
-                "risk_level": "non_idempotent_effect",
-                "requires_approval": False,
+                "risk_level": risk_level,
+                "requires_approval": requires_approval,
             },
         )
 
@@ -101,3 +107,54 @@ async def test_high_risk_tool_invocation_must_pass_policy_gate(tmp_path: Path) -
 
     assert result.success is True
     assert len(gateway.invoke_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_read_only_tool_invocation_bypasses_pending_approval(tmp_path: Path) -> None:
+    approval_manager = ToolApprovalManager(
+        workspace_store=JsonApprovalRuleStore(tmp_path / "workspace" / "approvals.json"),
+        user_store=JsonApprovalRuleStore(tmp_path / "user" / "approvals.json"),
+    )
+    gateway = _RecordingGateway(risk_level="read_only")
+    agent = DareAgent(
+        name="security-policy-gate-flow-allow",
+        model=_TwoStepModel(),
+        context=Context(config=Config()),
+        tool_gateway=gateway,
+        approval_manager=approval_manager,
+        security_boundary=PolicySecurityBoundary(),
+    )
+
+    result = await agent("run read only tool")
+
+    assert result.success is True
+    assert len(gateway.invoke_calls) == 1
+    assert approval_manager.list_pending() == []
+
+
+@pytest.mark.asyncio
+async def test_denied_capability_blocks_tool_before_invocation(tmp_path: Path) -> None:
+    approval_manager = ToolApprovalManager(
+        workspace_store=JsonApprovalRuleStore(tmp_path / "workspace" / "approvals.json"),
+        user_store=JsonApprovalRuleStore(tmp_path / "user" / "approvals.json"),
+    )
+    gateway = _RecordingGateway(risk_level="read_only")
+    agent = DareAgent(
+        name="security-policy-gate-flow-deny",
+        model=_TwoStepModel(),
+        context=Context(config=Config()),
+        tool_gateway=gateway,
+        approval_manager=approval_manager,
+        security_boundary=PolicySecurityBoundary(deny_capability_ids={"run_command"}),
+    )
+
+    result = await agent("run denied tool")
+
+    tool_messages = [msg for msg in agent._context.stm_get() if msg.role == "tool"]  # noqa: SLF001
+    assert tool_messages
+    tool_payload = json.loads(tool_messages[-1].content)
+    assert tool_payload.get("status") == "not_allow"
+    assert tool_payload.get("success") is False
+    assert gateway.invoke_calls == []
+    assert approval_manager.list_pending() == []
+    assert result.success is True
