@@ -215,6 +215,30 @@ async def test_revise_current_plan_preserves_done_steps_by_step_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_revise_current_plan_rejects_duplicate_step_ids() -> None:
+    state = PlannerState(
+        plan_description="initial",
+        steps=[Step(step_id="s1", description="first")],
+        plan_status="in_progress",
+        plan_validated=True,
+    )
+    revise_tool = ReviseCurrentPlanTool(state)
+
+    result = await revise_tool.execute(
+        run_context=_run_context(),
+        steps=[
+            {"step_id": "s2", "description": "second"},
+            {"step_id": "s2", "description": "second duplicate"},
+        ],
+    )
+
+    assert result.success is False
+    assert isinstance(result.error, str)
+    assert "duplicate step_id" in result.error
+    assert [step.step_id for step in state.steps] == ["s1"]
+
+
+@pytest.mark.asyncio
 async def test_revise_current_plan_handles_dict_backed_steps() -> None:
     state = PlannerState(
         plan_description="initial",

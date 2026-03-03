@@ -437,6 +437,22 @@ class ReviseCurrentPlanTool(ITool):
             self._state.plan_description = str(plan_description)
 
         if steps is not None:
+            seen_step_ids: set[str] = set()
+            duplicate_step_ids: set[str] = set()
+            for raw_step in steps:
+                step_id = str(raw_step.get("step_id", "")).strip()
+                if not step_id:
+                    continue
+                if step_id in seen_step_ids:
+                    duplicate_step_ids.add(step_id)
+                seen_step_ids.add(step_id)
+            if duplicate_step_ids:
+                duplicates = sorted(duplicate_step_ids)
+                return ToolResult(
+                    success=False,
+                    output=None,
+                    error=f"duplicate step_id values are not allowed: {duplicates}",
+                )
             old_by_id = {
                 step_id: ("done" if _is_step_completed(self._state, step) else _step_state(step))
                 for step in self._state.steps
