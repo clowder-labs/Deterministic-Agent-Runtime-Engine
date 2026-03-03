@@ -90,6 +90,11 @@
 - `docs/features/<change-id>.md`（或 fallback 的 `<topic-slug>.md`）必须按 Evidence Truth 模板回写：
   - `Commands`
   - `Results`
+  - `Contract Delta`（schema/error semantics/retry，均可为变更或 none/n.a + reason）
+  - `Golden Cases`（新增/更新文件名）
+  - `Regression Summary`（runner 输出摘要）
+  - `Observability and Failure Localization`（start/tool_call/end/fail + locator 字段）
+  - `Structured Review Report`
   - `Behavior Verification`（happy path + error branch）
   - `Risks and Rollback`
   - `Review and Merge Gate Links`

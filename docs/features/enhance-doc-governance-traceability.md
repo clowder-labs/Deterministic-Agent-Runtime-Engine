@@ -3,7 +3,7 @@ change_ids: ["enhance-doc-governance-traceability"]
 doc_kind: feature
 topics: ["documentation-governance", "traceability", "skills"]
 created: 2026-02-28
-updated: 2026-02-28
+updated: 2026-03-02
 status: active
 mode: openspec
 ---
@@ -35,9 +35,38 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - `openspec status --change enhance-doc-governance-traceability --json`
 
 ### Results
-- governance-evidence-truth: passed.
-- validate: passed (all changes validated).
-- status: `isComplete: true` for `enhance-doc-governance-traceability`.
+- `check_governance_evidence_truth.sh`: pass.
+- `openspec validate`: pass.
+- `openspec status`: pass, `isComplete: true`.
+
+### Contract Delta
+- `schema`: evidence contract now requires a full acceptance-pack layout in every active feature doc (`Contract Delta`, `Golden Cases`, `Regression Summary`, `Observability and Failure Localization`, `Structured Review Report`).
+- `error semantics`: no runtime API `error_code` enum change; this gate now accepts framework-native error semantics (`error_code`/`error_type`/`exception_class`/`ToolResult.error`) and blocks missing declarations.
+- `retry`: CI retry does not bypass policy checks; rerun only after evidence/doc fixes, with no semantic downgrade on retry.
+
+### Golden Cases
+- Updated evidence contract baseline: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
+- Added acceptance-pack canonical spec: `docs/governance/Acceptance_Pack_Spec.md`.
+- Updated PR authoring baseline: `.github/pull_request_template.md`.
+
+### Regression Summary
+- Runner commands:
+  - `./scripts/ci/check_governance_evidence_truth.sh`
+  - `openspec validate --changes enhance-doc-governance-traceability`
+  - `openspec status --change enhance-doc-governance-traceability --json`
+- Summary: pass 3, fail 0, skip 0.
+
+### Observability and Failure Localization
+- Event chain coverage includes `start`, `tool_call`, `end`, and `fail` events for traceable execution lifecycle.
+- Failure localization fields required for triage and review are: `run_id`, `tool_call_id`, `capability_id`, `attempt`, `trace_id`, plus at least one error locator (`error_code`/`error_type`/`exception_class`/`ToolResult.error`).
+- Gate failures must emit enough context to locate the exact document/section mismatch without full code deep-dive.
+
+### Structured Review Report
+- Changed Module Boundaries / Public API: governance scope only; no new runtime public API added.
+- New State: no new cache/global/singleton runtime state; only documentation governance state tightened.
+- Concurrency / Timeout / Retry: no new concurrent runtime path; retry policy is documentation gate rerun after fixes, with unchanged timeout semantics.
+- Side Effects and Idempotency: side effects are limited to docs/CI gate outputs; idempotency relies on deterministic section checks and repeatable command outputs.
+- Coverage and Residual Risk: governance evidence and OpenSpec validation are covered; residual risk is false positives from regex-based checks when section names drift from canonical wording.
 
 ### Behavior Verification
 - Happy path: governance flow remains `analysis -> master TODO -> OpenSpec slice execution` with docs as canonical source.
@@ -48,6 +77,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - Rollback: keep contract wording changes, temporarily downgrade new CI gate checks to warning if false positives block delivery.
 
 ### Review and Merge Gate Links
+- Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126`
+- Implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/137`
 - Review request: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976690386`
 - Key owner feedback: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976707233`
 - Active fix threads:
