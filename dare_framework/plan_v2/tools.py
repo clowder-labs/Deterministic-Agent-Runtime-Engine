@@ -882,12 +882,7 @@ class SubAgentTool(ITool):
             if self._state and self._state.steps:
                 self._state.sync_completed_step_ids()
                 completed = sorted(self._state.completed_step_ids)
-                pending = [
-                    step_id
-                    for s in self._state.steps
-                    if _step_state(s) in _PENDING_STATES
-                    if (step_id := _step_id(s)) is not None
-                ]
+                pending = [step_id for s in _pending_steps(self._state) if (step_id := _step_id(s)) is not None]
                 progress = f"Completed: {completed}. Pending: {pending}."
                 if isinstance(result, dict):
                     output = {**result, "progress": progress}

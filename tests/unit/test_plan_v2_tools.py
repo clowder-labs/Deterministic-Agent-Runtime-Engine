@@ -376,3 +376,45 @@ async def test_sub_agent_tool_blocks_legacy_completed_step_delegation() -> None:
     assert isinstance(result.error, str)
     assert "terminal" in result.error
     assert _DummyAgent.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_sub_agent_tool_progress_excludes_legacy_completed_steps_from_pending() -> None:
+    class _LegacyStep:
+        def __init__(self, step_id: str, description: str) -> None:
+            self.step_id = step_id
+            self.description = description
+            self.params = {}
+
+    class _DummyAgent:
+        async def run(self, message: str, **kwargs: object) -> dict[str, str]:
+            _ = message
+            _ = kwargs
+            return {"ok": "true"}
+
+    state = PlannerState(
+        plan_description="legacy-progress",
+        steps=[
+            _LegacyStep(step_id="s1", description="legacy done"),
+            Step(step_id="s2", description="active step"),
+        ],
+        plan_status="in_progress",
+        plan_validated=True,
+    )
+    state.completed_step_ids = {"s1"}
+    registry = SubAgentRegistry()
+    registry.register("worker", "test worker", _DummyAgent)
+    tool = SubAgentTool(registry, "worker", state)
+
+    result = await tool.execute(
+        run_context=_run_context(),
+        task="execute active step",
+        step_id="s2",
+    )
+
+    assert result.success is True
+    assert isinstance(result.output, dict)
+    progress = result.output.get("progress")
+    assert isinstance(progress, str)
+    assert "Completed: ['s1', 's2']" in progress
+    assert "Pending: []" in progress
