@@ -191,6 +191,45 @@ mode: openspec
         self.assertEqual(result.returncode, 0)
         self.assertIn("passed", result.stdout)
 
+    def test_active_fenced_optional_heading_does_not_trigger_contract_checks(self) -> None:
+        active_doc = """---
+change_ids: ["fixture-change"]
+doc_kind: feature
+status: active
+mode: openspec
+---
+
+# Feature: fixture-change
+
+## Evidence
+### Commands
+```bash
+echo begin
+### Contract Delta
+echo still in command output
+```
+- `pytest -q`
+
+### Results
+- pass
+
+### Behavior Verification
+- Happy path and known error branch are tracked at intent level.
+
+### Risks and Rollback
+- Risk: implementation evidence pending until in_review phase.
+- Rollback: keep active scope as docs-only until implementation starts.
+
+### Review and Merge Gate Links
+- Slice intent PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/141
+- Slice implementation PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145
+- Review thread: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/145#discussion_r2872038646
+"""
+        result = self._run_gate_with_doc(active_doc)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
+
     def test_in_review_requires_contract_delta_section(self) -> None:
         doc = _base_doc(status="in_review")
         doc = doc.replace(
@@ -226,6 +265,21 @@ mode: openspec
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Intent PR marker must include a valid GitHub PR link", result.stdout)
+
+    def test_marker_pr_number_prefers_url_bearing_marker_lines(self) -> None:
+        doc = _base_doc(status="in_review")
+        doc = doc.replace(
+            "- Intent PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/120",
+            "- Intent PR merged before implementation: yes.\n- Intent PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/120",
+        )
+        doc = doc.replace(
+            "- Implementation PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/121",
+            "- Implementation PR validation status: complete.\n- Implementation PR: https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/121",
+        )
+        result = self._run_gate_with_doc(doc)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("passed", result.stdout)
 
     def test_error_message_only_is_not_accepted_as_error_locator(self) -> None:
         observability_body = (

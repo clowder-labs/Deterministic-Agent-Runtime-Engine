@@ -370,9 +370,12 @@ dimension_none_without_reason() {
 extract_pr_number_for_marker() {
   local section="$1"
   local marker_pattern="$2"
-  local marker_line pr_url
-  marker_line="$(grep -Ei -- "$marker_pattern" <<<"$section" | head -n 1 || true)"
-  pr_url="$(grep -Eo 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' <<<"$marker_line" | head -n 1 || true)"
+  local pr_url
+  pr_url="$(
+    grep -Ei -- "$marker_pattern" <<<"$section" \
+      | grep -Eo 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+' \
+      | head -n 1 || true
+  )"
   if [[ -z "$pr_url" ]]; then
     echo ""
     return
@@ -450,11 +453,11 @@ check_feature_doc() {
     structured_review_heading="$(resolve_heading_in_section "$evidence_section" '^###[[:space:]]+(Structured Review Report|Structured Review)[[:space:]]*$')"
     require_heading_found "$structured_review_heading" "Structured Review Report subsection" "Evidence section"
   else
-    contract_heading="$(grep -Ei '^###[[:space:]]+(Contract Delta|Contract Changes?)[[:space:]]*$' <<<"$evidence_section" | head -n 1 || true)"
-    golden_heading="$(grep -Ei '^###[[:space:]]+(Golden Cases?|Golden Files?)[[:space:]]*$' <<<"$evidence_section" | head -n 1 || true)"
-    regression_heading="$(grep -Ei '^###[[:space:]]+(Regression Summary|Regression Results?)[[:space:]]*$' <<<"$evidence_section" | head -n 1 || true)"
-    observability_heading="$(grep -Ei '^###[[:space:]]+(Observability( and Failure Localization)?|Failure Localization)[[:space:]]*$' <<<"$evidence_section" | head -n 1 || true)"
-    structured_review_heading="$(grep -Ei '^###[[:space:]]+(Structured Review Report|Structured Review)[[:space:]]*$' <<<"$evidence_section" | head -n 1 || true)"
+    contract_heading="$(resolve_heading_in_section "$evidence_section" '^###[[:space:]]+(Contract Delta|Contract Changes?)[[:space:]]*$')"
+    golden_heading="$(resolve_heading_in_section "$evidence_section" '^###[[:space:]]+(Golden Cases?|Golden Files?)[[:space:]]*$')"
+    regression_heading="$(resolve_heading_in_section "$evidence_section" '^###[[:space:]]+(Regression Summary|Regression Results?)[[:space:]]*$')"
+    observability_heading="$(resolve_heading_in_section "$evidence_section" '^###[[:space:]]+(Observability( and Failure Localization)?|Failure Localization)[[:space:]]*$')"
+    structured_review_heading="$(resolve_heading_in_section "$evidence_section" '^###[[:space:]]+(Structured Review Report|Structured Review)[[:space:]]*$')"
   fi
 
   if [[ -n "$contract_heading" ]]; then
