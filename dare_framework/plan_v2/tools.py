@@ -433,9 +433,6 @@ class ReviseCurrentPlanTool(ITool):
         if plan_description is None and steps is None:
             return ToolResult(success=False, output=None, error="no revision payload provided")
 
-        if plan_description is not None:
-            self._state.plan_description = str(plan_description)
-
         if steps is not None:
             seen_step_ids: set[str] = set()
             duplicate_step_ids: set[str] = set()
@@ -475,6 +472,9 @@ class ReviseCurrentPlanTool(ITool):
                 )
             self._state.steps = revised_steps
             self._state.sync_completed_step_ids()
+
+        if plan_description is not None:
+            self._state.plan_description = str(plan_description)
 
         self._state.plan_validated = False
         self._state.plan_status = "todo"
