@@ -71,6 +71,7 @@ class ModelResponse:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    thinking_content: str | None = None
 
 
 @dataclass(frozen=True)

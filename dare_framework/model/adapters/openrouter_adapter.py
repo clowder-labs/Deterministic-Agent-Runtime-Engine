@@ -90,6 +90,7 @@ class OpenRouterModelAdapter(IModelAdapter):
         message = response.choices[0].message
         content = message.content or ""
         tool_calls = _extract_tool_calls(message)
+        thinking_content = _extract_thinking_content(message)
 
         usage = None
         if response.usage:
@@ -98,11 +99,17 @@ class OpenRouterModelAdapter(IModelAdapter):
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             }
+        reasoning_tokens = _extract_reasoning_tokens(response)
+        if reasoning_tokens is not None:
+            if usage is None:
+                usage = {}
+            usage["reasoning_tokens"] = reasoning_tokens
 
         return ModelResponse(
             content=content,
             tool_calls=tool_calls,
             usage=usage,
+            thinking_content=thinking_content,
             metadata={
                 "model": self._model,
                 "finish_reason": response.choices[0].finish_reason,
@@ -218,6 +225,77 @@ def _build_async_http_client(options: dict[str, Any]) -> Any | None:
         return httpx.AsyncClient(**options)
     except Exception:
         return None
+
+
+def _extract_thinking_content(message: Any) -> str | None:
+    """Extract reasoning text from OpenRouter message payload variants."""
+    for attr in ("reasoning_content", "reasoning", "thinking"):
+        text = _coerce_text(getattr(message, attr, None))
+        if text:
+            return text
+
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        for key in ("reasoning_content", "reasoning", "thinking"):
+            text = _coerce_text(additional_kwargs.get(key))
+            if text:
+                return text
+
+    model_extra = getattr(message, "model_extra", None)
+    if isinstance(model_extra, dict):
+        for key in ("reasoning_content", "reasoning", "thinking"):
+            text = _coerce_text(model_extra.get(key))
+            if text:
+                return text
+    return None
+
+
+def _extract_reasoning_tokens(response: Any) -> int | None:
+    """Extract reasoning token count from OpenRouter/OpenAI-compatible usage."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    candidates: list[Any] = [
+        getattr(usage, "reasoning_tokens", None),
+        _get_nested_value(getattr(usage, "completion_tokens_details", None), "reasoning_tokens"),
+        _get_nested_value(getattr(usage, "output_tokens_details", None), "reasoning_tokens"),
+        _get_nested_value(getattr(usage, "output_tokens_details", None), "reasoning"),
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            return int(candidate)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _get_nested_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _coerce_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, dict):
+        for key in ("text", "content", "reasoning", "thinking"):
+            text = _coerce_text(value.get(key))
+            if text:
+                return text
+        return None
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            text = _coerce_text(item)
+            if text:
+                parts.append(text)
+        if parts:
+            return "\n".join(parts)
+    return None
 
 
 __all__ = ["OpenRouterModelAdapter"]

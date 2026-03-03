@@ -193,6 +193,23 @@ async def test_stdio_receiver_uses_event_type_without_legacy_payload_type(capsys
 
 
 @pytest.mark.asyncio
+async def test_stdio_receiver_renders_status_phase_from_structured_resp(capsys) -> None:
+    channel = StdioClientChannel()
+    receiver = channel.agent_envelope_receiver()
+    await receiver(
+        TransportEnvelope(
+            id="evt-status-phase",
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.STATUS.value,
+            payload={"resp": {"phase": "running"}},
+        )
+    )
+    captured = capsys.readouterr()
+    assert "running" in captured.out
+    assert "approval update" not in captured.out
+
+
+@pytest.mark.asyncio
 async def test_stdio_receiver_does_not_route_by_payload_type_without_event_type(capsys) -> None:
     channel = StdioClientChannel()
     receiver = channel.agent_envelope_receiver()
@@ -212,3 +229,28 @@ async def test_stdio_receiver_does_not_route_by_payload_type_without_event_type(
     captured = capsys.readouterr()
     assert "Assistant: {'type': 'result'" in captured.out
     assert "Assistant: hello" not in captured.out
+
+
+@pytest.mark.asyncio
+async def test_stdio_receiver_handles_canonical_thinking_event(capsys) -> None:
+    channel = StdioClientChannel()
+    receiver = channel.agent_envelope_receiver()
+
+    await receiver(
+        TransportEnvelope(
+            id="evt-thinking",
+            kind=EnvelopeKind.MESSAGE,
+            event_type=TransportEventType.THINKING.value,
+            payload={
+                "kind": "message",
+                "target": "model",
+                "ok": True,
+                "resp": {
+                    "output": "need tool data",
+                },
+            },
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert "Assistant: need tool data" in captured.out

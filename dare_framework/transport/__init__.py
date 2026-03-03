@@ -2,6 +2,7 @@
 
 from dare_framework.transport.interfaces import AgentChannel, ClientChannel, PollableClientChannel
 from dare_framework.transport.types import (
+    canonicalize_transport_event_type,
     EnvelopeKind,
     TransportEventType,
     TransportEnvelope,
@@ -29,6 +30,7 @@ __all__ = [
     "EnvelopeKind",
     "TransportEventType",
     "TransportEnvelope",
+    "canonicalize_transport_event_type",
     "normalize_transport_event_type",
     "new_envelope_id",
     "Receiver",

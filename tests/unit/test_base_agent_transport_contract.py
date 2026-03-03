@@ -185,6 +185,22 @@ class _ErroringAgent(BaseAgent):
         raise RuntimeError("simulated model timeout")
 
 
+class _TransportLoopFlagProbeAgent(BaseAgent):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.observed_loop_state: dict[str, bool] = {}
+        self.loop_execution_started = asyncio.Event()
+        self.allow_loop_execution_finish = asyncio.Event()
+
+    async def execute(self, task: str | Any, *, transport: Any = None) -> RunResult:
+        task_text = task.description if hasattr(task, "description") else str(task)
+        self.observed_loop_state[task_text] = self._is_transport_loop_execution(transport=transport)
+        if task_text == "loop-task":
+            self.loop_execution_started.set()
+            await self.allow_loop_execution_finish.wait()
+        return RunResult(success=True, output=task_text, output_text=task_text)
+
+
 @pytest.mark.asyncio
 async def test_public_surface_uses_call_not_run() -> None:
     agent = _CaptureAgent("capture-agent")
@@ -273,3 +289,25 @@ async def test_transport_loop_returns_structured_error_when_execute_raises() -> 
     assert isinstance(payload, dict)
     assert payload.get("code") == "AGENT_EXECUTION_FAILED"
     assert "simulated model timeout" in str(payload.get("reason"))
+
+
+@pytest.mark.asyncio
+async def test_transport_loop_flag_is_task_local_for_concurrent_execute_calls() -> None:
+    agent = _TransportLoopFlagProbeAgent("probe-agent")
+    channel = _RecordingSendChannel()
+
+    polled_task = asyncio.create_task(
+        agent._execute_polled_message(
+            "loop-task",
+            channel=channel,
+            envelope_id="req_1",
+        )
+    )
+    await agent.loop_execution_started.wait()
+
+    await agent.execute("direct-task", transport=channel)
+    agent.allow_loop_execution_finish.set()
+    await polled_task
+
+    assert agent.observed_loop_state["loop-task"] is True
+    assert agent.observed_loop_state["direct-task"] is False

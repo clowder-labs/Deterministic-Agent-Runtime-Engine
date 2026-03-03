@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from dare_framework.context.types import Message
-from dare_framework.model.adapters.openrouter_adapter import _serialize_messages
+from dare_framework.model.adapters.openrouter_adapter import (
+    _extract_reasoning_tokens,
+    _extract_thinking_content,
+    _serialize_messages,
+)
 
 
 def test_serialize_messages_preserves_assistant_tool_calls() -> None:
@@ -56,3 +61,21 @@ def test_serialize_messages_preserves_assistant_tool_calls() -> None:
     assert tool_call["function"]["name"] == "ask_user"
     assert isinstance(tool_call["function"]["arguments"], str)
     assert serialized[2]["tool_call_id"] == "call_1"
+
+
+def test_extract_thinking_content_from_openrouter_message_fields() -> None:
+    message = SimpleNamespace(reasoning="step by step", reasoning_content=None, additional_kwargs={})
+    assert _extract_thinking_content(message) == "step by step"
+
+
+def test_extract_reasoning_tokens_from_completion_tokens_details() -> None:
+    response = SimpleNamespace(
+        usage=SimpleNamespace(
+            prompt_tokens=1,
+            completion_tokens=2,
+            total_tokens=3,
+            reasoning_tokens=None,
+            completion_tokens_details=SimpleNamespace(reasoning_tokens=7),
+        )
+    )
+    assert _extract_reasoning_tokens(response) == 7

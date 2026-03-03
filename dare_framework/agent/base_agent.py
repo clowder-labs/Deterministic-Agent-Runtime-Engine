@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 import contextlib
+from contextvars import ContextVar
 from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING, Any
@@ -237,9 +238,19 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         envelope_id: str | None,
     ) -> None:
         """Execute one polled message and send response envelope through channel."""
-        result = await self.execute(task, transport=channel)
+        # Keep transport-loop execution state task-local so concurrent execute() calls on
+        # the same agent instance do not leak loop state across tasks.
+        transport_loop_token = _TRANSPORT_LOOP_EXECUTION_CTX.set(True)
+        try:
+            result = await self.execute(task, transport=channel)
+        finally:
+            _TRANSPORT_LOOP_EXECUTION_CTX.reset(transport_loop_token)
         result = self._with_normalized_output_text(result)
         await self._send_transport_result(result, task=task, transport=channel, reply_to=envelope_id)
+
+    def _is_transport_loop_execution(self, *, transport: AgentChannel | None) -> bool:
+        """Return whether execute() is currently running under the transport loop."""
+        return bool(transport is not None and _TRANSPORT_LOOP_EXECUTION_CTX.get())
 
     def _with_normalized_output_text(self, result: RunResult) -> RunResult:
         """Ensure RunResult.output_text is filled for downstream consumers."""
@@ -355,6 +366,7 @@ class _NoOpAgentChannel:
 
 
 _NO_OP_AGENT_CHANNEL = _NoOpAgentChannel()
+_TRANSPORT_LOOP_EXECUTION_CTX: ContextVar[bool] = ContextVar("_transport_loop_execution", default=False)
 
 
 def _coerce_polled_envelopes(polled: Any) -> list[TransportEnvelope]:
