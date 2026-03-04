@@ -20,13 +20,13 @@
 |---|---|---|---|---|---|---|---|---|
 | CLM-20260302-AG1 | T5-2 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d2-d4-thinking-transport` | `CLM-20260302-D2D4` | D2/D4 已完成实现与回归，待补归档/门禁链接。 |
 | ~~CLM-20260302-AG2~~ | ~~T2-1~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-03~~ | ~~`agentscope-d5-safe-compression`~~ | ~~`CLM-20260302-D5`~~ | D5 已在 PR #136 合入；该历史 claim 已废弃，不再作为当前认领入口。 |
-| CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | `CLM-20260302-D7` | PR #138 已合入主干，D7 执行闭环完成。 |
-| ~~CLM-20260302-AG4~~ | ~~D1_a..D1_c, D3_a..D3_c（映射 T5-3）~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | ~~`CLM-20260302-D1D3`~~ | 历史聚合认领已废弃；后续以 AG6 子切片 claim 为准。 |
-| ~~CLM-20260303-AG5~~ | ~~D6_a..D6_c, D8_a..D8_c（关联 T5-4）~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | ~~`CLM-20260303-D6D8`~~ | 聚合占位 claim 已废弃；后续以 AG7 子切片 claim 为准。 |
-| CLM-20260304-AG6 | T5-3（D1_a~D1_c, D3_a~D3_c） |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | `CLM-20260304-D1S + CLM-20260304-D3S` | 已拆分未分配，详见 AgentScope Claim Ledger。 |
-| CLM-20260304-AG7 | T5-4（D6_a~D6_c, D8_a~D8_c） |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-D6S + CLM-20260304-D8S` | 已拆分未分配，详见 AgentScope Claim Ledger。 |
-| CLM-20260304-AG8 | T1-2_a~T1-2_c, T1-5_a~T1-5_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层高复杂切片已拆分，尚未分配负责人。 |
-| CLM-20260304-AG9 | T2-3_a~T2-3_b, T2-4_a~T2-4_b |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层治理切片已拆分，尚未分配负责人。 |
+| CLM-20260302-AG3 | T5-5（D7 子范围） | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | `CLM-20260302-D7` | PR #138 已合入主干，D7 子范围执行闭环完成。 |
+| ~~CLM-20260302-AG4~~ | ~~T5-3（历史聚合）~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | ~~`CLM-20260302-D1D3`~~ | 历史聚合认领已废弃；后续以 AG6（TODO 级 claim）为准。 |
+| ~~CLM-20260303-AG5~~ | ~~T5-4（历史聚合）~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | ~~`CLM-20260303-D6D8`~~ | 聚合占位 claim 已废弃；后续以 AG7（TODO 级 claim）为准。 |
+| CLM-20260304-AG6 | T5-3 |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | `CLM-20260304-D1 + CLM-20260304-D3` | TODO 级认领；切片仅在 AgentScope 详细区维护。 |
+| CLM-20260304-AG7 | T5-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-D6 + CLM-20260304-D8` | TODO 级认领；切片仅在 AgentScope 详细区维护。 |
+| CLM-20260304-AG8 | T1-2 + T1-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层高复杂 TODO 组待分配；切片见详细拆分区。 |
+| CLM-20260304-AG9 | T2-3 + T2-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层治理 TODO 组待分配；切片见详细拆分区。 |
 | CLM-20260304-AG10 | T0-6 | lang | active | 2026-03-04 | 2026-03-11 | `pending` | `—` | 下一项 fix：P0 红灯且无上游依赖，先修复 `search_file` 路径契约回归。 |
 | CLM-20260304-AG11 | T0-4 + T0-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P0 未完成项补齐认领声明：facade 合规修复与失败映射责任化待分配。 |
 | CLM-20260304-AG12 | T1-3 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P1 未完成项补齐认领声明：`ISecurityBoundary` 接入待分配。 |
