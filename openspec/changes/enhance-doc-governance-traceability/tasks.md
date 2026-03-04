@@ -28,9 +28,12 @@
 
 - [x] 3.1 Implement or extend CI checks to validate aggregation entry existence when governance-scoped files change.
   Evidence: `scripts/ci/check_governance_traceability.sh`, `tests/unit/test_governance_traceability_gate.py`, and `.github/workflows/ci-gate.yml`.
-- [ ] 3.2 Implement or extend CI checks to validate required frontmatter fields for governance-tracked docs.
-- [ ] 3.3 Implement or extend CI checks to validate gap/TODO -> OpenSpec task mapping completeness.
-- [ ] 3.4 Implement or extend CI checks to validate master TODO -> OpenSpec change-slice mapping consistency.
+- [x] 3.2 Implement or extend CI checks to validate required frontmatter fields for governance-tracked docs.
+  Evidence: `scripts/ci/check_governance_traceability.sh` now validates required frontmatter on the governance baseline standard/design docs plus all concrete `docs/todos/**/*.md` records, and the corresponding docs now declare canonical frontmatter blocks.
+- [x] 3.3 Implement or extend CI checks to validate gap/TODO -> OpenSpec task mapping completeness.
+  Evidence: `scripts/ci/check_governance_traceability.sh` now requires active feature docs with `todo_ids` to be covered by a `## TODO Coverage` section in their tasks artifact; `openspec/changes/agentscope-d2-d4-thinking-transport/tasks.md` provides the pilot coverage mapping and `tests/unit/test_governance_traceability_gate.py` locks the contract.
+- [x] 3.4 Implement or extend CI checks to validate master TODO -> OpenSpec change-slice mapping consistency.
+  Evidence: `scripts/ci/check_governance_traceability.sh` now resolves Claim Ledger / slice-plan change targets back to concrete feature docs and tasks artifacts, while skipping `planned` placeholder claims; `tests/unit/test_governance_traceability_gate.py` covers stale slice target failures.
 - [x] 3.5 Implement evidence truth structural gate (`scripts/ci/check_governance_evidence_truth.sh`) and wire it into `ci-gate`.
   Evidence: `scripts/ci/check_governance_evidence_truth.sh`, `tests/unit/test_governance_evidence_truth_gate.py`, and `.github/workflows/ci-gate.yml`.
 

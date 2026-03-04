@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: analysis
+topics: ["design-review", "gap-analysis", "architecture"]
+created: 2026-02-27
+updated: 2026-03-04
+status: active
+---
+
 # 2026-02-27 全量设计文档 Review：Design/Code Gap Analysis（第二轮刷新）
 
 > 类型：完整评审（非最小补充）  

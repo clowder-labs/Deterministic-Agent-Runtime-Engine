@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: analysis
+topics: ["design-reconstructability", "gap-analysis", "governance"]
+created: 2026-02-27
+updated: 2026-03-04
+status: active
+---
+
 # 2026-02-27 设计文档可重建性 Gap 分析（P0/P1，闭环回写版）
 
 > 目标：评估“仅保留 docs 资产，能否重建当前实现主能力”。  

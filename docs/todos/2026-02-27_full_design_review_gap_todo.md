@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: todo
+topics: ["design-review", "todo", "architecture"]
+created: 2026-02-27
+updated: 2026-03-04
+status: active
+---
+
 # 2026-02-27 全量设计文档 Review：TODO 清单（第二轮刷新）
 
 > 来源：`docs/todos/2026-02-27_full_design_review_gap_analysis.md`  

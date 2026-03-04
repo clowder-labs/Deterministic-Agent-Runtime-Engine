@@ -166,6 +166,17 @@ extract_markdown_section_matching() {
   ' "$file"
 }
 
+extract_first_markdown_table_from_section_matching() {
+  local file="$1"
+  local pattern="$2"
+  awk -v pattern="$pattern" '
+    $0 ~ /^##[[:space:]]+/ && $0 ~ pattern {in_section=1; next}
+    in_section && /^##[[:space:]]+/ {exit}
+    in_section && $0 ~ /^\|/ {in_table=1; print; next}
+    in_table {exit}
+  ' "$file"
+}
+
 escape_extended_regex() {
   printf '%s' "$1" | sed -E 's/[][(){}.^$*+?|\\/]/\\&/g'
 }
@@ -275,7 +286,7 @@ claim_ledger_has_tokens_in_same_record() {
     if [[ -n "$scope_field" ]] && scope_contains_todo_id "$scope_field" "$first_token"; then
       return 0
     fi
-  done < <(extract_markdown_section_matching "$file" "Claim Ledger")
+  done < <(extract_first_markdown_table_from_section_matching "$file" "Claim Ledger")
 
   return 1
 }
@@ -380,10 +391,173 @@ check_checkpoint_skill_mapping() {
   fi
 }
 
+check_governance_doc_frontmatter() {
+  local file="$1"
+  local expected_doc_kind="$2"
+  local frontmatter key actual_doc_kind mode
+
+  frontmatter="$(extract_frontmatter "$file")"
+  if [[ -z "$frontmatter" ]]; then
+    log "missing frontmatter in $file"
+    failures=$((failures + 1))
+    return
+  fi
+
+  for key in change_ids doc_kind topics created updated status; do
+    if [[ -z "$(frontmatter_scalar "$frontmatter" "$key")" ]]; then
+      log "missing required frontmatter field '$key' in $file"
+      failures=$((failures + 1))
+    fi
+  done
+
+  actual_doc_kind="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "doc_kind")")"
+  if [[ -n "$expected_doc_kind" && "$actual_doc_kind" != "$expected_doc_kind" ]]; then
+    log "unexpected doc_kind in $file: expected $expected_doc_kind"
+    failures=$((failures + 1))
+  fi
+
+  mode="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "mode")")"
+  if [[ "$mode" == "todo_fallback" && -z "$(frontmatter_scalar "$frontmatter" "topic_slug")" ]]; then
+    log "missing required frontmatter field 'topic_slug' in $file"
+    failures=$((failures + 1))
+  fi
+}
+
+check_governance_tracked_frontmatter() {
+  local file expected_doc_kind
+
+  for file in \
+    docs/governance/Documentation_Management_Model.md \
+    docs/guides/Documentation_First_Development_SOP.md \
+    docs/guides/Development_Constraints.md \
+    docs/guides/Evidence_Truth_Implementation_Strategy.md; do
+    [[ -f "$file" ]] && check_governance_doc_frontmatter "$file" "standard"
+  done
+
+  if [[ -f "docs/design/Design_Reconstructability_Traceability_Matrix.md" ]]; then
+    check_governance_doc_frontmatter "docs/design/Design_Reconstructability_Traceability_Matrix.md" "design"
+  fi
+
+  while IFS= read -r file; do
+    expected_doc_kind="todo"
+    [[ "$file" == *"_gap_analysis.md" ]] && expected_doc_kind="analysis"
+    check_governance_doc_frontmatter "$file" "$expected_doc_kind"
+  done < <(find docs/todos -type f -name '*.md' ! -name 'README.md' ! -path 'docs/todos/templates/*' | sort)
+}
+
+normalize_table_cell() {
+  local value="$1"
+  value="${value//\`/}"
+  trim_whitespace "$value"
+}
+
+is_placeholder_change_id() {
+  local compact="${1//[[:space:]]/}"
+  case "$compact" in
+    ""|"N/A"|"n/a"|"pending"|"---"|"OpenSpecChange"|"PlannedOpenSpecChange"|"建议OpenSpecChange")
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+resolve_change_tasks_file() {
+  local change_id="$1"
+  if [[ -f "openspec/changes/$change_id/tasks.md" ]]; then
+    echo "openspec/changes/$change_id/tasks.md"
+    return 0
+  fi
+
+  if [[ ! -d "openspec/changes/archive" ]]; then
+    return 1
+  fi
+
+  find openspec/changes/archive -type f \
+    \( -path "*/$change_id/tasks.md" -o -path "*/????-??-??-$change_id/tasks.md" \) \
+    | head -n 1
+}
+
+resolve_feature_doc_file() {
+  local change_id="$1"
+  if [[ -f "docs/features/$change_id.md" ]]; then
+    echo "docs/features/$change_id.md"
+    return 0
+  fi
+  if [[ -f "docs/features/archive/$change_id.md" ]]; then
+    echo "docs/features/archive/$change_id.md"
+    return 0
+  fi
+  return 1
+}
+
+tasks_file_has_todo_coverage() {
+  local file="$1"
+  local todo_id="$2"
+  local line candidate
+
+  while IFS= read -r line; do
+    candidate="$(sed -E 's/^[[:space:]]*[-|][[:space:]]*//; s/`//g' <<<"$line")"
+    candidate="$(trim_whitespace "$candidate")"
+    [[ -z "$candidate" ]] && continue
+    if text_has_discrete_token "$candidate" "$todo_id"; then
+      return 0
+    fi
+    if scope_contains_todo_id "$candidate" "$todo_id"; then
+      return 0
+    fi
+  done < <(extract_markdown_section_matching "$file" "TODO Coverage")
+
+  return 1
+}
+
+check_todo_change_mapping_target() {
+  local source_file="$1"
+  local change_id="$2"
+
+  if is_placeholder_change_id "$change_id"; then
+    return
+  fi
+
+  if [[ -z "$(resolve_feature_doc_file "$change_id" || true)" ]]; then
+    log "missing feature aggregation doc for TODO change mapping in $source_file: $change_id"
+    failures=$((failures + 1))
+  fi
+
+  if [[ -z "$(resolve_change_tasks_file "$change_id" || true)" ]]; then
+    log "missing OpenSpec tasks artifact for TODO change mapping in $source_file: $change_id"
+    failures=$((failures + 1))
+  fi
+}
+
+check_master_todo_change_slice_mappings() {
+  local file line change_id status_value
+
+  while IFS= read -r file; do
+    while IFS= read -r line; do
+      [[ "$line" == \|* ]] || continue
+      status_value="$(awk -F'|' 'NF >= 6 {field=$5; gsub(/^[[:space:]]+|[[:space:]]+$/, "", field); print field}' <<<"$line")"
+      status_value="$(normalize_table_cell "$status_value")"
+      if [[ "$status_value" == "planned" ]]; then
+        continue
+      fi
+      change_id="$(awk -F'|' 'NF >= 9 {field=$8; gsub(/^[[:space:]]+|[[:space:]]+$/, "", field); print field}' <<<"$line")"
+      change_id="$(normalize_table_cell "$change_id")"
+      check_todo_change_mapping_target "$file" "$change_id"
+    done < <(extract_first_markdown_table_from_section_matching "$file" "Claim Ledger")
+
+    while IFS= read -r line; do
+      [[ "$line" == \|* ]] || continue
+      change_id="$(awk -F'|' 'NF >= 5 {field=$4; gsub(/^[[:space:]]+|[[:space:]]+$/, "", field); print field}' <<<"$line")"
+      change_id="$(normalize_table_cell "$change_id")"
+      check_todo_change_mapping_target "$file" "$change_id"
+    done < <(extract_first_markdown_table_from_section_matching "$file" "切片规划|Slice Plan")
+  done < <(find docs/todos -type f -name '*.md' ! -name 'README.md' ! -path 'docs/todos/templates/*' | sort)
+}
+
 check_feature_doc() {
   local file="$1"
   local frontmatter mode doc_kind key change_id todo_id matched candidate
-  local change_ids_raw todo_ids_raw
+  local change_ids_raw todo_ids_raw tasks_file task_checked task_covered
 
   frontmatter="$(extract_frontmatter "$file")"
   if [[ -z "$frontmatter" ]]; then
@@ -423,8 +597,7 @@ check_feature_doc() {
 
   while IFS= read -r change_id; do
     [[ -z "$change_id" ]] && continue
-    if [[ ! -f "openspec/changes/$change_id/tasks.md" ]] && \
-      ! find openspec/changes/archive -type f \( -path "*/$change_id/tasks.md" -o -path "*/????-??-??-$change_id/tasks.md" \) | grep -q .; then
+    if [[ -z "$(resolve_change_tasks_file "$change_id" || true)" ]]; then
       log "missing OpenSpec tasks artifact for change_id '$change_id' declared in $file"
       failures=$((failures + 1))
     fi
@@ -456,11 +629,31 @@ check_feature_doc() {
       log "missing TODO mapping for feature doc $file: $todo_id"
       failures=$((failures + 1))
     fi
+
+    task_checked=0
+    task_covered=0
+    while IFS= read -r change_id; do
+      [[ -z "$change_id" ]] && continue
+      tasks_file="$(resolve_change_tasks_file "$change_id" || true)"
+      [[ -z "$tasks_file" ]] && continue
+      task_checked=1
+      if tasks_file_has_todo_coverage "$tasks_file" "$todo_id"; then
+        task_covered=1
+        break
+      fi
+    done <<<"$change_ids_raw"
+
+    if [[ "$task_checked" -eq 1 && "$task_covered" -eq 0 ]]; then
+      log "missing TODO coverage in tasks artifact for feature doc $file: $todo_id"
+      failures=$((failures + 1))
+    fi
   done <<<"$todo_ids_raw"
 }
 
 check_feature_indexes
 check_checkpoint_skill_mapping
+check_governance_tracked_frontmatter
+check_master_todo_change_slice_mappings
 
 while IFS= read -r file; do
   check_feature_doc "$file"

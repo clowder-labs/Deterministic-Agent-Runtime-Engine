@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: todo
+topics: ["design-reconstructability", "todo", "governance"]
+created: 2026-02-27
+updated: 2026-03-04
+status: active
+---
+
 # 2026-02-27 可重建性 Gap TODO（P0/P1）
 
 > 来源：`docs/todos/2026-02-27_design_reconstructability_gap_analysis.md`  

@@ -1,3 +1,12 @@
+---
+change_ids: ["enhance-doc-governance-traceability"]
+doc_kind: standard
+topics: ["documentation-governance", "sop", "workflow"]
+created: 2026-02-28
+updated: 2026-03-04
+status: active
+---
+
 # 文档先行开发 SOP（强制执行）
 
 > 适用范围：本仓库所有开发活动（AI Agent + Human），包含 Bug 修复、新增 Feature、重构。  

@@ -1,3 +1,12 @@
+---
+change_ids: ["enhance-doc-governance-traceability"]
+doc_kind: standard
+topics: ["development-constraints", "governance", "workflow"]
+created: 2026-02-28
+updated: 2026-03-04
+status: active
+---
+
 # DARE 开发约束（面向 AI/Human 开发者）
 
 适用对象：在本仓库编写代码的所有开发者（含 Codex、Claude 等 AI Agent）。目标：在不破坏架构的前提下，产出简洁、可验证、可维护的代码。

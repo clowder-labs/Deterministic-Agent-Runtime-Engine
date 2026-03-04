@@ -1,3 +1,12 @@
+---
+change_ids: ["enhance-doc-governance-traceability"]
+doc_kind: standard
+topics: ["evidence-truth", "governance", "review"]
+created: 2026-02-28
+updated: 2026-03-04
+status: active
+---
+
 # Evidence Truth Implementation Strategy
 
 > Scope: Governance changes that use `docs/features/*.md` as aggregation entry documents.

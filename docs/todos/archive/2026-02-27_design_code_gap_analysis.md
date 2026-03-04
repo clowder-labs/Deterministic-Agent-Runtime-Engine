@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: analysis
+topics: ["design-code-gap", "analysis", "governance"]
+created: 2026-02-27
+updated: 2026-03-04
+status: archived
+---
+
 # 设计文档与代码实现 Gap 分析（基线）
 
 > 日期：2026-02-27  

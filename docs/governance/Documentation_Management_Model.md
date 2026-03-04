@@ -1,3 +1,12 @@
+---
+change_ids: ["enhance-doc-governance-traceability"]
+doc_kind: standard
+topics: ["documentation-governance", "traceability", "skills"]
+created: 2026-02-28
+updated: 2026-03-04
+status: active
+---
+
 # Documentation Management Model
 
 > Scope: Repository-wide documentation governance for design, analysis, feature lifecycle, standards, temporary notes, and archive.

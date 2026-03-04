@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: todo
+topics: ["design-code-gap", "todo", "governance"]
+created: 2026-02-27
+updated: 2026-03-04
+status: archived
+---
+
 # 设计-实现 Gap 修复 TODO（由 2026-02-27 分析生成）
 
 > 来源分析：`docs/todos/archive/2026-02-27_design_code_gap_analysis.md`  

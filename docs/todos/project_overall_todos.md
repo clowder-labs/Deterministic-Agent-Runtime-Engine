@@ -1,3 +1,12 @@
+---
+change_ids: []
+doc_kind: todo
+topics: ["project-roadmap", "governance", "todo"]
+created: 2026-02-25
+updated: 2026-03-04
+status: active
+---
+
 # DARE Framework 项目总体 TODO
 
 > 更新时间：2026-03-02  

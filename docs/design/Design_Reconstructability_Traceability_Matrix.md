@@ -1,3 +1,12 @@
+---
+change_ids: ["enhance-doc-governance-traceability"]
+doc_kind: design
+topics: ["design-reconstructability", "traceability", "governance"]
+created: 2026-02-27
+updated: 2026-03-04
+status: active
+---
+
 # 设计可重建性追踪矩阵（Doc -> Code -> Test）
 
 > 更新时间：2026-02-27  

@@ -51,6 +51,26 @@ mode: openspec
 - Review thread: https://github.com/example/repo/pull/2#discussion_r1
 """
 
+TODO_DOC_FRONTMATTER = """---
+change_ids: []
+doc_kind: todo
+topics: ["governance", "todo"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+"""
+
+STANDARD_DOC_FRONTMATTER = """---
+change_ids: ["demo-change"]
+doc_kind: standard
+topics: ["governance", "traceability"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+"""
+
 
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,20 +127,50 @@ mode: openspec
     _write(root / "docs" / "features" / "demo-change.md", FEATURE_DOC)
     _write(
         root / "docs" / "todos" / "demo_master_todo.md",
-        """# Demo TODO
+        """---
+change_ids: []
+doc_kind: todo
+topics: ["governance", "todo"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+
+# Demo TODO
 
 ## Claim Ledger
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
 | CLM-DEMO | D2-1~D2-2 | demo | active | 2026-03-03 | 2026-03-10 | `demo-change` | demo |
+
+## 切片规划
+| Slice | 目标 | 建议 OpenSpec Change | 主要覆盖 TODO |
+|---|---|---|---|
+| Slice A | demo | `demo-change` | D2-1, D2-2 |
 """,
     )
     _write(root / "openspec" / "changes" / "demo-change" / "proposal.md", "# proposal\n")
     _write(root / "openspec" / "changes" / "demo-change" / "design.md", "# design\n")
-    _write(root / "openspec" / "changes" / "demo-change" / "tasks.md", "- [ ] demo\n")
+    _write(
+        root / "openspec" / "changes" / "demo-change" / "tasks.md",
+        """## TODO Coverage
+- D2-1~D2-2
+
+- [ ] demo
+""",
+    )
     _write(
         root / "docs" / "governance" / "Documentation_Management_Model.md",
-        """# Documentation Management Model
+        """---
+change_ids: ["demo-change"]
+doc_kind: standard
+topics: ["governance", "traceability"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+
+# Documentation Management Model
 
 ## 7. Checkpoint-to-Skill Mapping
 - kickoff -> `development-workflow` + `documentation-management`
@@ -128,6 +178,62 @@ mode: openspec
 - verification -> `development-workflow`
 - review-merge-gate -> `development-workflow` + `documentation-management`
 - completion-archive -> `development-workflow` + `documentation-management`
+""",
+    )
+    _write(
+        root / "docs" / "guides" / "Documentation_First_Development_SOP.md",
+        """---
+change_ids: ["demo-change"]
+doc_kind: standard
+topics: ["governance", "sop"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+
+# Demo SOP
+""",
+    )
+    _write(
+        root / "docs" / "guides" / "Development_Constraints.md",
+        """---
+change_ids: ["demo-change"]
+doc_kind: standard
+topics: ["governance", "constraints"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+
+# Demo Constraints
+""",
+    )
+    _write(
+        root / "docs" / "guides" / "Evidence_Truth_Implementation_Strategy.md",
+        """---
+change_ids: ["demo-change"]
+doc_kind: standard
+topics: ["governance", "evidence"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+
+# Demo Evidence Truth
+""",
+    )
+    _write(
+        root / "docs" / "design" / "Design_Reconstructability_Traceability_Matrix.md",
+        """---
+change_ids: ["demo-change"]
+doc_kind: design
+topics: ["governance", "traceability"]
+created: 2026-03-03
+updated: 2026-03-03
+status: active
+---
+
+# Demo Matrix
 """,
     )
     _write(root / ".codex" / "skills" / "documentation-management" / "SKILL.md", "# doc skill\n")
@@ -261,10 +367,23 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("invalid archived feature index entry path", result.stdout)
 
+    def test_gate_requires_frontmatter_for_governance_standard_and_todo_docs(self) -> None:
+        def mutate(root: Path) -> None:
+            todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
+            todo_doc.write_text(todo_doc.read_text(encoding="utf-8").split("---\n", 2)[2], encoding="utf-8")
+            sop_doc = root / "docs" / "guides" / "Documentation_First_Development_SOP.md"
+            sop_doc.write_text(sop_doc.read_text(encoding="utf-8").split("---\n", 2)[2], encoding="utf-8")
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing frontmatter in docs/todos/demo_master_todo.md", result.stdout)
+        self.assertIn("missing frontmatter in docs/guides/Documentation_First_Development_SOP.md", result.stdout)
+
     def test_gate_fails_when_checkpoint_skill_mapping_is_missing(self) -> None:
         def mutate(root: Path) -> None:
             model = root / "docs" / "governance" / "Documentation_Management_Model.md"
-            model.write_text("# Documentation Management Model\n", encoding="utf-8")
+            model.write_text(f"{STANDARD_DOC_FRONTMATTER}\n# Documentation Management Model\n", encoding="utf-8")
 
         result = self._run_gate(mutate)
 
@@ -275,7 +394,8 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         def mutate(root: Path) -> None:
             model = root / "docs" / "governance" / "Documentation_Management_Model.md"
             model.write_text(
-                """# Documentation Management Model
+                f"""{STANDARD_DOC_FRONTMATTER}
+# Documentation Management Model
 
 ## 7. Checkpoint-to-Skill Mapping
 - kickoff -> `development-workflow` + `documentation-management`
@@ -295,7 +415,8 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         def mutate(root: Path) -> None:
             model = root / "docs" / "governance" / "Documentation_Management_Model.md"
             model.write_text(
-                """# Documentation Management Model
+                f"""{STANDARD_DOC_FRONTMATTER}
+# Documentation Management Model
 
 ## 7. Checkpoint-to-Skill Mapping
 
@@ -320,7 +441,10 @@ Skill contract (minimum two skills):
 
     def test_gate_fails_when_declared_todo_id_has_no_matching_todo_ledger(self) -> None:
         def mutate(root: Path) -> None:
-            (root / "docs" / "todos" / "demo_master_todo.md").write_text("# empty\n", encoding="utf-8")
+            (root / "docs" / "todos" / "demo_master_todo.md").write_text(
+                f"{TODO_DOC_FRONTMATTER}\n# empty\n",
+                encoding="utf-8",
+            )
 
         result = self._run_gate(mutate)
 
@@ -336,7 +460,8 @@ Skill contract (minimum two skills):
             )
             todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
             todo_doc.write_text(
-                """# Demo TODO
+                f"""{TODO_DOC_FRONTMATTER}
+# Demo TODO
 
 ## Claim Ledger
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
@@ -360,7 +485,8 @@ Skill contract (minimum two skills):
             )
             todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
             todo_doc.write_text(
-                """# Demo TODO
+                f"""{TODO_DOC_FRONTMATTER}
+# Demo TODO
 
 ## Claim Ledger
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
@@ -385,7 +511,8 @@ Skill contract (minimum two skills):
             )
             todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
             todo_doc.write_text(
-                """# Demo TODO
+                f"""{TODO_DOC_FRONTMATTER}
+# Demo TODO
 
 ## Claim Ledger
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
@@ -423,7 +550,7 @@ Skill contract (minimum two skills):
             active_change_dir.rmdir()
             _write(
                 root / "openspec" / "changes" / "archive" / "2026-03-03-archived-change" / "tasks.md",
-                "- [x] archived\n",
+                "## TODO Coverage\n- D2-1~D2-2\n\n- [x] archived\n",
             )
 
         result = self._run_gate(mutate)
@@ -435,7 +562,8 @@ Skill contract (minimum two skills):
         def mutate(root: Path) -> None:
             todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
             todo_doc.write_text(
-                """# Demo TODO
+                f"""{TODO_DOC_FRONTMATTER}
+# Demo TODO
 
 ## Claim Ledger
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
@@ -449,6 +577,11 @@ Skill contract (minimum two skills):
 | D2-2 | task 2 | done |
 | D4-3 | task 3 | done |
 """,
+                encoding="utf-8",
+            )
+            tasks_doc = root / "openspec" / "changes" / "demo-change" / "tasks.md"
+            tasks_doc.write_text(
+                "## TODO Coverage\n- D2-1~D2-4\n- D4-1~D4-4\n\n- [ ] demo\n",
                 encoding="utf-8",
             )
             feature_doc = root / "docs" / "features" / "demo-change.md"
@@ -469,7 +602,8 @@ Skill contract (minimum two skills):
         def mutate(root: Path) -> None:
             todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
             todo_doc.write_text(
-                """# Demo TODO
+                f"""{TODO_DOC_FRONTMATTER}
+# Demo TODO
 
 ## Claim Ledger
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
@@ -482,6 +616,11 @@ Skill contract (minimum two skills):
 | D2-1 | task 1 | done |
 | D2-2 | task 2 | done |
 """,
+                encoding="utf-8",
+            )
+            tasks_doc = root / "openspec" / "changes" / "demo-change" / "tasks.md"
+            tasks_doc.write_text(
+                "## TODO Coverage\n- D2-1~D2-4\n- D4-1~D4-4\n\n- [ ] demo\n",
                 encoding="utf-8",
             )
             feature_doc = root / "docs" / "features" / "demo-change.md"
@@ -497,6 +636,33 @@ Skill contract (minimum two skills):
 
         self.assertEqual(result.returncode, 0)
         self.assertIn("passed", result.stdout)
+
+    def test_gate_requires_tasks_todo_coverage_for_active_feature_todo_ids(self) -> None:
+        def mutate(root: Path) -> None:
+            tasks_doc = root / "openspec" / "changes" / "demo-change" / "tasks.md"
+            tasks_doc.write_text("- [ ] demo\n", encoding="utf-8")
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing TODO coverage in tasks artifact", result.stdout)
+
+    def test_gate_requires_master_todo_slice_mapping_targets_to_exist(self) -> None:
+        def mutate(root: Path) -> None:
+            todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
+            todo_doc.write_text(
+                todo_doc.read_text(encoding="utf-8").replace(
+                    "| Slice A | demo | `demo-change` | D2-1, D2-2 |\n",
+                    "| Slice A | demo | `demo-change` | D2-1, D2-2 |\n"
+                    "| Slice B | drift | `missing-change` | D9-9 |\n",
+                ),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing feature aggregation doc for TODO change mapping", result.stdout)
 
 
 if __name__ == "__main__":

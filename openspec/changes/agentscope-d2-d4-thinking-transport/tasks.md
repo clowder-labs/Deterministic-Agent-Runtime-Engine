@@ -1,3 +1,8 @@
+## TODO Coverage
+
+- D2-1~D2-4
+- D4-1~D4-4
+
 ## 1. Transport contract and schema alignment (D2)
 
 - [x] 1.1 Extend transport canonical event taxonomy to cover `message/tool_call/tool_result/thinking/error/status` with compatibility normalization for legacy aliases.
