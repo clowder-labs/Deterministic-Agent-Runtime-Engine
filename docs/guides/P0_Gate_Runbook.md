@@ -21,6 +21,23 @@ p0-gate: PASS
 
 The same command is used by `.github/workflows/ci-gate.yml` job `p0-gate`.
 
+## 1.1 Ownership Mapping Health Check
+
+Run ownership-map巡检 from repository root:
+
+```bash
+python scripts/ci/check_test_failure_ownership.py
+```
+
+Expected success output starts with:
+
+```text
+[failure-ownership] passed
+```
+
+This command is used by `.github/workflows/ci-gate.yml` job `failure-ownership-map` and enforces the
+`失败测试 -> 责任模块 -> owner` mapping integrity for `p0-gate` categories.
+
 ## 2. Category Mapping
 
 ### SECURITY_REGRESSION

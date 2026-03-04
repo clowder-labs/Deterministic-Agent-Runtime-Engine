@@ -44,6 +44,7 @@ mode: openspec
 - `../../.venv/bin/python -m pytest -q tests/unit/test_dare_agent_security_policy_gate.py tests/unit/test_dare_agent_security_boundary.py tests/unit/test_five_layer_agent.py`
 - `../../.venv/bin/python -m pytest -q tests/unit/test_p0_gate_ci.py`
 - `../../.venv/bin/python scripts/ci/p0_gate.py`
+- `python scripts/ci/check_test_failure_ownership.py`
 - `openspec validate p0-conformance-gate --type change --strict --json --no-interactive`
 - `./scripts/ci/check_governance_evidence_truth.sh`
 
@@ -63,6 +64,7 @@ mode: openspec
   `- STEP_EXEC_REGRESSION: 0 failures`
   `- AUDIT_CHAIN_REGRESSION: 0 failures`
   which confirms the repository now has a single deterministic command entrypoint for the three frozen P0 categories.
+- `python scripts/ci/check_test_failure_ownership.py`: passed and now enforces category-level failure ownership integrity (`test selector -> module scope -> owner`) as a machine-checkable precondition; `.github/workflows/ci-gate.yml` now runs this as `failure-ownership-map`.
 - `openspec validate p0-conformance-gate --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues) after restoring the missing active feature aggregation record for this change.
 - `./scripts/ci/check_governance_evidence_truth.sh`: initially failed because the restored feature doc lacked historical PR/review links; after linking the already-landed P0 evidence PRs, the governance gate passed, and remained green after task `1.1-1.3` synchronized the gate scope matrix and rollout contract into the active docs/spec set.
 - `./scripts/ci/check_governance_evidence_truth.sh`: remained green after adding `docs/guides/P0_Gate_Runbook.md` plus the new navigation links in `docs/README.md` and `docs/guides/Team_Agent_Collab_Playbook.md`, confirming the operationalization docs did not break the governance acceptance pack.

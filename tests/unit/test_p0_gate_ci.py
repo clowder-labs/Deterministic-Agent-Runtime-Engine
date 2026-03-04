@@ -7,12 +7,14 @@ def _spec(
     label: str,
     *,
     modules: list[str] | None = None,
+    owner: str = "@zts212653",
     action: str = "inspect category",
 ) -> CategorySpec:
     return CategorySpec(
         label=label,
         tests=["tests/example.py::test_case"],
         modules=modules or ["module.one", "module.two"],
+        owner=owner,
         action=action,
     )
 
@@ -89,6 +91,7 @@ def test_format_summary_reports_failures_with_modules_and_action() -> None:
             "- STEP_EXEC_REGRESSION",
             "  tests: tests/integration/test_p0_conformance_gate.py::test_step_driven_session_stops_after_first_failed_step",
             "  modules: dare_framework/agent/dare_agent.py, dare_framework/agent/_internal/execute_engine.py",
+            "  owner: @zts212653",
             "  action: inspect step execution order and fail-fast handling",
         ]
     )

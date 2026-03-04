@@ -18,6 +18,7 @@ class CategorySpec:
     label: str
     tests: list[str]
     modules: list[str]
+    owner: str
     action: str
 
 
@@ -47,6 +48,7 @@ DEFAULT_CATEGORY_SPECS: tuple[CategorySpec, ...] = (
             "examples/05-dare-coding-agent-enhanced/cli.py",
             "examples/06-dare-coding-agent-mcp/cli.py",
         ],
+        owner="@zts212653",
         action="inspect trust/policy/approval flow before tool invocation",
     ),
     CategorySpec(
@@ -61,6 +63,7 @@ DEFAULT_CATEGORY_SPECS: tuple[CategorySpec, ...] = (
             "dare_framework/agent/_internal/execute_engine.py",
             "dare_framework/plan",
         ],
+        owner="@zts212653",
         action="inspect step execution order, fail-fast handling, and validated-plan routing",
     ),
     CategorySpec(
@@ -76,6 +79,7 @@ DEFAULT_CATEGORY_SPECS: tuple[CategorySpec, ...] = (
             "dare_framework/observability/_internal/event_trace_bridge.py",
             "dare_framework/agent/builder.py",
         ],
+        owner="@zts212653",
         action="inspect SQLite event append/hash-chain/replay wiring and trace-aware event-log bridging",
     ),
 )
@@ -104,6 +108,7 @@ def format_summary(results: list[CategoryResult]) -> str:
                 f"- {result.spec.label}",
                 f"  tests: {failed_tests}",
                 f"  modules: {modules}",
+                f"  owner: {result.spec.owner}",
                 f"  action: {result.spec.action}",
             ]
         )

@@ -153,6 +153,16 @@ jobs:
       - name: Check governance traceability contract (template + indexes + TODO linkage)
         run: ./scripts/ci/check_governance_traceability.sh
 
+  failure-ownership-map:
+    name: failure-ownership-map
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify failure-test ownership mapping
+        run: python scripts/ci/check_test_failure_ownership.py
+
   p0-gate:
     name: p0-gate
     runs-on: ubuntu-latest

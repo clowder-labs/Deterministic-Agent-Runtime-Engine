@@ -2,7 +2,7 @@
 
 - [x] 1.1 定义 `p0-gate` 覆盖的三类不变量与验收阈值。  
   Evidence: `openspec/changes/p0-conformance-gate/design.md` 已固化 `SECURITY_REGRESSION` / `STEP_EXEC_REGRESSION` / `AUDIT_CHAIN_REGRESSION` 三类 category matrix，并为 required-mode promotion 定义 “单次运行全绿” 阈值。  
-  Last Updated: `2026-03-03`
+  Last Updated: `2026-03-04`
 - [x] 1.2 明确每类不变量对应的测试文件与责任模块。  
   Evidence: `openspec/changes/p0-conformance-gate/design.md` 的 Gate Scope Matrix 已列出现有 anchor suites、后续必须补的 integration anchors，以及各 category 的 primary ownership modules。  
   Last Updated: `2026-03-03`
@@ -39,8 +39,8 @@
 - [ ] 3.2 将 `p0-gate` 配置为主分支 required check。  
   Note: 该项需要 GitHub branch protection / ruleset 管理员权限；当前仓库内已完成 job 名称与 rollout 文档对齐，但尚未执行远端仓库设置。执行清单见 `docs/governance/branch-protection.md` 的 `P0-Gate Required Check Rollout (Admin Checklist)` 章节，关闭时需补 settings + blocked/pass run 证据链接。
 - [x] 3.3 输出标准化门禁报告（通过率、失败类型、建议排查点）。  
-  Evidence: `scripts/ci/p0_gate.py` 的 `format_summary()` 已固定 `PASS/FAIL + category label + failing tests + modules + action` 文本格式，并写入 `GITHUB_STEP_SUMMARY`；`tests/unit/test_p0_gate_ci.py` 锁定该 summary contract。  
-  Commands: `../../.venv/bin/python -m pytest -q tests/unit/test_p0_gate_ci.py` => `3 passed`；`../../.venv/bin/python scripts/ci/p0_gate.py` => `p0-gate: PASS`  
+  Evidence: `scripts/ci/p0_gate.py` 的 `format_summary()` 已固定 `PASS/FAIL + category label + failing tests + modules + owner + action` 文本格式，并写入 `GITHUB_STEP_SUMMARY`；`scripts/ci/check_test_failure_ownership.py` + `.github/workflows/ci-gate.yml` `failure-ownership-map` job 形成例行映射巡检；`tests/unit/test_p0_gate_ci.py` 锁定 summary contract。  
+  Commands: `../../.venv/bin/python -m pytest -q tests/unit/test_p0_gate_ci.py` => `4 passed`；`python scripts/ci/check_test_failure_ownership.py` => `[failure-ownership] passed`；`../../.venv/bin/python scripts/ci/p0_gate.py` => `p0-gate: PASS`  
   Last Updated: `2026-03-03`
 
 ## 4. Operationalization
