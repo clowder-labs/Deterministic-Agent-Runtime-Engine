@@ -36,8 +36,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
 
 ### Results
-- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`46 passed`) after extending the traceability gate regression suite to also cover stale active index entries, `Active Entries`-only membership checks, explicit checkpoint-to-skill pair rows, discrete `todo_ids` token matching, same-record TODO/change validation, claim-scope range resolution, range-only claim-scope resolution without explicit todo tokens, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
-- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after tightening active/archive index membership to canonical sections, requiring explicit checkpoint-to-skill pair rows in Section 7, and resolving pilot `todo_ids` through either direct ledger rows or same-claim scope ranges, even when the TODO id is only implied by the claim range.
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`48 passed`) after extending the traceability gate regression suite to also cover stale active index entries, `Active Entries`-only membership checks, explicit checkpoint-to-skill pair rows, active/archive index path-family enforcement, discrete `todo_ids` token matching, Claim Ledger-only TODO/change validation, same-record TODO/change validation, claim-scope range resolution, range-only claim-scope resolution without explicit todo tokens, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
+- `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after tightening active/archive index membership to canonical sections, rejecting index entries outside the correct feature-doc path family, requiring explicit checkpoint-to-skill pair rows in Section 7, and resolving pilot `todo_ids` only through Claim Ledger records, including same-claim scope ranges where the TODO id is only implied by the claim range.
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed, confirming the new traceability assets do not break the existing evidence-first contract.
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 
@@ -75,8 +75,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - Coverage and Residual Risk: template/index/skill-mapping/TODO-linkage checks are covered; residual risk is that broader frontmatter enforcement across `docs/guides/**` and `docs/design/**` is still pending.
 
 ### Behavior Verification
-- Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id, including claim-ledger scope ranges such as `D2-1~D2-4, D4-1~D4-4`, even when the concrete TODO id does not appear elsewhere in the file.
-- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the `## Active Entries` section, when the template/archive index is missing, when Section 7 keeps checkpoint names but drops the actual `checkpoint -> skill` mapping rows, or when declared `todo_ids` and `change_ids` only co-occur in different ledger records.
+- Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id through Claim Ledger records, including scope ranges such as `D2-1~D2-4, D4-1~D4-4`, even when the concrete TODO id does not appear elsewhere in the file.
+- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the `## Active Entries` section, when an active/archive index entry points at the wrong doc family, when Section 7 keeps checkpoint names but drops the actual `checkpoint -> skill` mapping rows, or when `todo_ids` and `change_ids` only co-occur in detail-board/prose lines without a matching Claim Ledger record.
 
 ### Risks and Rollback
 - Risk: `3.2-3.4` are still open, so the new gate does not yet enforce full frontmatter coverage for every governance-tracked doc family or full master-TODO/task completeness.
@@ -98,6 +98,8 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878634820`
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878773226`
   - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2878885299`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2881384029`
+  - `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175#discussion_r2881384034`
 
 ## Next Milestone
 Implement the remaining CI depth tasks: widen frontmatter enforcement beyond feature docs and add machine-checkable TODO/task and master-TODO/change-slice consistency checks before closeout.

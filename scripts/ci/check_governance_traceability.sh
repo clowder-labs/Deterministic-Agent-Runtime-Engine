@@ -156,6 +156,16 @@ extract_markdown_section() {
   ' "$file"
 }
 
+extract_markdown_section_matching() {
+  local file="$1"
+  local pattern="$2"
+  awk -v pattern="$pattern" '
+    $0 ~ /^##[[:space:]]+/ && $0 ~ pattern {in_section=1; next}
+    in_section && /^##[[:space:]]+/ {exit}
+    in_section {print}
+  ' "$file"
+}
+
 escape_extended_regex() {
   printf '%s' "$1" | sed -E 's/[][(){}.^$*+?|\\/]/\\&/g'
 }
@@ -247,13 +257,14 @@ section_has_index_entry() {
   grep -Fq -- "\`$path\`" < <(extract_markdown_section "$index_file" "$section_heading")
 }
 
-file_has_tokens_in_same_record() {
+claim_ledger_has_tokens_in_same_record() {
   local file="$1"
   local first_token="$2"
   local second_token="$3"
   local line scope_field
 
   while IFS= read -r line; do
+    [[ "$line" == \|* ]] || continue
     if ! text_has_discrete_token "$line" "$second_token"; then
       continue
     fi
@@ -264,7 +275,7 @@ file_has_tokens_in_same_record() {
     if [[ -n "$scope_field" ]] && scope_contains_todo_id "$scope_field" "$first_token"; then
       return 0
     fi
-  done <"$file"
+  done < <(extract_markdown_section_matching "$file" "Claim Ledger")
 
   return 1
 }
@@ -273,12 +284,24 @@ check_index_entry_targets() {
   local index_file="$1"
   local section_heading="$2"
   local stale_label="$3"
+  local valid_glob="$4"
+  local invalid_glob="$5"
   local path
 
   while IFS= read -r path; do
     [[ -z "$path" ]] && continue
     if [[ ! -f "$path" ]]; then
       log "stale $stale_label index entry in $index_file: $path"
+      failures=$((failures + 1))
+      continue
+    fi
+    if [[ -n "$invalid_glob" && "$path" == $invalid_glob ]]; then
+      log "invalid $stale_label index entry path in $index_file: $path"
+      failures=$((failures + 1))
+      continue
+    fi
+    if [[ "$path" != $valid_glob ]]; then
+      log "invalid $stale_label index entry path in $index_file: $path"
       failures=$((failures + 1))
     fi
   done < <(
@@ -323,8 +346,8 @@ check_feature_indexes() {
     fi
   done < <(find docs/features/archive -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | sort)
 
-  check_index_entry_targets "$active_index" "## Active Entries" "active feature"
-  check_index_entry_targets "$archive_index" "## Archived Entries" "archived feature"
+  check_index_entry_targets "$active_index" "## Active Entries" "active feature" "docs/features/*.md" "docs/features/archive/*"
+  check_index_entry_targets "$archive_index" "## Archived Entries" "archived feature" "docs/features/archive/*.md" ""
 }
 
 check_checkpoint_skill_mapping() {
@@ -413,7 +436,7 @@ check_feature_doc() {
       [[ -z "$candidate" ]] && continue
       while IFS= read -r change_id; do
         [[ -z "$change_id" ]] && continue
-        if file_has_tokens_in_same_record "$candidate" "$todo_id" "$change_id"; then
+        if claim_ledger_has_tokens_in_same_record "$candidate" "$todo_id" "$change_id"; then
           matched=1
           break
         fi

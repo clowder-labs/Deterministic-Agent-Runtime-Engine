@@ -213,6 +213,22 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("stale active feature index entry", result.stdout)
 
+    def test_gate_rejects_archive_paths_inside_active_entries(self) -> None:
+        def mutate(root: Path) -> None:
+            readme = root / "docs" / "features" / "README.md"
+            readme.write_text(
+                readme.read_text(encoding="utf-8").replace(
+                    "## Archive Index\n",
+                    "- `docs/features/archive/README.md`\n\n## Archive Index\n",
+                ),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid active feature index entry path", result.stdout)
+
     def test_gate_fails_when_checkpoint_skill_mapping_is_missing(self) -> None:
         def mutate(root: Path) -> None:
             model = root / "docs" / "governance" / "Documentation_Management_Model.md"
@@ -319,6 +335,35 @@ Skill contract (minimum two skills):
 |---|---|---|---|---|---|---|---|
 | CLM-TODO | D2-1 | demo | active | 2026-03-03 | 2026-03-10 | `other-change` | wrong change |
 | CLM-CHANGE | D9-9 | demo | active | 2026-03-03 | 2026-03-10 | `demo-change` | wrong todo |
+""",
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing TODO mapping for feature doc", result.stdout)
+
+    def test_gate_requires_claim_ledger_record_for_todo_change_mapping(self) -> None:
+        def mutate(root: Path) -> None:
+            feature_doc = root / "docs" / "features" / "demo-change.md"
+            feature_doc.write_text(
+                feature_doc.read_text(encoding="utf-8").replace('todo_ids: ["D2-1", "D2-2"]', 'todo_ids: ["D2-1"]'),
+                encoding="utf-8",
+            )
+            todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
+            todo_doc.write_text(
+                """# Demo TODO
+
+## Claim Ledger
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
+|---|---|---|---|---|---|---|---|
+| CLM-DEMO | D9-9 | demo | active | 2026-03-03 | 2026-03-10 | `other-change` | wrong claim |
+
+## Detail Board
+| ID | OpenSpec Change | Status |
+|---|---|---|
+| D2-1 | `demo-change` | done |
 """,
                 encoding="utf-8",
             )
