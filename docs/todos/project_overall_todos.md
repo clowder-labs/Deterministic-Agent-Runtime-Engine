@@ -29,10 +29,15 @@
 | CLM-20260304-AG9 | T2-3_a~T2-3_b, T2-4_a~T2-4_b |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层治理切片已拆分，尚未分配负责人。 |
 | CLM-20260304-AG10 | T0-6 | lang | active | 2026-03-04 | 2026-03-11 | `pending` | `—` | 下一项 fix：P0 红灯且无上游依赖，先修复 `search_file` 路径契约回归。 |
 | CLM-20260304-AG11 | T0-4 + T0-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P0 未完成项补齐认领声明：facade 合规修复与失败映射责任化待分配。 |
+| CLM-20260304-AG12 | T1-3 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P1 未完成项补齐认领声明：`ISecurityBoundary` 接入待分配。 |
+| CLM-20260304-AG13 | T2-1（剩余范围） + T2-2 + T5-1 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | Layer-2 策略补齐：D5 子范围已完成，剩余上下文融合/多阶段 prompt/session 补齐待分配。 |
+| CLM-20260304-AG14 | T3-1 + T3-2 + T3-3 + T3-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | Layer-3 工程化与文档治理未完成项补齐认领声明。 |
+| CLM-20260304-AG15 | T4-2 + T4-3 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 运行期配置统一与默认可观测采集持久化未完成项补齐认领声明。 |
+| CLM-20260304-AG16 | T5-5（剩余范围，D7 子范围外） |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260302-D7` | `T5-5` 对应 D7 子范围已 done，剩余架构设计收口范围待分配。 |
 
 对账快照（2026-03-04）：
 - AgentScope 聚合 claim（AG1/AG2/AG3/AG6/AG7）均可在 `agentscope_domain_execution_todos.md` 中找到明细 claim 对应。
-- 项目层独立 claim（AG8/AG9/AG10/AG11）不在 AgentScope 明细板拆分。
+- 项目层独立 claim（AG8/AG9/AG10/AG11/AG12/AG13/AG14/AG15/AG16）不在 AgentScope 明细板拆分。
 
 ## 2. 当前基线
 
