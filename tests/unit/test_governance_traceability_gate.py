@@ -86,7 +86,21 @@ def _base_tree(root: Path) -> None:
 - Move docs here only after closeout.
 """,
     )
-    _write(root / "docs" / "features" / "archive" / "archived-change.md", "# archived\n")
+    _write(
+        root / "docs" / "features" / "archive" / "archived-change.md",
+        """---
+change_ids: ["archived-change"]
+doc_kind: feature
+topics: ["governance", "archive"]
+created: 2026-03-01
+updated: 2026-03-01
+status: archived
+mode: openspec
+---
+
+# Feature: archived-change
+""",
+    )
     _write(
         root / "docs" / "features" / "templates" / "feature_aggregation_template.md",
         """# Feature Aggregation Template
@@ -115,9 +129,32 @@ mode: openspec
 | CLM-DEMO | D2-1~D2-2 | demo | active | 2026-03-03 | 2026-03-10 | `demo-change` | demo |
 """,
     )
+    _write(
+        root / "docs" / "todos" / "project_overall_todos.md",
+        """# Demo Project Overall TODO
+
+## 1.1 认领声明（Claim Ledger）
+
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Detail Claim Ref | Notes |
+|---|---|---|---|---|---|---|---|---|
+| CLM-AG1 | T5-2 | demo | done | 2026-03-03 | 2026-03-10 | `demo-change` | `CLM-D9` | demo |
+""",
+    )
+    _write(
+        root / "docs" / "todos" / "agentscope_domain_execution_todos.md",
+        """# Demo AgentScope Board
+
+## 0.1 认领声明（Claim Ledger）
+
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Project Claim Ref | Notes |
+|---|---|---|---|---|---|---|---|---|
+| CLM-D9 | D9-1~D9-2 | demo | done | 2026-03-03 | 2026-03-10 | `demo-change` | `CLM-AG1` | demo |
+""",
+    )
     _write(root / "openspec" / "changes" / "demo-change" / "proposal.md", "# proposal\n")
     _write(root / "openspec" / "changes" / "demo-change" / "design.md", "# design\n")
     _write(root / "openspec" / "changes" / "demo-change" / "tasks.md", "- [ ] demo\n")
+    _write(root / "openspec" / "changes" / "archive" / "2026-03-01-archived-change" / "tasks.md", "- [x] archived\n")
     _write(
         root / "docs" / "governance" / "Documentation_Management_Model.md",
         """# Documentation Management Model
@@ -165,6 +202,19 @@ class GovernanceTraceabilityGateTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing feature aggregation template", result.stdout)
+
+    def test_gate_fails_when_archived_feature_doc_frontmatter_is_missing_required_field(self) -> None:
+        def mutate(root: Path) -> None:
+            archived = root / "docs" / "features" / "archive" / "archived-change.md"
+            archived.write_text(
+                archived.read_text(encoding="utf-8").replace("status: archived\n", ""),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing required frontmatter field 'status'", result.stdout)
 
     def test_gate_fails_when_active_feature_doc_is_not_indexed(self) -> None:
         def mutate(root: Path) -> None:
@@ -405,6 +455,32 @@ Skill contract (minimum two skills):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing TODO mapping for feature doc", result.stdout)
 
+    def test_gate_fails_when_done_or_active_claim_has_no_tasks_artifact(self) -> None:
+        def mutate(root: Path) -> None:
+            project_doc = root / "docs" / "todos" / "project_overall_todos.md"
+            project_doc.write_text(
+                project_doc.read_text(encoding="utf-8").replace("`demo-change`", "`missing-change`"),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing OpenSpec tasks mapping for TODO claim", result.stdout)
+
+    def test_gate_fails_when_project_claim_detail_ref_is_missing(self) -> None:
+        def mutate(root: Path) -> None:
+            project_doc = root / "docs" / "todos" / "project_overall_todos.md"
+            project_doc.write_text(
+                project_doc.read_text(encoding="utf-8").replace("`CLM-D9`", "`CLM-D404`"),
+                encoding="utf-8",
+            )
+
+        result = self._run_gate(mutate)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing Detail Claim Ref mapping in docs/todos/project_overall_todos.md", result.stdout)
+
     def test_gate_accepts_date_prefixed_archived_change_tasks(self) -> None:
         def mutate(root: Path) -> None:
             feature_doc = root / "docs" / "features" / "demo-change.md"
@@ -415,6 +491,16 @@ Skill contract (minimum two skills):
             todo_doc = root / "docs" / "todos" / "demo_master_todo.md"
             todo_doc.write_text(
                 todo_doc.read_text(encoding="utf-8").replace("`demo-change`", "`archived-change`"),
+                encoding="utf-8",
+            )
+            project_doc = root / "docs" / "todos" / "project_overall_todos.md"
+            project_doc.write_text(
+                project_doc.read_text(encoding="utf-8").replace("`demo-change`", "`archived-change`"),
+                encoding="utf-8",
+            )
+            detail_doc = root / "docs" / "todos" / "agentscope_domain_execution_todos.md"
+            detail_doc.write_text(
+                detail_doc.read_text(encoding="utf-8").replace("`demo-change`", "`archived-change`"),
                 encoding="utf-8",
             )
             active_change_dir = root / "openspec" / "changes" / "demo-change"

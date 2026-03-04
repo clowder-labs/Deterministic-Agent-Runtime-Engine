@@ -28,9 +28,12 @@
 
 - [x] 3.1 Implement or extend CI checks to validate aggregation entry existence when governance-scoped files change.
   Evidence: `scripts/ci/check_governance_traceability.sh`, `tests/unit/test_governance_traceability_gate.py`, and `.github/workflows/ci-gate.yml`.
-- [ ] 3.2 Implement or extend CI checks to validate required frontmatter fields for governance-tracked docs.
-- [ ] 3.3 Implement or extend CI checks to validate gap/TODO -> OpenSpec task mapping completeness.
-- [ ] 3.4 Implement or extend CI checks to validate master TODO -> OpenSpec change-slice mapping consistency.
+- [x] 3.2 Implement or extend CI checks to validate required frontmatter fields for governance-tracked docs.
+  Evidence: `scripts/ci/check_governance_traceability.sh` now validates required frontmatter keys and value contract for active + archived feature aggregation docs; `tests/unit/test_governance_traceability_gate.py::test_gate_fails_when_archived_feature_doc_frontmatter_is_missing_required_field`.
+- [x] 3.3 Implement or extend CI checks to validate gap/TODO -> OpenSpec task mapping completeness.
+  Evidence: `scripts/ci/check_governance_traceability.sh` now validates Claim Ledger rows (`active/done` + non-`pending`) resolve to real OpenSpec `tasks.md` artifacts; `tests/unit/test_governance_traceability_gate.py::test_gate_fails_when_done_or_active_claim_has_no_tasks_artifact`.
+- [x] 3.4 Implement or extend CI checks to validate master TODO -> OpenSpec change-slice mapping consistency.
+  Evidence: `scripts/ci/check_governance_traceability.sh` now validates `project_overall_todos.md` `Detail Claim Ref` entries resolve in `agentscope_domain_execution_todos.md` and keep non-pending change-id consistency; `tests/unit/test_governance_traceability_gate.py::test_gate_fails_when_project_claim_detail_ref_is_missing`.
 - [x] 3.5 Implement evidence truth structural gate (`scripts/ci/check_governance_evidence_truth.sh`) and wire it into `ci-gate`.
   Evidence: `scripts/ci/check_governance_evidence_truth.sh`, `tests/unit/test_governance_evidence_truth_gate.py`, and `.github/workflows/ci-gate.yml`.
 
@@ -50,4 +53,5 @@
 - [x] 5.1 Backfill one active governance change using the new aggregation + frontmatter + skill mapping contract as pilot evidence.
   Evidence: `docs/features/agentscope-d2-d4-thinking-transport.md` now declares `todo_ids` that resolve back to `docs/todos/agentscope_domain_execution_todos.md`.
 - [x] 5.2 Run governance check scripts and capture passing command output in PR evidence.
-- [ ] 5.3 Update TODO/archive records and mark this OpenSpec change as complete with evidence links.
+- [x] 5.3 Update TODO/archive records and mark this OpenSpec change as complete with evidence links.
+  Evidence: `docs/features/enhance-doc-governance-traceability.md` updated with closeout command results and residual-risk refresh; `docs/todos/project_overall_todos.md` updated with `T0-6` status/evidence alignment and baseline refresh.

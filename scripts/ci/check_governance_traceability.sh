@@ -190,6 +190,57 @@ trim_whitespace() {
   sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<<"$1"
 }
 
+normalize_markdown_cell() {
+  local value="$1"
+  value="$(trim_whitespace "$value")"
+  if [[ "$value" == '~~'*'~~' ]]; then
+    value="${value#\~\~}"
+    value="${value%\~\~}"
+  fi
+  if [[ "$value" == '`'*'`' ]]; then
+    value="${value#\`}"
+    value="${value%\`}"
+  fi
+  trim_whitespace "$value"
+}
+
+markdown_table_column() {
+  local row="$1"
+  local column="$2"
+  awk -F'|' -v column="$column" '
+    NF >= column + 1 {
+      value = $(column + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      print value
+    }
+  ' <<<"$row"
+}
+
+claim_ledger_rows() {
+  local file="$1"
+  extract_markdown_section_matching "$file" "Claim Ledger" \
+    | awk '
+      /^\|/ {
+        if ($0 ~ /^\|[[:space:]]*Claim ID[[:space:]]*\|/) next
+        if ($0 ~ /^\|[[:space:]-]+\|/) next
+        print
+      }
+    '
+}
+
+change_has_tasks_artifact() {
+  local change_id="$1"
+  if [[ -f "openspec/changes/$change_id/tasks.md" ]]; then
+    return 0
+  fi
+  if [[ ! -d "openspec/changes/archive" ]]; then
+    return 1
+  fi
+  find openspec/changes/archive -type f \
+    \( -path "*/$change_id/tasks.md" -o -path "*/????-??-??-$change_id/tasks.md" \) \
+    | grep -q .
+}
+
 normalize_scope_segment() {
   local segment="$1"
   segment="$(trim_whitespace "$segment")"
@@ -261,21 +312,25 @@ claim_ledger_has_tokens_in_same_record() {
   local file="$1"
   local first_token="$2"
   local second_token="$3"
-  local line scope_field
+  local line scope_field change_field status_field
 
   while IFS= read -r line; do
-    [[ "$line" == \|* ]] || continue
-    if ! text_has_discrete_token "$line" "$second_token"; then
+    scope_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 2)")"
+    status_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 4)")"
+    change_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 7)")"
+
+    if [[ "$status_field" == "deprecated" ]]; then
       continue
     fi
-    if text_has_discrete_token "$line" "$first_token"; then
-      return 0
+
+    if ! text_has_discrete_token "$change_field" "$second_token"; then
+      continue
     fi
-    scope_field="$(awk -F'|' 'NF >= 4 {field=$3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", field); print field}' <<<"$line")"
+
     if [[ -n "$scope_field" ]] && scope_contains_todo_id "$scope_field" "$first_token"; then
       return 0
     fi
-  done < <(extract_markdown_section_matching "$file" "Claim Ledger")
+  done < <(claim_ledger_rows "$file")
 
   return 1
 }
@@ -382,8 +437,8 @@ check_checkpoint_skill_mapping() {
 
 check_feature_doc() {
   local file="$1"
-  local frontmatter mode doc_kind key change_id todo_id matched candidate
-  local change_ids_raw todo_ids_raw
+  local frontmatter mode doc_kind key change_id todo_id matched candidate status created updated
+  local change_ids_raw todo_ids_raw topics_raw
 
   frontmatter="$(extract_frontmatter "$file")"
   if [[ -z "$frontmatter" ]]; then
@@ -405,7 +460,37 @@ check_feature_doc() {
     failures=$((failures + 1))
   fi
 
+  status="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "status")")"
+  if [[ -n "$status" && ! "$status" =~ ^(draft|active|done|archived)$ ]]; then
+    log "invalid frontmatter status '$status' in $file"
+    failures=$((failures + 1))
+  fi
+
+  created="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "created")")"
+  if [[ -n "$created" && ! "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    log "invalid frontmatter created date in $file: $created"
+    failures=$((failures + 1))
+  fi
+
+  updated="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "updated")")"
+  if [[ -n "$updated" && ! "$updated" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    log "invalid frontmatter updated date in $file: $updated"
+    failures=$((failures + 1))
+  fi
+
+  topics_raw="$(frontmatter_list_items "$frontmatter" "topics")"
+  if [[ -z "$topics_raw" ]]; then
+    log "missing required frontmatter field 'topics' in $file"
+    failures=$((failures + 1))
+  fi
+
   mode="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "mode")")"
+  if [[ "$mode" != "openspec" && "$mode" != "todo_fallback" ]]; then
+    log "invalid frontmatter mode '$mode' in $file"
+    failures=$((failures + 1))
+    return
+  fi
+
   if [[ "$mode" == "todo_fallback" ]]; then
     if [[ -z "$(frontmatter_scalar "$frontmatter" "topic_slug")" ]]; then
       log "missing required frontmatter field 'topic_slug' in $file"
@@ -423,8 +508,7 @@ check_feature_doc() {
 
   while IFS= read -r change_id; do
     [[ -z "$change_id" ]] && continue
-    if [[ ! -f "openspec/changes/$change_id/tasks.md" ]] && \
-      ! find openspec/changes/archive -type f \( -path "*/$change_id/tasks.md" -o -path "*/????-??-??-$change_id/tasks.md" \) | grep -q .; then
+    if ! change_has_tasks_artifact "$change_id"; then
       log "missing OpenSpec tasks artifact for change_id '$change_id' declared in $file"
       failures=$((failures + 1))
     fi
@@ -459,12 +543,92 @@ check_feature_doc() {
   done <<<"$todo_ids_raw"
 }
 
+check_todo_claim_to_openspec_task_mapping() {
+  local file line claim_id status_field change_field
+
+  while IFS= read -r file; do
+    while IFS= read -r line; do
+      claim_id="$(normalize_markdown_cell "$(markdown_table_column "$line" 1)")"
+      status_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 4)")"
+      change_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 7)")"
+
+      [[ -z "$claim_id" || -z "$status_field" ]] && continue
+      [[ "$status_field" != "active" && "$status_field" != "done" ]] && continue
+      [[ -z "$change_field" || "$change_field" == "pending" ]] && continue
+
+      if ! change_has_tasks_artifact "$change_field"; then
+        log "missing OpenSpec tasks mapping for TODO claim $claim_id in $file: $change_field"
+        failures=$((failures + 1))
+      fi
+    done < <(claim_ledger_rows "$file")
+  done < <(find docs/todos -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | sort)
+}
+
+check_master_todo_slice_mapping_consistency() {
+  local project_file="docs/todos/project_overall_todos.md"
+  local detail_file="docs/todos/agentscope_domain_execution_todos.md"
+  local line status_field claim_id change_field detail_refs ref detail_change
+  local detail_claim_map
+
+  if [[ ! -f "$project_file" || ! -f "$detail_file" ]]; then
+    return
+  fi
+
+  detail_claim_map="$(mktemp)"
+  trap 'rm -f "$detail_claim_map"' RETURN
+
+  while IFS= read -r line; do
+    claim_id="$(normalize_markdown_cell "$(markdown_table_column "$line" 1)")"
+    status_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 4)")"
+    change_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 7)")"
+
+    [[ -z "$claim_id" ]] && continue
+    [[ "$status_field" == "deprecated" ]] && continue
+    printf '%s|%s\n' "$claim_id" "$change_field" >>"$detail_claim_map"
+  done < <(claim_ledger_rows "$detail_file")
+
+  while IFS= read -r line; do
+    status_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 4)")"
+    [[ "$status_field" == "deprecated" ]] && continue
+
+    change_field="$(normalize_markdown_cell "$(markdown_table_column "$line" 7)")"
+    detail_refs="$(normalize_markdown_cell "$(markdown_table_column "$line" 8)")"
+
+    [[ -z "$detail_refs" || "$detail_refs" == "—" ]] && continue
+
+    while IFS= read -r ref; do
+      [[ -z "$ref" ]] && continue
+      detail_change="$(awk -F'|' -v target="$ref" '$1 == target {print $2; exit}' "$detail_claim_map")"
+      if [[ -z "$detail_change" ]]; then
+        log "missing Detail Claim Ref mapping in $project_file: $ref"
+        failures=$((failures + 1))
+        continue
+      fi
+
+      if [[ -n "$change_field" && "$change_field" != "pending" && -n "$detail_change" && "$detail_change" != "pending" && "$detail_change" != "$change_field" ]]; then
+        log "inconsistent OpenSpec change between $project_file and $detail_file for ref $ref"
+        failures=$((failures + 1))
+      fi
+    done < <(grep -oE 'CLM-[A-Za-z0-9-]+' <<<"$detail_refs")
+  done < <(claim_ledger_rows "$project_file")
+
+  rm -f "$detail_claim_map"
+  trap - RETURN
+}
+
 check_feature_indexes
 check_checkpoint_skill_mapping
 
 while IFS= read -r file; do
   check_feature_doc "$file"
 done < <(find docs/features -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | sort)
+
+while IFS= read -r file; do
+  check_feature_doc "$file"
+done < <(find docs/features/archive -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | sort)
+
+check_todo_claim_to_openspec_task_mapping
+check_master_todo_slice_mapping_consistency
 
 if [[ $failures -gt 0 ]]; then
   log "failed with $failures issue(s)"

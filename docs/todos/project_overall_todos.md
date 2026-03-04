@@ -28,7 +28,7 @@
 | CLM-20260304-AG7 | T5-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-D6 + CLM-20260304-D8` | TODO 级认领；切片仅在 AgentScope 详细区维护。 |
 | CLM-20260304-AG8 | T1-2 + T1-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层高复杂 TODO 组待分配；切片见详细拆分区。 |
 | CLM-20260304-AG9 | T2-3 + T2-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层治理 TODO 组待分配；切片见详细拆分区。 |
-| CLM-20260304-AG10 | T0-6 | lang | active | 2026-03-04 | 2026-03-11 | `pending` | `—` | 下一项 fix：P0 红灯且无上游依赖，先修复 `search_file` 路径契约回归。 |
+| CLM-20260304-AG10 | T0-6 | lang | done | 2026-03-04 | 2026-03-11 | `pending` | `—` | `search_file` 路径契约回归已修复并回归通过。 |
 | CLM-20260304-AG11 | T0-4 + T0-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P0 未完成项补齐认领声明：facade 合规修复与失败映射责任化待分配。 |
 | CLM-20260304-AG12 | T1-3 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P1 未完成项补齐认领声明：`ISecurityBoundary` 接入待分配。 |
 | CLM-20260304-AG13 | T2-1（剩余范围） + T2-2 + T5-1 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | Layer-2 策略补齐：D5 子范围已完成，剩余上下文融合/多阶段 prompt/session 补齐待分配。 |
@@ -42,9 +42,8 @@
 
 ## 2. 当前基线
 
-- 测试基线（2026-03-03）：`.venv/bin/pytest -q` => `1 failed, 642 passed, 12 skipped, 1 warning`。
+- 测试基线（2026-03-04）：`.venv/bin/pytest -q` => `676 passed, 12 skipped, 1 warning`。
 - 关键问题聚类：
-  - `search_file` 输出路径契约回归：实现返回绝对路径，测试期望相对路径（`tests/unit/test_v4_file_tools.py::test_search_file_finds_matching_paths`）。
   - 全量 TODO / Claim / Feature 状态存在漂移（已 merge 或 archived 的 change 仍标记 active/draft）。
   - 若干 package `__init__.py` 不满足 facade 约束。
 - 设计已定义但实现未闭环：plan attempt 隔离（snapshot/rollback）、Context 检索融合、完整 HITL 语义、P0 conformance gate 与治理自动化门禁。
@@ -70,9 +69,9 @@
   Status: `planned`
 - [ ] T0-5 建立“失败测试 -> 责任模块 -> owner”映射并例行巡检。
   Status: `planned`
-- [ ] T0-6 修复 `search_file` 输出路径契约回归（绝对路径 vs 相对路径）。  
-  Status: `active`  
-  Evidence: `.venv/bin/pytest -q` 失败用例 `tests/unit/test_v4_file_tools.py::test_search_file_finds_matching_paths`；实现位置 `dare_framework/tool/_internal/tools/search_file.py`  
+- [x] T0-6 修复 `search_file` 输出路径契约回归（绝对路径 vs 相对路径）。  
+  Status: `done`  
+  Evidence: `.venv/bin/pytest -q tests/unit/test_v4_file_tools.py::test_search_file_finds_matching_paths` => `1 passed`；`.venv/bin/pytest -q` => `676 passed, 12 skipped, 1 warning`  
   Last Updated: `2026-03-04`
 
 验收：
