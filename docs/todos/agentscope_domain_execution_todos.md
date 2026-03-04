@@ -20,18 +20,19 @@
 > 用途：对本清单中的 TODO 先做执行声明，避免多人并行修改同一子域。  
 > 规则：同一 TODO Scope 同时仅允许一个 `planned/active` 认领；到期需续期或回退 `planned`。
 > Owner 来源：历史 claim 的 owner 继承自已登记记录（2026-03-02 起）；新拆分但未分配的 claim，`Owner` 保持为空。
+> 对账口径：本表是 AgentScope 补齐工作的详细执行清单；`docs/todos/project_overall_todos.md` 仅维护项目级聚合 claim，并通过 `Project Claim Ref` 与本表对账。
 
-| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
-|---|---|---|---|---|---|---|---|
-| CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d2-d4-thinking-transport` | D2/D4 已完成实现与回归，进入归档/门禁证据补齐。 |
-| CLM-20260302-D5 | D5-1~D5-4 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d5-safe-compression` | D5 已合入主干（PR #136）。 |
-| CLM-20260302-D7 | D7-1~D7-4 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | PR #138 已合入主干，D7 代码/回归/评审闭环完成。 |
-| ~~CLM-20260302-D1D3~~ | ~~D1_a..D1_c, D3_a..D3_c~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | 历史聚合认领已废弃；后续以 D1S/D3S 子切片 claim 为准。 |
-| ~~CLM-20260303-D6D8~~ | ~~D6_a..D6_c, D8_a..D8_c~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | 聚合占位 claim 已废弃；后续以 D6S/D8S 子切片 claim 为准。 |
-| CLM-20260304-D1S | D1_a~D1_c |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | 已拆分未分配：输入协议与错误码切片待认领。 |
-| CLM-20260304-D3S | D3_a~D3_c |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | 已拆分未分配：assemble/URI/降级切片待认领。 |
-| CLM-20260304-D6S | D6_a~D6_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | 已拆分未分配：权限模型与 gateway 接入切片待认领。 |
-| CLM-20260304-D8S | D8_a~D8_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | 已拆分未分配：观测日志与脚本治理切片待认领。 |
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Project Claim Ref | Notes |
+|---|---|---|---|---|---|---|---|---|
+| CLM-20260302-D2D4 | D2-1~D2-4, D4-1~D4-4 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d2-d4-thinking-transport` | `CLM-20260302-AG1` | D2/D4 已完成实现与回归，进入归档/门禁证据补齐。 |
+| CLM-20260302-D5 | D5-1~D5-4 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d5-safe-compression` | `CLM-20260302-AG2` | D5 已合入主干（PR #136）。 |
+| CLM-20260302-D7 | D7-1~D7-4 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | `CLM-20260302-AG3` | PR #138 已合入主干，D7 代码/回归/评审闭环完成。 |
+| ~~CLM-20260302-D1D3~~ | ~~D1_a..D1_c, D3_a..D3_c~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | ~~`CLM-20260302-AG4`~~ | 历史聚合认领已废弃；后续以 D1S/D3S 子切片 claim 为准。 |
+| ~~CLM-20260303-D6D8~~ | ~~D6_a..D6_c, D8_a..D8_c~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | ~~`CLM-20260303-AG5`~~ | 聚合占位 claim 已废弃；后续以 D6S/D8S 子切片 claim 为准。 |
+| CLM-20260304-D1S | D1_a~D1_c |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | `CLM-20260304-AG6` | 已拆分未分配：输入协议与错误码切片待认领。 |
+| CLM-20260304-D3S | D3_a~D3_c |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | `CLM-20260304-AG6` | 已拆分未分配：assemble/URI/降级切片待认领。 |
+| CLM-20260304-D6S | D6_a~D6_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-AG7` | 已拆分未分配：权限模型与 gateway 接入切片待认领。 |
+| CLM-20260304-D8S | D8_a~D8_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-AG7` | 已拆分未分配：观测日志与脚本治理切片待认领。 |
 
 ---
 

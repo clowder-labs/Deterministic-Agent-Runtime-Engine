@@ -14,19 +14,24 @@
 > 用途：在进入执行前先声明 TODO 负责人与范围，避免多人并行冲突。  
 > 规则：同一 TODO Scope 同时仅允许一个 `planned/active` 认领；到期需续期或回退 `planned`。
 > Owner 来源：历史 claim 的 owner 继承自已登记记录（2026-03-02 起）；新拆分但未分配的 claim，`Owner` 保持为空。
+> 完整性口径：`T5-*`（AgentScope 补齐项）在本表仅维护项目级聚合认领；详细切片与执行状态以 `docs/todos/agentscope_domain_execution_todos.md` 为唯一来源，本表通过 `Detail Claim Ref` 对账。
 
-| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
-|---|---|---|---|---|---|---|---|
-| CLM-20260302-AG1 | T5-2 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d2-d4-thinking-transport` | D2/D4 已完成实现与回归，待补归档/门禁链接。 |
-| ~~CLM-20260302-AG2~~ | ~~T2-1~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-03~~ | ~~`agentscope-d5-safe-compression`~~ | D5 已在 PR #136 合入；该历史 claim 已废弃，不再作为当前认领入口。 |
-| CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | PR #138 已合入主干，D7 执行闭环完成。 |
-| ~~CLM-20260302-AG4~~ | ~~D1_a..D1_c, D3_a..D3_c（映射 T5-3）~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | 历史聚合认领已废弃；后续以 AG6 子切片 claim 为准。 |
-| ~~CLM-20260303-AG5~~ | ~~D6_a..D6_c, D8_a..D8_c（关联 T5-4）~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | 聚合占位 claim 已废弃；后续以 AG7 子切片 claim 为准。 |
-| CLM-20260304-AG6 | T5-3（D1_a~D1_c, D3_a~D3_c） |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | 已拆分未分配，详见 AgentScope Claim Ledger。 |
-| CLM-20260304-AG7 | T5-4（D6_a~D6_c, D8_a~D8_c） |  | planned | 2026-03-04 | 2026-03-11 | `pending` | 已拆分未分配，详见 AgentScope Claim Ledger。 |
-| CLM-20260304-AG8 | T1-2_a~T1-2_c, T1-5_a~T1-5_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | 项目层高复杂切片已拆分，尚未分配负责人。 |
-| CLM-20260304-AG9 | T2-3_a~T2-3_b, T2-4_a~T2-4_b |  | planned | 2026-03-04 | 2026-03-11 | `pending` | 项目层治理切片已拆分，尚未分配负责人。 |
-| CLM-20260304-AG10 | T0-6 | lang | active | 2026-03-04 | 2026-03-11 | `pending` | 下一项 fix：P0 红灯且无上游依赖，先修复 `search_file` 路径契约回归。 |
+| Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Detail Claim Ref | Notes |
+|---|---|---|---|---|---|---|---|---|
+| CLM-20260302-AG1 | T5-2 | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d2-d4-thinking-transport` | `CLM-20260302-D2D4` | D2/D4 已完成实现与回归，待补归档/门禁链接。 |
+| ~~CLM-20260302-AG2~~ | ~~T2-1~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-03~~ | ~~`agentscope-d5-safe-compression`~~ | ~~`CLM-20260302-D5`~~ | D5 已在 PR #136 合入；该历史 claim 已废弃，不再作为当前认领入口。 |
+| CLM-20260302-AG3 | D7-1~D7-4（关联 T5-5） | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | `CLM-20260302-D7` | PR #138 已合入主干，D7 执行闭环完成。 |
+| ~~CLM-20260302-AG4~~ | ~~D1_a..D1_c, D3_a..D3_c（映射 T5-3）~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | ~~`CLM-20260302-D1D3`~~ | 历史聚合认领已废弃；后续以 AG6 子切片 claim 为准。 |
+| ~~CLM-20260303-AG5~~ | ~~D6_a..D6_c, D8_a..D8_c（关联 T5-4）~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | ~~`CLM-20260303-D6D8`~~ | 聚合占位 claim 已废弃；后续以 AG7 子切片 claim 为准。 |
+| CLM-20260304-AG6 | T5-3（D1_a~D1_c, D3_a~D3_c） |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | `CLM-20260304-D1S + CLM-20260304-D3S` | 已拆分未分配，详见 AgentScope Claim Ledger。 |
+| CLM-20260304-AG7 | T5-4（D6_a~D6_c, D8_a~D8_c） |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-D6S + CLM-20260304-D8S` | 已拆分未分配，详见 AgentScope Claim Ledger。 |
+| CLM-20260304-AG8 | T1-2_a~T1-2_c, T1-5_a~T1-5_c |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层高复杂切片已拆分，尚未分配负责人。 |
+| CLM-20260304-AG9 | T2-3_a~T2-3_b, T2-4_a~T2-4_b |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层治理切片已拆分，尚未分配负责人。 |
+| CLM-20260304-AG10 | T0-6 | lang | active | 2026-03-04 | 2026-03-11 | `pending` | `—` | 下一项 fix：P0 红灯且无上游依赖，先修复 `search_file` 路径契约回归。 |
+
+对账快照（2026-03-04）：
+- AgentScope 聚合 claim（AG1/AG2/AG3/AG6/AG7）均可在 `agentscope_domain_execution_todos.md` 中找到明细 claim 对应。
+- 项目层独立 claim（AG8/AG9/AG10）不在 AgentScope 明细板拆分。
 
 ## 2. 当前基线
 
@@ -129,6 +134,7 @@
 | `T5-5`（AgentScope 范围） | `D7` | `docs/todos/agentscope_domain_execution_todos.md` | AgentScope 清单的 `Claim Ledger` + `D*` 状态 |
 
 说明：本文件只维护上述 `T*` 的“是否进入下一阶段”结果，不维护 `D*` 子切片进度。
+AgentScope 补齐详细 TODO 入口：`docs/todos/agentscope_domain_execution_todos.md`（单一详细来源）。
 
 ### 4.3 强依赖/高复杂拆分规则（项目层）
 
