@@ -15,6 +15,7 @@
 > 规则：同一 TODO Scope 同时仅允许一个 `planned/active` 认领；到期需续期或回退 `planned`。
 > Owner 来源：历史 claim 的 owner 继承自已登记记录（2026-03-02 起）；新拆分但未分配的 claim，`Owner` 保持为空。
 > 完整性口径：`T5-*`（AgentScope 补齐项）在本表仅维护项目级聚合认领；详细切片与执行状态以 `docs/todos/agentscope_domain_execution_todos.md` 为唯一来源，本表通过 `Detail Claim Ref` 对账。
+> 状态口径：`TODO` 条目与 Claim Ledger 统一使用 `planned/active/done/deprecated`。
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Detail Claim Ref | Notes |
 |---|---|---|---|---|---|---|---|---|
@@ -66,9 +67,11 @@
   Commands: `.venv/bin/pytest -q tests/unit/test_examples_cli.py tests/unit/test_examples_cli_mcp.py` => `22 passed, 1 warning`  
   Last Updated: `2026-03-01`
 - [ ] T0-4 修复 `__init__.py` facade 违规并固化回归检查。
+  Status: `planned`
 - [ ] T0-5 建立“失败测试 -> 责任模块 -> owner”映射并例行巡检。
+  Status: `planned`
 - [ ] T0-6 修复 `search_file` 输出路径契约回归（绝对路径 vs 相对路径）。  
-  Status: `doing`  
+  Status: `active`  
   Evidence: `.venv/bin/pytest -q` 失败用例 `tests/unit/test_v4_file_tools.py::test_search_file_finds_matching_paths`；实现位置 `dare_framework/tool/_internal/tools/search_file.py`  
   Last Updated: `2026-03-04`
 
@@ -84,12 +87,15 @@
   Evidence: `openspec/changes/p0-step-driven-execution/tasks.md`；`dare_framework/agent/_internal/execute_engine.py`；`dare_framework/agent/dare_agent.py`；`.venv/bin/pytest -q tests/unit/test_dare_agent_step_driven_mode.py tests/unit/test_dare_agent_orchestration_split.py` => `27 passed`  
   Last Updated: `2026-03-01`
 - [ ] T1-2 完成 plan attempt 隔离（snapshot/rollback）闭环。
+  Status: `planned`
 - [ ] T1-3 接入 `ISecurityBoundary`（trust derivation + policy gate）。
+  Status: `planned`
 - [x] T1-4 提供 EventLog 默认实现并接入 builder 推荐路径。  
   Status: `done`  
   Evidence: `openspec/changes/p0-default-eventlog/tasks.md`；`dare_framework/event/_internal/sqlite_event_log.py`；`dare_framework/agent/builder.py`；`dare_framework/agent/dare_agent.py`；`dare_framework/observability/_internal/event_trace_bridge.py`；`.venv/bin/pytest -q tests/unit/test_event_sqlite_event_log.py tests/unit/test_builder_security_boundary.py tests/unit/test_five_layer_agent.py` => `43 passed`  
   Last Updated: `2026-03-01`
 - [ ] T1-5 完成 HITL 语义闭环（pause -> wait -> resume）。
+  Status: `planned`
 
 验收：
 
@@ -99,16 +105,24 @@
 ## P2 上下文工程与治理能力
 
 - [ ] T2-1 落地 STM/LTM/Knowledge 融合策略（含预算归因）。
+  Status: `planned`
 - [ ] T2-2 落地多阶段 prompt（plan/execute/verify）与预算联动。
+  Status: `planned`
 - [ ] T2-3 统一 tool defs schema 与风险等级映射。
+  Status: `planned`
 - [ ] T2-4 打通审批记忆、风险模型与策略引擎。
+  Status: `planned`
 
 ## P3 工程化与文档治理
 
 - [ ] T3-1 收敛文档重复描述与冲突叙述。
+  Status: `planned`
 - [ ] T3-2 固化“实现视图 vs 设计视图”差异模板。
+  Status: `planned`
 - [ ] T3-3 降低 legacy/archived 测试占比，补 canonical 覆盖。
+  Status: `planned`
 - [ ] T3-4 固化质量门禁：`ruff` / `black --check` / `mypy --strict` / `pytest`。
+  Status: `planned`
 
 ## 4. 任务拆分（依赖关系 × 重要程度 × 复杂度）
 
@@ -193,29 +207,29 @@ AgentScope 补齐详细 TODO 入口：`docs/todos/agentscope_domain_execution_to
 以下事项来自本地未跟踪版本，作为跨阶段补充跟踪项保留：
 
 - [x] T4-1 会话上下文自动压缩与跨会话交接闭环（已并入 T5-1）  
-  Status: `merged`  
+  Status: `done`  
   说明：与 T5-1 合并，后续以 T5-1 作为唯一执行入口；本项仅保留追溯。  
   Evidence: `dare_framework/context/context.py`, `dare_framework/compression/core.py`, `dare_framework/plan/types.py`
 
 - [ ] T4-2 运行期配置统一收敛（含配额/预算）  
-  Status: `todo`  
+  Status: `planned`  
   现状：模型/MCP/工具等大量配置来自 `Config`；但预算上限（tokens/cost/tool_calls/time）主要通过 `with_budget(Budget)` 注入，`Config` 当前无预算字段，未形成“全走 config”统一面。  
   Evidence: `dare_framework/config/types.py`, `dare_framework/agent/builder.py`, `dare_framework/context/types.py`
 
 - [ ] T4-3 元信息统计默认可采集、可持久化、可查询  
-  Status: `doing`  
+  Status: `planned`  
   现状：token 与 tool 调用在运行中有统计；Observability 模块可采集 metrics/traces，但默认是 no-op，且并非默认持久化输出，API 调用层面的统一报表能力仍需收敛。  
   Evidence: `dare_framework/agent/dare_agent.py`, `dare_framework/observability/_internal/tracing_hook.py`, `dare_framework/observability/_internal/metrics_collector.py`
 
 - [x] T4-4 图片/富媒体一等支持（模型输入与上下文链路，已并入 T5-3）  
-  Status: `merged`  
+  Status: `done`  
   说明：与 T5-3 合并，后续以 T5-3 作为唯一执行入口；本项仅保留追溯。  
   Evidence: `dare_framework/context/types.py`, `dare_framework/model/adapters/openai_adapter.py`, `dare_framework/a2a/server/message_adapter.py`
 
 ## 7. 本次新增事项（2026-02-25）
 
 - [ ] T5-1 session 管理下 context 持久化与跨会话交接闭环  
-  Status: `todo`  
+  Status: `planned`  
   范围：补齐 session 生命周期内/跨 session 的 context 读写、恢复、版本化与兼容策略（含失败回滚与迁移策略）；统一接入 context 自动压缩与 session summary 交接链路。  
   交付：最小可用持久化方案 + 回归测试 + 运维排障说明。
 
@@ -227,17 +241,18 @@ AgentScope 补齐详细 TODO 入口：`docs/todos/agentscope_domain_execution_to
   Last Updated: `2026-03-03`
 
 - [ ] T5-3 图片/音频/视频富媒体消息格式支持  
-  Status: `todo`  
+  Status: `planned`  
   范围：定义并落地多模态 message schema（文本 + 图片 + 音频 + 视频），覆盖模型输入、上下文存储、transport 传输与适配器能力探测；统一替代“图片/富媒体一等支持”的原 T4-4 范围（含 A2A 附件链路规范化）。  
   交付：跨适配器能力矩阵 + 不支持能力时的降级策略 + 示例用例。
 
 - [ ] T5-4 全链路日志输出整理（模块分层与规范化）  
-  Status: `todo`  
+  Status: `planned`  
   范围：收敛 agent/context/tool/model/transport 等关键路径日志，统一字段、级别、trace/session 关联键与脱敏规则。  
   交付：日志规范文档 + 关键流程日志覆盖检查脚本 + 采样策略说明。
 
 - [ ] T5-5 完整架构设计与各 domain 详细设计补齐  
-  Status: `todo`  
+  Status: `planned`  
+  说明：`D7` 子范围已 `done`（对应 `AG3/CLM-20260302-D7`），当前跟踪剩余范围。  
   范围：补齐整体目标架构与 domain 设计文档，至少覆盖关键 API、数据模型、核心流程、异常处理、边界条件与可观测性策略。  
   交付：架构总览文档 + 分 domain 设计文档包 + 设计评审清单与验收标准。
 
