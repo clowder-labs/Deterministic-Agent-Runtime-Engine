@@ -17,6 +17,7 @@ from client.parser.kv import parse_key_value_args
 from client.runtime.action_client import ActionClientError, _parse_action_response
 from client.runtime.task_runner import format_run_output
 from dare_framework.config import Config
+from dare_framework.context import Message
 
 
 def test_parse_command_mode() -> None:
@@ -24,6 +25,13 @@ def test_parse_command_mode() -> None:
     assert isinstance(parsed, Command)
     assert parsed.type == CommandType.MODE
     assert parsed.args == ["plan"]
+
+
+def test_parse_command_sessions() -> None:
+    parsed = parse_command("/sessions list")
+    assert isinstance(parsed, Command)
+    assert parsed.type == CommandType.SESSIONS
+    assert parsed.args == ["list"]
 
 
 def test_parse_command_plain_text() -> None:
@@ -1501,6 +1509,29 @@ def test_run_and_script_parser_accept_control_stdin_flag() -> None:
     assert script_args.control_stdin is True
 
 
+def test_chat_run_and_script_parser_accept_resume_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    chat_args = parser.parse_args(["chat", "--resume"])
+    run_args = parser.parse_args(["run", "--task", "summarize readme", "--resume", "session-42"])
+    script_args = parser.parse_args(["script", "--file", "tasks.txt", "--resume"])
+
+    assert chat_args.resume == "latest"
+    assert run_args.resume == "session-42"
+    assert script_args.resume == "latest"
+
+
+def test_sessions_parser_accepts_list_subcommand() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    args = parser.parse_args(["sessions", "list"])
+
+    assert args.command == "sessions"
+    assert args.sessions_cmd == "list"
+
+
 def test_chat_parser_rejects_control_stdin_flag() -> None:
     client_main = importlib.import_module("client.main")
     parser = client_main._build_parser()
@@ -1694,3 +1725,186 @@ async def test_main_script_control_stdin_requires_headless(monkeypatch, tmp_path
     assert rc == 2
     output = capsys.readouterr().out
     assert "--control-stdin requires --headless" in output
+
+
+@pytest.mark.asyncio
+async def test_main_run_resume_missing_session_returns_two(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    class _FakeContext:
+        def stm_get(self):  # noqa: ANN201
+            return []
+
+        def stm_add(self, _message):  # noqa: ANN001, ANN201
+            return None
+
+        def stm_clear(self):  # noqa: ANN201
+            return []
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.agent = type("Agent", (), {"context": _FakeContext()})()
+            self.channel = object()
+            self.model = object()
+            self.config = config
+            self.client_channel = object()
+
+        async def close(self) -> None:
+            return None
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return _FakeRuntime()
+
+    async def _unexpected_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        raise AssertionError("run_task should not execute when resume target is missing")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _unexpected_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "run",
+            "--resume",
+            "latest",
+            "--task",
+            "continue previous task",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+    assert "resume" in payload["message"]
+
+
+def test_client_session_store_rejects_traversal_session_ids(tmp_path) -> None:
+    store = importlib.import_module("client.session_store")
+    session_store = store.ClientSessionStore(tmp_path / "workspace")
+
+    with pytest.raises(store.SessionStoreError, match="invalid session_id"):
+        session_store.path_for("../../escape")
+
+    with pytest.raises(store.SessionStoreError, match="invalid session_id"):
+        session_store.path_for("session/../../escape")
+
+
+def test_client_session_store_rejects_tampered_snapshot_session_id(tmp_path) -> None:
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+    tampered = session_store.session_dir / "tampered.json"
+    tampered.write_text(
+        json.dumps(
+            {
+                "schema_version": store.SESSION_SNAPSHOT_SCHEMA_VERSION,
+                "session_id": "../../escape",
+                "mode": "execute",
+                "created_at": 1,
+                "updated_at": 2,
+                "workspace_dir": str(workspace),
+                "messages": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(store.SessionStoreError, match="invalid session_id"):
+        session_store.load("tampered")
+
+    assert session_store.list_sessions() == []
+
+
+@pytest.mark.asyncio
+async def test_main_sessions_list_returns_sorted_session_summaries(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    store = importlib.import_module("client.session_store")
+    session_store = store.ClientSessionStore(workspace)
+    state_a = client_main.CLISessionState(conversation_id="session-a")
+    state_b = client_main.CLISessionState(conversation_id="session-b")
+    session_store.save(
+        state=state_a,
+        messages=[Message(role="user", content="older")],
+    )
+    session_store.save(
+        state=state_b,
+        messages=[
+            Message(role="user", content="newer"),
+            Message(role="assistant", content="done"),
+        ],
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _unexpected_bootstrap(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for sessions list")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _unexpected_bootstrap)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "sessions",
+            "list",
+        ]
+    )
+
+    assert rc == 0
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "result"
+    assert [entry["session_id"] for entry in payload["data"]["sessions"]] == ["session-b", "session-a"]
+    assert payload["data"]["sessions"][0]["messages_count"] == 2

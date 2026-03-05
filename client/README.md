@@ -24,9 +24,17 @@
 ```bash
 # 交互模式
 .venv/bin/python -m client chat
+# 恢复最近一次会话
+.venv/bin/python -m client chat --resume
+# 恢复指定会话
+.venv/bin/python -m client chat --resume <session-id>
+# 列出当前 workspace 可恢复会话
+.venv/bin/python -m client sessions list
 
 # 一次性执行
 .venv/bin/python -m client run --task "读取 README 并总结"
+# 在已有会话历史上继续执行一次任务
+.venv/bin/python -m client run --resume latest --task "继续上一轮，补充测试计划"
 # 一次性执行（审批等待超时，默认 120s）
 .venv/bin/python -m client run --task "读取 README 并总结" --approval-timeout-seconds 120
 # 一次性执行（自动审批指定工具，例如 run_command）
@@ -36,6 +44,8 @@
 .venv/bin/python -m client script --file /abs/path/to/demo.txt
 # 仓库内示例脚本
 .venv/bin/python -m client chat --script client/examples/basic.script.txt
+# 在已有会话上继续跑脚本
+.venv/bin/python -m client script --resume latest --file /abs/path/to/demo.txt
 
 # 审批控制
 .venv/bin/python -m client approvals list
@@ -50,6 +60,29 @@
 # 诊断（不要求模型可执行）
 .venv/bin/python -m client doctor
 ```
+
+## 会话持久化与 Resume
+
+`client/` 现在支持基础的跨进程会话恢复：
+
+1. 每个 workspace 会把 CLI session snapshot 写到 `<workspace>/.dare/sessions/<session-id>.json`。
+2. `chat/run/script` 都支持 `--resume [session-id|latest]`。
+3. `--resume` 不带值时等价于 `--resume latest`。
+4. 恢复后会继续同一条对话历史，并复用原 `session_id`。
+5. 可以通过 `sessions list` 查看当前 workspace 里有哪些 session 可恢复。
+
+第一版明确 **只恢复可安全恢复的 CLI 状态**：
+
+- 会恢复：消息历史（STM）、执行模式（`plan|execute`）、session id
+- 不恢复：运行中的任务、待审批请求、pending plan preview
+
+因此它对齐的是 Claude/Codex CLI 那类“继续上一条对话”的基础能力，而不是 runtime checkpoint 断点续跑。
+
+常见错误语义：
+
+- `--resume latest` 但当前 workspace 没有任何 session：退出码 `2`
+- `--resume <session-id>` 找不到对应文件：退出码 `2`
+- snapshot 文件损坏或 schema 不兼容：退出码 `2`
 
 ## 配置
 

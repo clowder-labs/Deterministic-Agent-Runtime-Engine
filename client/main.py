@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
+from client.session_store import ClientSessionStore, SessionSnapshot, SessionStoreError
 from client.commands.approvals import approvals_usage_lines, handle_approvals_tokens
 from client.commands.info import (
     build_doctor_report,
@@ -297,6 +298,13 @@ _HOST_CONTROL_ACTIONS: tuple[ResourceAction, ...] = (
 )
 
 
+def _list_session_payload(*, session_store: ClientSessionStore) -> dict[str, Any]:
+    """Return structured resumable-session summaries for the current workspace."""
+    return {
+        "sessions": [item.to_dict() for item in session_store.list_sessions()],
+    }
+
+
 def _control_surface_actions() -> list[str]:
     """Return the current CLI host-protocol action surface."""
     actions = {action.value for action in _HOST_CONTROL_ACTIONS}
@@ -542,6 +550,83 @@ async def _wait_until_prompt_allowed(
 
 def _normalize_mode(value: str) -> ExecutionMode:
     return ExecutionMode.PLAN if value == "plan" else ExecutionMode.EXECUTE
+
+
+@dataclasses.dataclass(frozen=True)
+class _ResumeMetadata:
+    """Normalized resume details emitted to logs/headless envelopes."""
+
+    requested: str
+    session_id: str
+    restored_messages: int
+
+
+def _runtime_session_context(runtime: Any) -> Any | None:
+    agent = getattr(runtime, "agent", None)
+    return getattr(agent, "context", None)
+
+
+def _restore_session_snapshot(*, runtime: Any, snapshot: SessionSnapshot) -> int:
+    """Restore persisted STM history into a freshly bootstrapped runtime."""
+    context = _runtime_session_context(runtime)
+    if context is None:
+        raise RuntimeError("runtime agent context is unavailable for session resume")
+    clear = getattr(context, "stm_clear", None)
+    add = getattr(context, "stm_add", None)
+    if not callable(clear) or not callable(add):
+        raise RuntimeError("runtime agent context does not support session resume")
+    clear()
+    for message in snapshot.messages:
+        add(message)
+    return len(snapshot.messages)
+
+
+def _snapshot_messages_for_persistence(runtime: Any) -> list[Any] | None:
+    """Best-effort access to runtime STM for session snapshot writes."""
+    context = _runtime_session_context(runtime)
+    get_messages = getattr(context, "stm_get", None) if context is not None else None
+    if not callable(get_messages):
+        return None
+    messages = get_messages()
+    return list(messages) if isinstance(messages, list) else list(messages)
+
+
+def _build_session_state(
+    *,
+    mode: str,
+    resume: str | None,
+    runtime: Any,
+    session_store: ClientSessionStore | None,
+) -> tuple[CLISessionState, _ResumeMetadata | None]:
+    """Create a fresh CLI state or restore one from a persisted snapshot."""
+    if session_store is None or not isinstance(resume, str):
+        return CLISessionState(mode=_normalize_mode(mode)), None
+    snapshot = session_store.load(resume)
+    restored_messages = _restore_session_snapshot(runtime=runtime, snapshot=snapshot)
+    state = CLISessionState(
+        mode=snapshot.mode,
+        conversation_id=snapshot.session_id,
+    )
+    return state, _ResumeMetadata(
+        requested=resume.strip() or "latest",
+        session_id=snapshot.session_id,
+        restored_messages=restored_messages,
+    )
+
+
+def _persist_session_snapshot(
+    *,
+    runtime: Any,
+    state: CLISessionState,
+    session_store: ClientSessionStore | None,
+) -> None:
+    """Persist current runtime STM into the workspace session store."""
+    if session_store is None:
+        return
+    messages = _snapshot_messages_for_persistence(runtime)
+    if messages is None:
+        return
+    session_store.save(state=state, messages=messages)
 
 
 @dataclasses.dataclass
@@ -825,6 +910,7 @@ async def _handle_shell_command(
     action_client: TransportActionClient,
     output: OutputFacade,
     background_execute: bool,
+    session_store: ClientSessionStore | None = None,
     approval_watch: _ApprovalWatchState | None = None,
     approval_timeout_seconds: float | None = None,
 ) -> bool:
@@ -840,7 +926,7 @@ async def _handle_shell_command(
     if command.type == CommandType.HELP:
         output.display(
             "/mode [plan|execute], /approve, /reject, /status, "
-            "/approvals [...], /mcp [...], /tools list, /skills list, "
+            "/approvals [...], /mcp [...], /tools list, /sessions list, /skills list, "
             "/config show, /model show, /interrupt, /quit"
         )
         return False
@@ -947,6 +1033,16 @@ async def _handle_shell_command(
         output.emit_data(_serialize(payload))
         return False
 
+    if command.type == CommandType.SESSIONS:
+        if command.args[:1] not in ([], ["list"]):
+            output.display("/sessions list", level="warn")
+            return False
+        if session_store is None:
+            output.display("session store unavailable", level="error")
+            return False
+        output.emit_data(_serialize(_list_session_payload(session_store=session_store)))
+        return False
+
     if command.type == CommandType.SKILLS:
         payload = await list_skills(action_client=action_client)
         output.emit_data(_serialize(payload))
@@ -983,6 +1079,7 @@ async def _run_cli_loop(
     action_client: TransportActionClient,
     output: OutputFacade,
     background_execute: bool,
+    session_store: ClientSessionStore | None = None,
     approval_watch: _ApprovalWatchState | None = None,
     approval_timeout_seconds: float | None = None,
 ) -> bool:
@@ -1000,6 +1097,7 @@ async def _run_cli_loop(
                     action_client=action_client,
                     output=output,
                     background_execute=background_execute,
+                    session_store=session_store,
                     approval_watch=approval_watch,
                     approval_timeout_seconds=approval_timeout_seconds,
                 )
@@ -1190,11 +1288,22 @@ async def _run_chat(
     script_lines: list[str] | None,
     approval_timeout_seconds: float | None = None,
     control_stdin: bool = False,
+    initial_state: CLISessionState | None = None,
+    session_store: ClientSessionStore | None = None,
+    resume_metadata: _ResumeMetadata | None = None,
 ) -> int:
-    state = CLISessionState(mode=_normalize_mode(mode))
+    state = initial_state or CLISessionState(mode=_normalize_mode(mode))
     if output.is_headless:
         output.set_protocol_context(session_id=state.conversation_id, run_id=state.conversation_id)
-        output.emit_event("session.started", {"mode": state.mode.value, "entrypoint": "script"})
+        payload: dict[str, Any] = {
+            "mode": state.mode.value,
+            "entrypoint": "script",
+        }
+        if resume_metadata is not None:
+            payload["resumed"] = True
+            payload["resume_requested"] = resume_metadata.requested
+            payload["restored_messages"] = resume_metadata.restored_messages
+        output.emit_event("session.started", payload)
     inline_chat_approvals = script_lines is None and output.mode == "human"
     approval_watch = _ApprovalWatchState() if script_lines is not None and approval_timeout_seconds is not None else None
 
@@ -1252,7 +1361,13 @@ async def _run_chat(
                 background_execute=False,
                 approval_watch=approval_watch,
                 approval_timeout_seconds=approval_timeout_seconds,
+                session_store=session_store,
             )
+            try:
+                _persist_session_snapshot(runtime=runtime, state=state, session_store=session_store)
+            except (OSError, SessionStoreError, RuntimeError) as exc:
+                output.display(f"failed to persist session snapshot: {exc}", level="error")
+                return 1
             if _is_execution_running(state):
                 output.display("waiting for last background execution", level="warn")
                 await _wait_for_background_task(state, output=output)
@@ -1276,14 +1391,21 @@ async def _run_chat(
                 action_client=action_client,
                 output=output,
                 background_execute=True,
+                session_store=session_store,
             )
-            if quit_requested:
-                break
             await _wait_until_prompt_allowed(
                 state,
                 output=output,
                 release_on_pending=not inline_chat_approvals,
             )
+            if not _is_execution_running(state):
+                try:
+                    _persist_session_snapshot(runtime=runtime, state=state, session_store=session_store)
+                except (OSError, SessionStoreError, RuntimeError) as exc:
+                    output.display(f"failed to persist session snapshot: {exc}", level="error")
+                    return 1
+            if quit_requested:
+                break
         if _is_execution_running(state):
             output.display("waiting for running execution", level="warn")
             await _wait_for_background_task(state, output=output)
@@ -1314,10 +1436,24 @@ def _build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="interactive chat mode")
     chat.add_argument("--mode", choices=["plan", "execute"], default="execute")
     chat.add_argument("--script", default=None, help="optional script file")
+    chat.add_argument(
+        "--resume",
+        nargs="?",
+        const="latest",
+        default=None,
+        help="resume latest or specified CLI session",
+    )
 
     run = sub.add_parser("run", help="run one task and exit")
     run.add_argument("--task", required=True)
     run.add_argument("--mode", choices=["plan", "execute"], default="execute")
+    run.add_argument(
+        "--resume",
+        nargs="?",
+        const="latest",
+        default=None,
+        help="resume latest or specified CLI session",
+    )
     run.add_argument("--approve", action="store_true", help="execute after plan preview when mode=plan")
     run.add_argument(
         "--approval-timeout-seconds",
@@ -1350,6 +1486,13 @@ def _build_parser() -> argparse.ArgumentParser:
     script = sub.add_parser("script", help="run script and exit")
     script.add_argument("--file", required=True)
     script.add_argument("--mode", choices=["plan", "execute"], default="execute")
+    script.add_argument(
+        "--resume",
+        nargs="?",
+        const="latest",
+        default=None,
+        help="resume latest or specified CLI session",
+    )
     script.add_argument(
         "--headless",
         action="store_true",
@@ -1400,6 +1543,10 @@ def _build_parser() -> argparse.ArgumentParser:
     tools = sub.add_parser("tools", help="list tools")
     tools_sub = tools.add_subparsers(dest="tools_cmd", required=True)
     tools_sub.add_parser("list")
+
+    sessions = sub.add_parser("sessions", help="list resumable sessions")
+    sessions_sub = sessions.add_subparsers(dest="sessions_cmd", required=True)
+    sessions_sub.add_parser("list")
 
     skills = sub.add_parser("skills", help="list skills")
     skills_sub = skills.add_subparsers(dest="skills_cmd", required=True)
@@ -1481,6 +1628,7 @@ async def main(argv: list[str] | None = None) -> int:
             return 2
         _ = provider
         configure_cli_logging(resolve_cli_log_path(config))
+        session_store = ClientSessionStore(config.workspace_dir)
 
         if not output.is_headless:
             output.header("DARE CLIENT CLI")
@@ -1502,6 +1650,13 @@ async def main(argv: list[str] | None = None) -> int:
             output.emit_data(_serialize(payload))
             return 0 if payload.get("ok") else 3
 
+        if command == "sessions":
+            if args.sessions_cmd != "list":
+                output.display(f"unknown sessions command: {args.sessions_cmd}", level="error")
+                return 2
+            output.emit_data(_serialize(_list_session_payload(session_store=session_store)))
+            return 0
+
         try:
             runtime = await bootstrap_runtime(options)
         except Exception as exc:  # noqa: BLE001
@@ -1515,6 +1670,16 @@ async def main(argv: list[str] | None = None) -> int:
                 lines = _load_script_lines_with_handling(Path(args.script), output=output)
                 if lines is None:
                     return 2
+            try:
+                state, resume_metadata = _build_session_state(
+                    mode=args.mode,
+                    resume=getattr(args, "resume", None),
+                    runtime=runtime,
+                    session_store=session_store,
+                )
+            except (SessionStoreError, RuntimeError) as exc:
+                output.display(f"resume failed: {exc}", level="error")
+                return 2
             return await _run_chat(
                 runtime=runtime,
                 action_client=action_client,
@@ -1523,23 +1688,37 @@ async def main(argv: list[str] | None = None) -> int:
                 script_lines=lines,
                 approval_timeout_seconds=None,
                 control_stdin=False,
+                initial_state=state,
+                session_store=session_store,
+                resume_metadata=resume_metadata,
             )
 
         if command == "run":
-            state = CLISessionState(mode=_normalize_mode(args.mode))
+            try:
+                state, resume_metadata = _build_session_state(
+                    mode=args.mode,
+                    resume=getattr(args, "resume", None),
+                    runtime=runtime,
+                    session_store=session_store,
+                )
+            except (SessionStoreError, RuntimeError) as exc:
+                output.display(f"resume failed: {exc}", level="error")
+                return 2
             if output.is_headless:
                 output.set_protocol_context(session_id=state.conversation_id, run_id=state.conversation_id)
-                output.emit_event(
-                    "session.started",
-                    {
-                        "mode": state.mode.value,
-                        "entrypoint": "run",
-                        "task": args.task,
-                        "workspace": config.workspace_dir,
-                        "adapter": config.llm.adapter or "openai",
-                        "model": config.llm.model,
-                    },
-                )
+                payload = {
+                    "mode": state.mode.value,
+                    "entrypoint": "run",
+                    "task": args.task,
+                    "workspace": config.workspace_dir,
+                    "adapter": config.llm.adapter or "openai",
+                    "model": config.llm.model,
+                }
+                if resume_metadata is not None:
+                    payload["resumed"] = True
+                    payload["resume_requested"] = resume_metadata.requested
+                    payload["restored_messages"] = resume_metadata.restored_messages
+                output.emit_event("session.started", payload)
             if state.mode == ExecutionMode.PLAN:
                 try:
                     plan = await preview_plan(
@@ -1624,6 +1803,11 @@ async def main(argv: list[str] | None = None) -> int:
                     with contextlib.suppress(asyncio.CancelledError):
                         await control_task
                 await pump.stop()
+            try:
+                _persist_session_snapshot(runtime=runtime, state=state, session_store=session_store)
+            except (OSError, SessionStoreError, RuntimeError) as exc:
+                output.display(f"failed to persist session snapshot: {exc}", level="error")
+                return 1
             return 0 if success else 1
 
         if command == "script":
@@ -1633,6 +1817,16 @@ async def main(argv: list[str] | None = None) -> int:
             script_approval_timeout_seconds = args.approval_timeout_seconds
             if script_approval_timeout_seconds is None and output.is_headless:
                 script_approval_timeout_seconds = 120.0
+            try:
+                state, resume_metadata = _build_session_state(
+                    mode=args.mode,
+                    resume=getattr(args, "resume", None),
+                    runtime=runtime,
+                    session_store=session_store,
+                )
+            except (SessionStoreError, RuntimeError) as exc:
+                output.display(f"resume failed: {exc}", level="error")
+                return 2
             return await _run_chat(
                 runtime=runtime,
                 action_client=action_client,
@@ -1641,6 +1835,9 @@ async def main(argv: list[str] | None = None) -> int:
                 script_lines=lines,
                 approval_timeout_seconds=script_approval_timeout_seconds,
                 control_stdin=args.control_stdin,
+                initial_state=state,
+                session_store=session_store,
+                resume_metadata=resume_metadata,
             )
 
         if command == "approvals":
