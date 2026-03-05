@@ -1522,6 +1522,19 @@ def test_chat_run_and_script_parser_accept_resume_flag() -> None:
     assert script_args.resume == "latest"
 
 
+def test_chat_run_and_script_parser_accept_session_id_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    chat_args = parser.parse_args(["chat", "--session-id", "session-42"])
+    run_args = parser.parse_args(["run", "--task", "summarize readme", "--session-id", "session-42"])
+    script_args = parser.parse_args(["script", "--file", "tasks.txt", "--session-id", "session-42"])
+
+    assert chat_args.session_id == "session-42"
+    assert run_args.session_id == "session-42"
+    assert script_args.session_id == "session-42"
+
+
 def test_sessions_parser_accepts_list_subcommand() -> None:
     client_main = importlib.import_module("client.main")
     parser = client_main._build_parser()
@@ -1804,6 +1817,208 @@ async def test_main_run_resume_missing_session_returns_two(monkeypatch, tmp_path
     assert payload["type"] == "log"
     assert payload["level"] == "error"
     assert "resume" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_main_run_rejects_conflicting_resume_and_session_id(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _unexpected_bootstrap(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for conflicting resume targets")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _unexpected_bootstrap)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "run",
+            "--task",
+            "continue previous task",
+            "--resume",
+            "session-a",
+            "--session-id",
+            "session-b",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+    assert "--resume" in payload["message"]
+    assert "--session-id" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_control_action_session_resume_restores_history(tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+
+    runtime_context_messages: list[Message] = []
+
+    class _FakeContext:
+        def stm_get(self):  # noqa: ANN201
+            return list(runtime_context_messages)
+
+        def stm_add(self, message):  # noqa: ANN001, ANN201
+            runtime_context_messages.append(message)
+            return None
+
+        def stm_clear(self):  # noqa: ANN201
+            runtime_context_messages.clear()
+            return []
+
+    runtime = type("Runtime", (), {"agent": type("Agent", (), {"context": _FakeContext()})()})()
+    state = client_main.CLISessionState(conversation_id="fresh-session", mode=client_main.ExecutionMode.EXECUTE)
+
+    snapshot_state = client_main.CLISessionState(conversation_id="session-42", mode=client_main.ExecutionMode.PLAN)
+    session_store.save(
+        state=snapshot_state,
+        messages=[
+            Message(role="user", content="history-user"),
+            Message(role="assistant", content="history-assistant"),
+        ],
+    )
+
+    result = await client_main._dispatch_control_action(
+        action_id="session:resume",
+        params={"session_id": "session-42"},
+        state=state,
+        runtime=runtime,
+        action_client=object(),
+        session_store=session_store,
+    )
+
+    assert result["session_id"] == "session-42"
+    assert result["restored_messages"] == 2
+    assert state.conversation_id == "session-42"
+    assert state.mode == client_main.ExecutionMode.PLAN
+    assert [item.content for item in runtime_context_messages] == ["history-user", "history-assistant"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_control_action_session_resume_rejects_running_state(tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+    state = client_main.CLISessionState(
+        conversation_id="session-live",
+        mode=client_main.ExecutionMode.EXECUTE,
+    )
+    state.status = client_main.SessionStatus.RUNNING
+
+    with pytest.raises(client_main.ActionClientError) as excinfo:
+        await client_main._dispatch_control_action(
+            action_id="session:resume",
+            params={"session_id": "session-42"},
+            state=state,
+            runtime=object(),
+            action_client=object(),
+            session_store=session_store,
+        )
+
+    assert excinfo.value.code == "INVALID_SESSION_STATE"
+    assert excinfo.value.target == "session:resume"
+
+
+@pytest.mark.asyncio
+async def test_run_control_stdin_loop_updates_headless_context_after_session_resume(monkeypatch, tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+
+    class _FakeContext:
+        def __init__(self) -> None:
+            self._messages: list[Message] = []
+
+        def stm_get(self) -> list[Message]:
+            return list(self._messages)
+
+        def stm_add(self, message: Message) -> None:
+            self._messages.append(message)
+
+        def stm_clear(self) -> list[Message]:
+            self._messages.clear()
+            return []
+
+    runtime = type("Runtime", (), {"agent": type("Agent", (), {"context": _FakeContext()})()})()
+    state = client_main.CLISessionState(conversation_id="fresh-session", mode=client_main.ExecutionMode.EXECUTE)
+    snapshot_state = client_main.CLISessionState(conversation_id="session-42", mode=client_main.ExecutionMode.PLAN)
+    session_store.save(
+        state=snapshot_state,
+        messages=[Message(role="user", content="history-user")],
+    )
+    output = client_main.OutputFacade("headless")
+    output.set_protocol_context(session_id="fresh-session", run_id="fresh-session")
+
+    frames = iter(
+        [
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": "ctl-1",
+                    "action": "session:resume",
+                    "params": {"session_id": "session-42"},
+                }
+            ),
+            None,
+        ]
+    )
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0)
+        return next(frames)
+
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    await client_main._run_control_stdin_loop(
+        state=state,
+        runtime=runtime,
+        action_client=object(),
+        session_store=session_store,
+        output=output,
+    )
+
+    assert output._headless is not None
+    assert output._headless._session_id == "session-42"
+    assert output._headless._run_id == "session-42"
+    assert state.conversation_id == "session-42"
 
 
 def test_client_session_store_rejects_traversal_session_ids(tmp_path) -> None:
