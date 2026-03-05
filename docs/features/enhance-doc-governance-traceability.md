@@ -1,9 +1,9 @@
 ---
 change_ids: ["enhance-doc-governance-traceability"]
 doc_kind: feature
-topics: ["documentation-governance", "traceability", "skills"]
+topics: ["documentation-governance", "traceability", "skills", "intent-merge-gate"]
 created: 2026-02-28
-updated: 2026-03-04
+updated: 2026-03-05
 status: active
 mode: openspec
 ---
@@ -30,37 +30,42 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 ## Evidence
 
 ### Commands
-- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_intent_gate.py tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`
 - `./scripts/ci/check_governance_traceability.sh`
 - `./scripts/ci/check_governance_evidence_truth.sh`
+- `GOVERNANCE_INTENT_GATE_CHANGED_FILES=$'client/main.py\ndocs/features/enhance-doc-governance-traceability.md' GOVERNANCE_INTENT_GATE_PR_STATE_FIXTURE='zts212653/Deterministic-Agent-Runtime-Engine#126=merged' ./scripts/ci/check_governance_intent_gate.sh`
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
 
 ### Results
-- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`50 passed`) after extending the traceability gate regression suite to also cover stale active index entries, `Active Entries`-only membership checks, explicit checkpoint-to-skill pair rows, active/archive index path-family enforcement, README index-file exclusion for both active and archived entries, discrete `todo_ids` token matching, Claim Ledger-only TODO/change validation, same-record TODO/change validation, claim-scope range resolution, range-only claim-scope resolution without explicit todo tokens, full lifecycle checkpoint coverage, and date-prefixed archived change task discovery.
+- `../../.venv/bin/python -m pytest -q tests/unit/test_governance_intent_gate.py tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`: passed (`56 passed`) after adding intent-gate regression coverage for docs-only skip behavior, implementation-path gating, governed feature-doc requirement, intent PR link extraction, merged-state enforcement, and draft-status exclusion while preserving existing traceability/evidence truth coverage.
 - `./scripts/ci/check_governance_traceability.sh`: passed against the real repository tree after tightening active/archive index membership to canonical sections, rejecting index entries outside the correct feature-doc path family, excluding `docs/features/README.md` and `docs/features/archive/README.md` from valid feature-entry targets, requiring explicit checkpoint-to-skill pair rows in Section 7, and resolving pilot `todo_ids` only through Claim Ledger records, including same-claim scope ranges where the TODO id is only implied by the claim range.
 - `./scripts/ci/check_governance_evidence_truth.sh`: passed, confirming the new traceability assets do not break the existing evidence-first contract.
+- `GOVERNANCE_INTENT_GATE_CHANGED_FILES=$'client/main.py\ndocs/features/enhance-doc-governance-traceability.md' GOVERNANCE_INTENT_GATE_PR_STATE_FIXTURE='zts212653/Deterministic-Agent-Runtime-Engine#126=merged' ./scripts/ci/check_governance_intent_gate.sh`: passed, confirming implementation-path changes are now hard-blocked unless governed feature docs carry a merged `Intent PR`.
 - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`: passed (`1/1` change valid, `0` issues).
 
 ### Contract Delta
-- `schema`: added a canonical feature aggregation template, active/archive feature indexes, and a machine-checkable backlog-id pilot linkage for one active change.
-- `error semantics`: no runtime API change; the new traceability gate fails structurally on missing template/index/mapping assets with deterministic file-scoped messages.
-- `retry`: no retry semantic change; this slice is docs/CI only, and reruns remain deterministic after fixing the flagged governance asset.
+- `schema`: added a dedicated intent gate script plus CI job wiring and governance guide updates that formalize implementation-path gate semantics.
+- `error semantics`: no runtime API change; intent gate failures are deterministic and file-scoped (`missing governed feature doc`, `missing Intent PR link`, `Intent PR not merged`).
+- `retry`: no retry semantic change; reruns are deterministic after fixing docs linkage or merged-state prerequisites.
 
 ### Golden Cases
 - `docs/features/templates/feature_aggregation_template.md`
 - `docs/features/README.md`
 - `docs/features/archive/README.md`
 - `scripts/ci/check_governance_traceability.sh`
+- `scripts/ci/check_governance_intent_gate.sh`
 - `tests/unit/test_governance_traceability_gate.py`
+- `tests/unit/test_governance_intent_gate.py`
 - `docs/features/agentscope-d2-d4-thinking-transport.md`
 
 ### Regression Summary
 - Runner commands:
-  - `../../.venv/bin/python -m pytest -q tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`
+  - `../../.venv/bin/python -m pytest -q tests/unit/test_governance_intent_gate.py tests/unit/test_governance_traceability_gate.py tests/unit/test_governance_evidence_truth_gate.py`
   - `./scripts/ci/check_governance_traceability.sh`
   - `./scripts/ci/check_governance_evidence_truth.sh`
+  - `GOVERNANCE_INTENT_GATE_CHANGED_FILES=$'client/main.py\ndocs/features/enhance-doc-governance-traceability.md' GOVERNANCE_INTENT_GATE_PR_STATE_FIXTURE='zts212653/Deterministic-Agent-Runtime-Engine#126=merged' ./scripts/ci/check_governance_intent_gate.sh`
   - `openspec validate enhance-doc-governance-traceability --type change --strict --json --no-interactive`
-- Summary: pass 4, fail 0, skip 0.
+- Summary: pass 5, fail 0, skip 0.
 
 ### Observability and Failure Localization
 - N/A for runtime event chain in this docs/CI governance slice.
@@ -69,24 +74,25 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 
 ### Structured Review Report
 - Changed Module Boundaries / Public API: governance scope only; no new runtime public API added.
-- New State: adds one new repository gate script, one new gate test file, and canonical docs/index/template assets under `docs/features/`.
+- New State: adds intent gate policy state (`implementation-path diff -> governed feature doc -> merged intent PR`) with one new gate script and one new regression test suite.
 - Concurrency / Timeout / Retry: no concurrency change; gate runs are single-process document scans with deterministic rerun behavior after fixes.
 - Side Effects and Idempotency: side effects are limited to CI/log output; repeated runs are idempotent against unchanged docs.
-- Coverage and Residual Risk: template/index/skill-mapping/TODO-linkage checks are covered; residual risk is that broader frontmatter enforcement across `docs/guides/**` and `docs/design/**` is still pending.
+- Coverage and Residual Risk: intent-merge gating plus existing template/index/skill-mapping/TODO-linkage checks are covered; residual risk is that broader frontmatter enforcement across `docs/guides/**` and `docs/design/**` is still pending.
 
 ### Behavior Verification
-- Happy path: the repository now has a canonical feature aggregation template, explicit active/archive feature indexes, and a green traceability gate that resolves a pilot feature doc back to its TODO ledger and owning change-id through Claim Ledger records, including scope ranges such as `D2-1~D2-4, D4-1~D4-4`, even when the concrete TODO id does not appear elsewhere in the file.
-- Error/fallback path: the new gate fails deterministically when a feature doc is missing from the `## Active Entries` section, when an active/archive index entry points at the wrong doc family, when Section 7 keeps checkpoint names but drops the actual `checkpoint -> skill` mapping rows, or when `todo_ids` and `change_ids` only co-occur in detail-board/prose lines without a matching Claim Ledger record.
+- Happy path: when implementation files change, CI now requires a same-PR governed feature-doc update and validates that the referenced `Intent PR` is already merged before allowing merge.
+- Error/fallback path: the intent gate fails deterministically when implementation changes omit governed feature docs, when feature docs miss `Intent PR` links, or when the referenced intent PR state is not `merged`.
 
 ### Risks and Rollback
-- Risk: `3.2-3.4` are still open, so the new gate does not yet enforce full frontmatter coverage for every governance-tracked doc family or full master-TODO/task completeness.
+- Risk: `3.2-3.4` are still open, so the governance suite still does not enforce full frontmatter coverage for every governance-tracked doc family or full master-TODO/task completeness.
 - Risk: active/archive indexes are now explicit manual ledgers, so closeout changes that forget to update them will fail the new gate.
-- Rollback: remove `governance-traceability` from `.github/workflows/ci-gate.yml` and revert the template/index additions if the new gate produces unexpected false positives.
+- Risk: local runs without `GITHUB_TOKEN` need PR-state fixture or CI context for merged-state lookup.
+- Rollback: remove `governance-intent-gate` from `.github/workflows/ci-gate.yml` and revert `scripts/ci/check_governance_intent_gate.sh` if false positives block delivery.
 
 ### Review and Merge Gate Links
 - Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126`
 - Implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/137`
-- Current implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/175`
+- Current implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/189`
 - Review request: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976690386`
 - Key owner feedback: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976707233`
 - Active fix threads:
