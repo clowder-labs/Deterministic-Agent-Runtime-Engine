@@ -301,8 +301,9 @@ class SystemPromptConfig:
         mode: Literal["replace", "append"] | None = None
         if raw_mode is not None:
             normalized = str(raw_mode).strip().lower()
-            if normalized in {"replace", "append"}:
-                mode = "replace" if normalized == "replace" else "append"
+            if normalized not in {"replace", "append"}:
+                raise ValueError(f"invalid system_prompt.mode: {raw_mode}")
+            mode = "replace" if normalized == "replace" else "append"
         raw_content = data.get("content")
         content = str(raw_content) if raw_content is not None else None
         raw_path = data.get("path")

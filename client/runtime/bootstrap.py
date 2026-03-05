@@ -195,11 +195,19 @@ def _resolve_system_prompt_override(
     if resolved is None:
         return None
     mode, user_content = resolved
-    base_prompt = _resolve_base_system_prompt(config=config, model=model, prompt_store=prompt_store)
     if mode == "replace":
-        merged_content = user_content
-    else:
-        merged_content = base_prompt.content + "\n\n---\n\n" + user_content
+        # Full replace mode should not depend on prompt-store availability.
+        prompt_id = config.default_prompt_id or "base.system"
+        return Prompt(
+            prompt_id=prompt_id,
+            role="system",
+            content=user_content,
+            supported_models=["*"],
+            order=0,
+        )
+
+    base_prompt = _resolve_base_system_prompt(config=config, model=model, prompt_store=prompt_store)
+    merged_content = base_prompt.content + "\n\n---\n\n" + user_content
     return Prompt(
         prompt_id=base_prompt.prompt_id,
         role=base_prompt.role,

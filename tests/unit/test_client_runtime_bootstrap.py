@@ -22,6 +22,12 @@ class _DummyPromptStore:
         return self._base_prompt
 
 
+class _MissingPromptStore:
+    def get(self, prompt_id: str, *, model: str | None = None, version: str | None = None) -> Prompt:
+        _ = (prompt_id, model, version)
+        raise KeyError(prompt_id)
+
+
 class _DummyModel:
     name = "openai"
     model = "gpt-4o-mini"
@@ -135,6 +141,28 @@ def test_resolve_system_prompt_override_replace_mode(_base_prompt: Prompt) -> No
     assert override.content == "ONLY"
 
 
+def test_resolve_system_prompt_override_replace_mode_without_base_prompt_lookup() -> None:
+    config = Config.from_dict(
+        {
+            "workspace_dir": ".",
+            "user_dir": ".",
+            "default_prompt_id": "custom.system",
+            "system_prompt": {"mode": "replace", "content": "ONLY"},
+        }
+    )
+
+    override = _resolve_system_prompt_override(
+        config=config,
+        model=_DummyModel(),
+        prompt_store=_MissingPromptStore(),
+    )
+
+    assert override is not None
+    assert override.prompt_id == "custom.system"
+    assert override.role == "system"
+    assert override.content == "ONLY"
+
+
 def test_resolve_system_prompt_override_append_mode(_base_prompt: Prompt) -> None:
     config = Config.from_dict(
         {
@@ -152,6 +180,23 @@ def test_resolve_system_prompt_override_append_mode(_base_prompt: Prompt) -> Non
 
     assert override is not None
     assert override.content == "BASE\n\n---\n\nEXTRA"
+
+
+def test_resolve_system_prompt_override_append_mode_requires_base_prompt() -> None:
+    config = Config.from_dict(
+        {
+            "workspace_dir": ".",
+            "user_dir": ".",
+            "system_prompt": {"mode": "append", "content": "EXTRA"},
+        }
+    )
+
+    with pytest.raises(ValueError, match="Prompt not found: base.system"):
+        _resolve_system_prompt_override(
+            config=config,
+            model=_DummyModel(),
+            prompt_store=_MissingPromptStore(),
+        )
 
 
 def test_resolve_system_prompt_override_defaults_mode_to_replace(_base_prompt: Prompt) -> None:

@@ -116,10 +116,8 @@ def test_system_prompt_config_defaults_to_none_mode() -> None:
 
 
 def test_system_prompt_config_invalid_mode_is_ignored() -> None:
-    config = Config.from_dict({"system_prompt": {"mode": "invalid", "content": "x"}})
-
-    assert config.system_prompt.mode is None
-    assert config.system_prompt.content == "x"
+    with pytest.raises(ValueError, match="invalid system_prompt.mode"):
+        Config.from_dict({"system_prompt": {"mode": "invalid", "content": "x"}})
 
 
 def test_config_is_immutable() -> None:
