@@ -116,10 +116,12 @@ def apply_runtime_overrides(config: Config, options: RuntimeOptions) -> Config:
             mcp_paths=_normalize_mcp_paths(list(options.mcp_paths), options.workspace_dir),
         )
     system_prompt = effective.system_prompt
+    cli_mode: str | None = None
     if options.system_prompt_mode is not None:
         normalized_mode = options.system_prompt_mode.strip().lower()
         if normalized_mode not in {"replace", "append"}:
             raise ValueError(f"invalid system prompt mode: {options.system_prompt_mode}")
+        cli_mode = normalized_mode
         system_prompt = replace(
             system_prompt,
             mode="replace" if normalized_mode == "replace" else "append",
@@ -127,9 +129,15 @@ def apply_runtime_overrides(config: Config, options: RuntimeOptions) -> Config:
     if options.system_prompt_text is not None:
         # CLI text override is authoritative and clears file-based source.
         system_prompt = replace(system_prompt, content=options.system_prompt_text, path=None)
+        if cli_mode is None:
+            # Per CLI contract, text override without explicit mode defaults to replace.
+            system_prompt = replace(system_prompt, mode="replace")
     if options.system_prompt_file is not None:
         # CLI file override is authoritative and clears inline source.
         system_prompt = replace(system_prompt, path=options.system_prompt_file, content=None)
+        if cli_mode is None:
+            # Per CLI contract, file override without explicit mode defaults to replace.
+            system_prompt = replace(system_prompt, mode="replace")
     effective = replace(effective, system_prompt=system_prompt)
     return effective
 

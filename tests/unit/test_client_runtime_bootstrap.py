@@ -90,6 +90,32 @@ def test_apply_runtime_overrides_text_override_clears_config_path(tmp_path: Path
     assert effective.system_prompt.path is None
 
 
+def test_apply_runtime_overrides_text_without_mode_defaults_to_replace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    base = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "system_prompt": {"mode": "append", "path": ".dare/prompts/base.txt"},
+        }
+    )
+    options = RuntimeOptions(
+        workspace_dir=workspace,
+        user_dir=user_dir,
+        system_prompt_text="INLINE",
+    )
+
+    effective = apply_runtime_overrides(base, options)
+
+    assert effective.system_prompt.content == "INLINE"
+    assert effective.system_prompt.path is None
+    assert effective.system_prompt.mode == "replace"
+
+
 def test_resolve_system_prompt_override_replace_mode(_base_prompt: Prompt) -> None:
     config = Config.from_dict(
         {
