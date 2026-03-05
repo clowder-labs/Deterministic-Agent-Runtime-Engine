@@ -193,6 +193,32 @@ export OPENROUTER_API_KEY=sk-or-...
 - `use_system_proxy: true` 时，使用系统代理环境变量，并忽略显式 `http/https`。
 - 否则使用配置中的 `https` 或 `http`。
 
+### `system_prompt` 字段说明
+
+可以在配置里声明 CLI 运行时的 system prompt 覆盖策略：
+
+```json
+{
+  "system_prompt": {
+    "mode": "append",
+    "path": ".dare/prompts/local_addendum.txt"
+  }
+}
+```
+
+字段含义：
+
+- `system_prompt.mode`：`replace` 或 `append`
+  - `replace`：完整替换 base system prompt
+  - `append`：在 base system prompt 后追加内容
+- `system_prompt.content`：内联 prompt 文本
+- `system_prompt.path`：从文件读取 prompt 文本（相对路径按 `workspace_dir` 解析）
+
+约束：
+
+- `content` 和 `path` 互斥，不能同时设置。
+- 只设置 `content/path` 未设置 `mode` 时，默认按 `replace` 处理。
+
 ### 常见 LLM 配置示例
 
 OpenAI：
@@ -273,6 +299,10 @@ OpenAI-compatible / 自建模型网关：
   "cli": {
     "log_path": "logs/dare.log"
   },
+  "system_prompt": {
+    "mode": "append",
+    "path": ".dare/prompts/local_addendum.txt"
+  },
   "llm": {
     "adapter": "openai",
     "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
@@ -307,6 +337,29 @@ OpenAI-compatible / 自建模型网关：
   --endpoint http://127.0.0.1:8000/v1 \
   run --task "读取 README 并总结"
 ```
+
+临时覆盖 system prompt（完整替换）：
+
+```bash
+.venv/bin/python -m client \
+  --system-prompt-mode replace \
+  --system-prompt-file .dare/prompts/strict_system.txt \
+  run --task "读取 README 并总结"
+```
+
+临时覆盖 system prompt（在默认提示词后追加）：
+
+```bash
+.venv/bin/python -m client \
+  --system-prompt-mode append \
+  --system-prompt-text "Always answer in Chinese unless user explicitly asks otherwise." \
+  chat
+```
+
+说明：
+
+- `--system-prompt-text` 与 `--system-prompt-file` 互斥。
+- 仅提供 `--system-prompt-text/--system-prompt-file` 而未提供 `--system-prompt-mode` 时，默认按 `replace`。
 
 ### 如何确认配置是否生效
 

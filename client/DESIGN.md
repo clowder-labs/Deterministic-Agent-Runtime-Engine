@@ -224,6 +224,7 @@ dare doctor
 3. `cli.log_path`
 4. `mcp_paths`、`allow_mcps`
 5. `default_prompt_id`
+6. `system_prompt.mode/content/path`（支持 `replace|append`；可由 CLI flags 临时覆盖）
 
 ### 7.3 一致性原则
 

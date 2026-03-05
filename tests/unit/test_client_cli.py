@@ -1496,6 +1496,27 @@ def test_chat_parser_rejects_headless_flag() -> None:
     assert excinfo.value.code == 2
 
 
+def test_parser_accepts_system_prompt_flags() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    args = parser.parse_args(
+        [
+            "--system-prompt-mode",
+            "append",
+            "--system-prompt-text",
+            "always respond in chinese",
+            "run",
+            "--task",
+            "summarize readme",
+        ]
+    )
+
+    assert args.system_prompt_mode == "append"
+    assert args.system_prompt_text == "always respond in chinese"
+    assert args.system_prompt_file is None
+
+
 def test_run_and_script_parser_accept_control_stdin_flag() -> None:
     client_main = importlib.import_module("client.main")
     parser = client_main._build_parser()
@@ -1689,6 +1710,58 @@ async def test_main_run_control_stdin_requires_headless(monkeypatch, tmp_path, c
     assert rc == 2
     output = capsys.readouterr().out
     assert "--control-stdin requires --headless" in output
+
+
+@pytest.mark.asyncio
+async def test_main_rejects_system_prompt_text_and_file_together(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    prompt_file = tmp_path / "system_prompt.txt"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text("prompt", encoding="utf-8")
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for invalid prompt args")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--system-prompt-text",
+            "inline prompt",
+            "--system-prompt-file",
+            str(prompt_file),
+            "run",
+            "--task",
+            "summarize readme",
+        ]
+    )
+
+    assert rc == 2
+    output = capsys.readouterr().out
+    assert "--system-prompt-text and --system-prompt-file are mutually exclusive" in output
 
 
 @pytest.mark.asyncio

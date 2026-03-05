@@ -1537,6 +1537,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", default=None, help="llm api key override")
     parser.add_argument("--endpoint", default=None, help="llm endpoint override")
     parser.add_argument("--max-tokens", type=int, default=None, help="max tokens override")
+    parser.add_argument(
+        "--system-prompt-mode",
+        choices=["replace", "append"],
+        default=None,
+        help="runtime system prompt policy override",
+    )
+    parser.add_argument("--system-prompt-text", default=None, help="inline runtime system prompt override")
+    parser.add_argument("--system-prompt-file", default=None, help="runtime system prompt file path override")
     parser.add_argument("--timeout", type=float, default=60.0, help="request timeout seconds")
     parser.add_argument("--mcp-path", action="append", default=None, help="extra MCP path override (repeatable)")
     parser.add_argument("--output", choices=["human", "json"], default="human")
@@ -1707,6 +1715,9 @@ def _build_runtime_options(args: argparse.Namespace) -> RuntimeOptions:
         max_tokens=args.max_tokens,
         timeout_seconds=args.timeout,
         mcp_paths=list(args.mcp_path) if args.mcp_path else None,
+        system_prompt_mode=args.system_prompt_mode,
+        system_prompt_text=args.system_prompt_text,
+        system_prompt_file=args.system_prompt_file,
     )
 
 
@@ -1722,6 +1733,12 @@ def _validate_cli_args(args: argparse.Namespace, *, output: OutputFacade) -> int
     if getattr(args, "control_stdin", False) and not getattr(args, "headless", False):
         output.display(
             "--control-stdin requires --headless; interactive and legacy modes do not expose the host control plane",
+            level="error",
+        )
+        return 2
+    if args.system_prompt_text is not None and args.system_prompt_file is not None:
+        output.display(
+            "--system-prompt-text and --system-prompt-file are mutually exclusive",
             level="error",
         )
         return 2

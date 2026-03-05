@@ -93,6 +93,7 @@ Unify documentation management structure, lifecycle governance, and SOP-to-skill
 - Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126`
 - Implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/137`
 - Current implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/189`
+- Follow-up implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/197`
 - Review request: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976690386`
 - Key owner feedback: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/126#issuecomment-3976707233`
 - Active fix threads:
