@@ -428,6 +428,7 @@ async def _run_control_stdin_loop(
     runtime: Any,
     action_client: TransportActionClient,
     session_store: ClientSessionStore | None,
+    output: OutputFacade | None = None,
 ) -> None:
     """Process structured host control commands from stdin."""
     renderer = ControlStdinRenderer()
@@ -468,6 +469,14 @@ async def _run_control_stdin_loop(
                     action_client=action_client,
                     session_store=session_store,
                 )
+                if action_id == _SESSION_RESUME_ACTION and output is not None:
+                    resumed_session_id = state.conversation_id
+                    if isinstance(result, dict):
+                        resumed_session_id = str(result.get("session_id", resumed_session_id))
+                    output.set_protocol_context(
+                        session_id=resumed_session_id,
+                        run_id=resumed_session_id,
+                    )
             except json.JSONDecodeError as exc:
                 renderer.emit(
                     request_id=request_id,
@@ -1446,6 +1455,7 @@ async def _run_chat(
                 runtime=runtime,
                 action_client=action_client,
                 session_store=session_store,
+                output=output,
             )
         )
     try:
@@ -1913,6 +1923,7 @@ async def main(argv: list[str] | None = None) -> int:
                         runtime=runtime,
                         action_client=action_client,
                         session_store=session_store,
+                        output=output,
                     )
                 )
             state.status = SessionStatus.RUNNING
