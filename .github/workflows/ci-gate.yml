@@ -153,6 +153,21 @@ jobs:
       - name: Check governance traceability contract (template + indexes + TODO linkage)
         run: ./scripts/ci/check_governance_traceability.sh
 
+  governance-intent-gate:
+    name: governance-intent-gate
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce intent-merged-before-implementation gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/check_governance_intent_gate.sh
+
   p0-gate:
     name: p0-gate
     runs-on: ubuntu-latest

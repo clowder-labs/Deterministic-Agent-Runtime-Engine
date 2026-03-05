@@ -33,6 +33,8 @@
 - [ ] 3.4 Implement or extend CI checks to validate master TODO -> OpenSpec change-slice mapping consistency.
 - [x] 3.5 Implement evidence truth structural gate (`scripts/ci/check_governance_evidence_truth.sh`) and wire it into `ci-gate`.
   Evidence: `scripts/ci/check_governance_evidence_truth.sh`, `tests/unit/test_governance_evidence_truth_gate.py`, and `.github/workflows/ci-gate.yml`.
+- [x] 3.6 Implement hard intent-merged-before-implementation gate and wire it into `ci-gate`.
+  Evidence: `scripts/ci/check_governance_intent_gate.sh`, `tests/unit/test_governance_intent_gate.py`, and `.github/workflows/ci-gate.yml`.
 
 ## 4. SOP skillization implementation
 

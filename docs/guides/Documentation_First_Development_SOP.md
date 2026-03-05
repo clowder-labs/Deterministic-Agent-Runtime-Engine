@@ -74,12 +74,14 @@
   - 本轮切片对应的 docs/OpenSpec artifacts；
   - 若需要多人协作，则包含 execution board 骨架与 Gate/Touch Scope 定义。
 - `intent PR` 禁止夹带实现代码；其目的仅是把意图、边界、冻结点写入共享基线。
+- 机器校验门禁：`./scripts/ci/check_governance_intent_gate.sh` 在实现路径变更时会强制校验“已更新 governed feature doc + Intent PR 已合并”。
 
 ### Step 5: 按 OpenSpec 切片逐项执行修复
 - 每个切片在 OpenSpec 中落地为可追踪 proposal/design/tasks。
 - 推荐节奏：一条 TODO（切片子项） -> OpenSpec task -> 实现 -> 验证 -> 回写状态。
 - 禁止一次性跨多个高风险 TODO 混改。
 - 未完成 `intent PR` 合入前，不得开始实现代码或提交实现 PR。
+- 若 `check_governance_intent_gate.sh` 失败，必须先修复 feature doc / intent 链接状态，再继续实现提交。
 
 ### Step 6: 验证与回写
 - 每次切片修复后必须同步更新：
@@ -99,6 +101,7 @@
   - `Risks and Rollback`
   - `Review and Merge Gate Links`
 - 必须执行并通过：`./scripts/ci/check_governance_evidence_truth.sh`。
+- 对实现路径变更 PR，必须执行并通过：`./scripts/ci/check_governance_intent_gate.sh`。
 
 ### Step 7: 归档
 - 总体 TODO 全部切片完成后：
@@ -124,6 +127,7 @@
 - 未完成 Step 3（docs 更新）不得进入代码提交。
 - 未完成 Step 4（切片映射）不得开始批量修复。
 - 未完成 Step 4.5（docs-only intent PR 合入）不得开始代码实现。
+- 未通过 `./scripts/ci/check_governance_intent_gate.sh` 不得合入实现 PR。
 - 未完成 Step 6（验证+回写）不得标记切片完成。
 - 未完成 Step 7（归档）不得关闭该轮治理任务。
 
