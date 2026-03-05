@@ -14,7 +14,9 @@
 
 - 为 `client/` 定义并实现跨进程 session snapshot。
 - 支持 `chat/run/script --resume [session-id|latest]`。
+- 支持 `chat/run/script --session-id <id>` 兼容入口，等价映射到 resume target。
 - 支持显式列出当前 workspace 下可恢复的 sessions。
+- 支持 headless control-stdin 的 `session:resume` 动作，供外部宿主在协议面触发恢复。
 - 恢复历史 STM 消息与 CLI mode，并复用原 session id。
 - 对缺失 / 损坏 snapshot 提供确定性错误。
 
@@ -78,6 +80,19 @@
 
 这样用户不需要手动遍历 `.dare/sessions/`，也不需要猜测 session id。
 
+### Decision 6: `--session-id` 仅作为 `--resume` 的兼容别名
+
+- `run/chat/script` 新增 `--session-id <id>`，语义与 `--resume <id>` 完全一致。
+- 若同时传入 `--resume` 与 `--session-id`，且目标不一致，CLI 返回确定性参数错误。
+- 对现有调用方优先保持兼容，不改变 `--resume` 的默认行为。
+
+### Decision 7: `session:resume` 走现有 control-stdin v1 envelope
+
+- 不新增 schema version；在 `client-control-stdin.v1` 下扩展 action id `session:resume`。
+- 动作参数最小化为 `{"session_id":"..."}`（兼容 `latest`）。
+- 执行成功后返回恢复结果摘要（session id、mode、restored messages）；失败时返回结构化 error。
+- 仅允许在无活跃执行任务时恢复，避免运行中切换会话导致上下文竞争。
+
 ## Data Structures
 
 ### SessionSnapshot
@@ -133,7 +148,9 @@
 ### `client/main.py`
 
 - 解析 `--resume`
+- 解析 `--session-id` 并与 `--resume` 做冲突归一
 - 在 `chat/run/script` 入口决定是新建 session 还是恢复 session
+- 在 control-stdin dispatcher 增加 `session:resume`，并把动作公开给 `actions:list`
 - 执行后触发 snapshot 写回
 
 ## Error Handling

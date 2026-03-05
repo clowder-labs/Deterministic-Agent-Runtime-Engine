@@ -3,7 +3,7 @@ change_ids: ["client-session-resume"]
 doc_kind: analysis
 topics: ["client-cli", "session-resume", "conversation-history", "t5-1"]
 created: 2026-03-04
-updated: 2026-03-04
+updated: 2026-03-05
 status: active
 mode: openspec
 ---
@@ -56,6 +56,8 @@ mode: openspec
 | CRES-GAP-003 | Resume 必须定义“恢复什么、不恢复什么”的边界，避免把进程内瞬态状态误当作可恢复状态。 | 当前没有任何 resume 语义；`pending_plan`、后台 task、待审批 request 都只存在内存。 | 若不声明边界，后续实现容易错误恢复 pending approvals / running task，造成状态不一致。 | 在设计与实现中明确：恢复 STM/history 和 mode；不恢复运行中任务、待审批队列、pending plan 预览；恢复后 session 状态重置为 `idle`。 | P1 |
 | CRES-GAP-004 | Resume 需要设计级与测试级冻结，保证后续 CLI 演进不会回退。 | 现有 `tests/unit/test_client_cli.py` 与 `tests/integration/test_client_cli_flow.py` 没有 session snapshot / resume 覆盖。 | 没有回归面时，后续改命令行或 runtime bootstrapping 时极易再次丢失恢复能力。 | 增加 unit + integration 测试，覆盖 snapshot 持久化、latest 选择、特定 session 恢复、缺失 session 错误。 | P0 |
 | CRES-GAP-005 | 用户应能枚举当前 workspace 的可恢复 session，而不是手动遍历 `.dare/sessions/`。 | 当前虽然已有 snapshot 文件，但 CLI 没有 `sessions list` 或等价入口。 | `resume` 已可用，但 discoverability 仍然差，用户不知道有哪些 session id 可恢复。 | 增加 `dare sessions list` 和交互态 `/sessions list`，返回按更新时间排序的 resumable session 摘要。 | P1 |
+| CRES-GAP-006 | 外部宿主需要兼容 `--session-id` 语义，避免只能依赖新引入的 `--resume` 参数。 | 当前 `run/chat/script` 仅接受 `--resume`；`--session-id` 只在 approvals 子命令出现。 | Cat Cafe 等集成方需要做参数分支或改造调用协议，迁移成本升高。 | 在 `run/chat`（并保持 script 一致性）增加 `--session-id` 兼容入口并映射到同一 resume 语义；与 `--resume` 冲突时给确定性参数错误。 | P1 |
+| CRES-GAP-007 | Headless 宿主控制面需要提供 `session:resume` 动作，支持基于 control-stdin 的会话恢复。 | 当前 `control-stdin` 支持 approvals/MCP/skills/status/actions list，但没有 `session:resume`。 | 宿主若走统一控制协议，无法在不改 CLI 启动参数的情况下恢复历史会话。 | 在 `--headless --control-stdin` 下增加 `session:resume`，恢复 session history + session id，并把该动作纳入 `actions:list`。 | P1 |
 
 ---
 

@@ -296,6 +296,7 @@ _HOST_CONTROL_ACTIONS: tuple[ResourceAction, ...] = (
     ResourceAction.MCP_SHOW_TOOL,
     ResourceAction.SKILLS_LIST,
 )
+_SESSION_RESUME_ACTION = "session:resume"
 
 
 def _list_session_payload(*, session_store: ClientSessionStore) -> dict[str, Any]:
@@ -308,7 +309,7 @@ def _list_session_payload(*, session_store: ClientSessionStore) -> dict[str, Any
 def _control_surface_actions() -> list[str]:
     """Return the current CLI host-protocol action surface."""
     actions = {action.value for action in _HOST_CONTROL_ACTIONS}
-    actions.update({"actions:list", "status:get"})
+    actions.update({"actions:list", "status:get", _SESSION_RESUME_ACTION})
     return sorted(actions)
 
 
@@ -324,6 +325,71 @@ def _status_snapshot(state: CLISessionState) -> dict[str, Any]:
     }
 
 
+def _resume_target_from_control_params(*, params: dict[str, Any]) -> str:
+    """Extract and normalize `session:resume` control parameters."""
+    raw_target = params.get("session_id")
+    if raw_target is None:
+        raw_target = params.get("resume")
+    target = str(raw_target).strip() if raw_target is not None else ""
+    if not target:
+        raise ActionClientError(
+            code="INVALID_CONTROL_PARAMS",
+            reason="session:resume requires params.session_id",
+            target=_SESSION_RESUME_ACTION,
+        )
+    return target
+
+
+def _resume_session_via_control(
+    *,
+    params: dict[str, Any],
+    state: CLISessionState,
+    runtime: Any,
+    session_store: ClientSessionStore | None,
+) -> dict[str, Any]:
+    """Apply session snapshot restore through the host control surface."""
+    if session_store is None:
+        raise ActionClientError(
+            code="SESSION_STORE_UNAVAILABLE",
+            reason="session snapshot store is unavailable",
+            target=_SESSION_RESUME_ACTION,
+        )
+    if state.status == SessionStatus.RUNNING or _is_execution_running(state):
+        raise ActionClientError(
+            code="INVALID_SESSION_STATE",
+            reason="session:resume requires idle session state",
+            target=_SESSION_RESUME_ACTION,
+        )
+
+    target = _resume_target_from_control_params(params=params)
+    previous_session_id = state.conversation_id
+    try:
+        snapshot = session_store.load(target)
+        restored_messages = _restore_session_snapshot(runtime=runtime, snapshot=snapshot)
+    except (SessionStoreError, RuntimeError) as exc:
+        raise ActionClientError(
+            code="SESSION_RESUME_FAILED",
+            reason=str(exc),
+            target=_SESSION_RESUME_ACTION,
+        ) from exc
+
+    state.mode = snapshot.mode
+    state.conversation_id = snapshot.session_id
+    state.status = SessionStatus.IDLE
+    state.active_execution_task = None
+    state.active_execution_description = None
+    state.clear_pending()
+    state.clear_runtime_approvals()
+
+    return {
+        "requested": target,
+        "session_id": snapshot.session_id,
+        "previous_session_id": previous_session_id,
+        "mode": snapshot.mode.value,
+        "restored_messages": restored_messages,
+    }
+
+
 async def _dispatch_control_action(
     *,
     action_id: str,
@@ -331,12 +397,20 @@ async def _dispatch_control_action(
     state: CLISessionState,
     runtime: Any,
     action_client: TransportActionClient,
+    session_store: ClientSessionStore | None,
 ) -> Any:
     """Bridge host control actions onto the current CLI/runtime surface."""
     if action_id == ResourceAction.ACTIONS_LIST.value:
         return {"actions": _control_surface_actions()}
     if action_id == "status:get":
         return _status_snapshot(state)
+    if action_id == _SESSION_RESUME_ACTION:
+        return _resume_session_via_control(
+            params=params,
+            state=state,
+            runtime=runtime,
+            session_store=session_store,
+        )
     resolved = ResourceAction.value_of(action_id)
     if resolved in _HOST_CONTROL_ACTIONS:
         return await action_client.invoke_action(resolved, **params)
@@ -353,6 +427,7 @@ async def _run_control_stdin_loop(
     state: CLISessionState,
     runtime: Any,
     action_client: TransportActionClient,
+    session_store: ClientSessionStore | None,
 ) -> None:
     """Process structured host control commands from stdin."""
     renderer = ControlStdinRenderer()
@@ -391,6 +466,7 @@ async def _run_control_stdin_loop(
                     state=state,
                     runtime=runtime,
                     action_client=action_client,
+                    session_store=session_store,
                 )
             except json.JSONDecodeError as exc:
                 renderer.emit(
@@ -550,6 +626,29 @@ async def _wait_until_prompt_allowed(
 
 def _normalize_mode(value: str) -> ExecutionMode:
     return ExecutionMode.PLAN if value == "plan" else ExecutionMode.EXECUTE
+
+
+def _resolve_resume_target(
+    *,
+    resume: str | None,
+    session_id: str | None,
+) -> str | None:
+    """Normalize resume inputs from CLI flags and enforce deterministic conflicts."""
+    resume_target = resume.strip() if isinstance(resume, str) else None
+    session_target = session_id.strip() if isinstance(session_id, str) else None
+    if resume_target == "":
+        resume_target = None
+    if session_target == "":
+        session_target = None
+    if (
+        resume_target is not None
+        and session_target is not None
+        and resume_target != session_target
+    ):
+        raise ValueError(
+            "cannot use --resume and --session-id with different targets; pass one target or matching values"
+        )
+    return session_target or resume_target
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1346,6 +1445,7 @@ async def _run_chat(
                 state=state,
                 runtime=runtime,
                 action_client=action_client,
+                session_store=session_store,
             )
         )
     try:
@@ -1443,6 +1543,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="resume latest or specified CLI session",
     )
+    chat.add_argument(
+        "--session-id",
+        default=None,
+        help="resume a specific CLI session by id (compat alias of --resume <session-id>)",
+    )
 
     run = sub.add_parser("run", help="run one task and exit")
     run.add_argument("--task", required=True)
@@ -1453,6 +1558,11 @@ def _build_parser() -> argparse.ArgumentParser:
         const="latest",
         default=None,
         help="resume latest or specified CLI session",
+    )
+    run.add_argument(
+        "--session-id",
+        default=None,
+        help="resume a specific CLI session by id (compat alias of --resume <session-id>)",
     )
     run.add_argument("--approve", action="store_true", help="execute after plan preview when mode=plan")
     run.add_argument(
@@ -1492,6 +1602,11 @@ def _build_parser() -> argparse.ArgumentParser:
         const="latest",
         default=None,
         help="resume latest or specified CLI session",
+    )
+    script.add_argument(
+        "--session-id",
+        default=None,
+        help="resume a specific CLI session by id (compat alias of --resume <session-id>)",
     )
     script.add_argument(
         "--headless",
@@ -1601,6 +1716,16 @@ def _validate_cli_args(args: argparse.Namespace, *, output: OutputFacade) -> int
         )
         return 2
 
+    if getattr(args, "command", None) in {"chat", "run", "script"}:
+        try:
+            _ = _resolve_resume_target(
+                resume=getattr(args, "resume", None),
+                session_id=getattr(args, "session_id", None),
+            )
+        except ValueError as exc:
+            output.display(str(exc), level="error")
+            return 2
+
     return None
 
 
@@ -1663,6 +1788,10 @@ async def main(argv: list[str] | None = None) -> int:
             output.display(f"runtime bootstrap failed: {exc}", level="error")
             return 1
         action_client = TransportActionClient(runtime.client_channel, timeout_seconds=args.timeout)
+        resume_target = _resolve_resume_target(
+            resume=getattr(args, "resume", None),
+            session_id=getattr(args, "session_id", None),
+        )
 
         if command == "chat":
             lines = None
@@ -1673,7 +1802,7 @@ async def main(argv: list[str] | None = None) -> int:
             try:
                 state, resume_metadata = _build_session_state(
                     mode=args.mode,
-                    resume=getattr(args, "resume", None),
+                    resume=resume_target,
                     runtime=runtime,
                     session_store=session_store,
                 )
@@ -1697,7 +1826,7 @@ async def main(argv: list[str] | None = None) -> int:
             try:
                 state, resume_metadata = _build_session_state(
                     mode=args.mode,
-                    resume=getattr(args, "resume", None),
+                    resume=resume_target,
                     runtime=runtime,
                     session_store=session_store,
                 )
@@ -1783,6 +1912,7 @@ async def main(argv: list[str] | None = None) -> int:
                         state=state,
                         runtime=runtime,
                         action_client=action_client,
+                        session_store=session_store,
                     )
                 )
             state.status = SessionStatus.RUNNING
@@ -1820,7 +1950,7 @@ async def main(argv: list[str] | None = None) -> int:
             try:
                 state, resume_metadata = _build_session_state(
                     mode=args.mode,
-                    resume=getattr(args, "resume", None),
+                    resume=resume_target,
                     runtime=runtime,
                     session_store=session_store,
                 )

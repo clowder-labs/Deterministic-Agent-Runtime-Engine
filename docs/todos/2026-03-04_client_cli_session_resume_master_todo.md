@@ -3,7 +3,7 @@ change_ids: ["client-session-resume"]
 doc_kind: todo
 topics: ["client-cli", "session-resume", "conversation-history", "t5-1"]
 created: 2026-03-04
-updated: 2026-03-04
+updated: 2026-03-05
 status: active
 mode: openspec
 ---
@@ -18,7 +18,7 @@ mode: openspec
 
 | Claim ID | TODO Scope | Owner | Status | Declared At | Expires At | OpenSpec Change | Notes |
 |---|---|---|---|---|---|---|---|
-| CLM-20260304-CRES-A | CRES-001~CRES-005 | codex | done | 2026-03-04 | 2026-03-07 | `client-session-resume` | 本地实现已补齐 resume + sessions list，后续仅剩真实 PR/review/archive 流程。 |
+| CLM-20260304-CRES-A | CRES-001~CRES-007 | codex | done | 2026-03-04 | 2026-03-07 | `client-session-resume` | 在已有 resume + sessions list 基线上补齐 issue #184 的 `--session-id` 兼容与 `session:resume` control action。 |
 
 ## 切片规划
 
@@ -35,6 +35,8 @@ mode: openspec
 | CRES-003 | P1 | done | CRES-GAP-003 | `client-session-resume` | 明确恢复边界：恢复历史与 mode，不恢复 running task / pending approvals / pending plan，并将恢复后状态归一到 `idle`。 | codex | `client/DESIGN.md`；`openspec/changes/client-session-resume/design.md` | 2026-03-04 |
 | CRES-004 | P0 | done | CRES-GAP-004 | `client-session-resume` | 新增 unit/integration 测试，覆盖 snapshot 持久化、latest 选择、指定 session 恢复、缺失 session 错误。 | codex | `tests/unit/test_client_cli.py`；`tests/integration/test_client_cli_flow.py` | 2026-03-04 |
 | CRES-005 | P1 | done | CRES-GAP-005 | `client-session-resume` | 增加 `dare sessions list` 与交互态 `/sessions list`，输出当前 workspace 可恢复 session 摘要。 | codex | `client/session_store.py`；`client/main.py`；`tests/unit/test_client_cli.py`；`tests/integration/test_client_cli_flow.py`；`client/README.md` | 2026-03-04 |
+| CRES-006 | P1 | done | CRES-GAP-006 | `client-session-resume` | 为 `run/chat/script` 增加 `--session-id` 兼容入口，并与 `--resume` 统一成同一恢复语义。 | codex | `client/main.py`；`tests/unit/test_client_cli.py`；`client/README.md`；`client/DESIGN.md` | 2026-03-05 |
+| CRES-007 | P1 | done | CRES-GAP-007 | `client-session-resume` | 在 headless `--control-stdin` 增加 `session:resume` 动作并纳入 `actions:list`，补 unit/integration 覆盖。 | codex | `client/main.py`；`tests/unit/test_client_cli.py`；`tests/integration/test_client_cli_flow.py`；`client/README.md`；`client/DESIGN.md` | 2026-03-05 |
 
 ## 执行规则
 

@@ -14,7 +14,9 @@
 
 - 新增 workspace 级 session snapshot store，持久化最小可恢复 CLI state。
 - 为 `chat/run/script` 增加 `--resume [session-id|latest]`。
+- 为 `chat/run/script` 增加 `--session-id` 兼容入口并映射到相同 resume 语义。
 - 增加 `sessions list` / `/sessions list`，让用户发现当前 workspace 的 resumable sessions。
+- 为 `--headless --control-stdin` 增加 `session:resume` 动作，并纳入 `actions:list`。
 - 恢复时回灌 STM/history 与 `mode`，并重置 CLI status 到 `idle`。
 - 增加 unit/integration 测试，覆盖 latest 选择、指定 session 恢复、缺失 session 错误与 resume 后继续执行。
 - 回写 `client/DESIGN.md`、`client/README.md`、feature evidence 与 TODO/OpenSpec artifacts。

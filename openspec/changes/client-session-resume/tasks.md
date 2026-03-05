@@ -17,3 +17,8 @@
 
 - [x] 4.1 增加 `dare sessions list` 与 `/sessions list` 命令面。
 - [x] 4.2 返回按更新时间排序的 session 摘要，并补对应 unit/integration 测试与 README。
+
+## 5. Integration Compatibility
+
+- [x] 5.1 为 `chat/run/script` 增加 `--session-id` 兼容入口，并与 `--resume` 冲突行为做确定性参数校验。
+- [x] 5.2 为 headless `--control-stdin` 增加 `session:resume` action，更新 `actions:list` 并补 unit/integration 与 README/DESIGN 覆盖。
