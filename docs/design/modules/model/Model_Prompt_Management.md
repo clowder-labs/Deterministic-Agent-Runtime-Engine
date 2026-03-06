@@ -123,6 +123,32 @@ flowchart LR
   SysPrompt --> Context["Context._sys_prompt"]
 ```
 
+### 6.4 CLI 运行时 system prompt 叠加策略（新增）
+
+在 `client/` 运行时，除 PromptStore 解析外，还支持面向 CLI 的显式 system prompt 覆盖层：
+
+- 配置入口：`Config.system_prompt`
+- CLI 临时覆盖入口：`--system-prompt-mode`、`--system-prompt-text`、`--system-prompt-file`
+
+语义：
+
+1. `replace`：用用户提供内容完整替换解析出的 base system prompt 内容。
+2. `append`：将用户提供内容追加到解析出的 base system prompt 内容后（使用 `\n\n---\n\n` 分隔）。
+3. 若只提供内容未提供 mode，默认按 `replace` 处理。
+
+优先级：
+
+1. CLI flags（最高）
+2. workspace `.dare/config.json`
+3. user `.dare/config.json`
+4. PromptStore 解析结果（最低）
+
+约束：
+
+- `system_prompt.content` 与 `system_prompt.path` 互斥，同时设置应报错并终止运行。
+- `system_prompt.path` 支持相对路径，相对路径按 `workspace_dir` 解析。
+- `append` 依赖可解析的 base system prompt；若 base prompt 不存在，运行时应返回错误。
+
 ---
 
 ## 7. 与 Context / Agent 的集成
@@ -137,6 +163,7 @@ flowchart LR
 
 - Loader 顺序固定，保证 order 相同场景下的确定性。
 - Manifest 解析失败或字段不合法的 Prompt 会被忽略。
+- CLI system prompt 覆盖层在应用前做显式校验（互斥字段、文件可读性、mode 合法性），校验失败时直接报错，不降级为静默忽略。
 
 ---
 

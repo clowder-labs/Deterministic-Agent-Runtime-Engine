@@ -13,6 +13,10 @@ concurrency:
   group: ci-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   lint:
     name: lint
@@ -155,6 +159,7 @@ jobs:
 
   failure-ownership-map:
     name: failure-ownership-map
+
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -162,6 +167,21 @@ jobs:
 
       - name: Verify failure-test ownership mapping
         run: python scripts/ci/check_test_failure_ownership.py
+
+  governance-intent-gate:
+    name: governance-intent-gate
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce intent-merged-before-implementation gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/check_governance_intent_gate.sh
 
   p0-gate:
     name: p0-gate

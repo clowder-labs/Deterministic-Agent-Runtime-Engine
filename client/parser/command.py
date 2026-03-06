@@ -18,6 +18,7 @@ class CommandType(Enum):
     APPROVALS = "approvals"
     MCP = "mcp"
     TOOLS = "tools"
+    SESSIONS = "sessions"
     SKILLS = "skills"
     CONFIG = "config"
     MODEL = "model"
@@ -60,6 +61,7 @@ def parse_command(user_input: str) -> Command | tuple[None, str]:
         "approvals": CommandType.APPROVALS,
         "mcp": CommandType.MCP,
         "tools": CommandType.TOOLS,
+        "sessions": CommandType.SESSIONS,
         "skills": CommandType.SKILLS,
         "config": CommandType.CONFIG,
         "model": CommandType.MODEL,

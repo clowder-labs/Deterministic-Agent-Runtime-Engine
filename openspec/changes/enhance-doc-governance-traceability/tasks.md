@@ -36,6 +36,8 @@
   Evidence: `scripts/ci/check_governance_traceability.sh` now validates `project_overall_todos.md` `Detail Claim Ref` entries resolve in `agentscope_domain_execution_todos.md` and keep non-pending change-id consistency; `tests/unit/test_governance_traceability_gate.py::test_gate_fails_when_project_claim_detail_ref_is_missing`.
 - [x] 3.5 Implement evidence truth structural gate (`scripts/ci/check_governance_evidence_truth.sh`) and wire it into `ci-gate`.
   Evidence: `scripts/ci/check_governance_evidence_truth.sh`, `tests/unit/test_governance_evidence_truth_gate.py`, and `.github/workflows/ci-gate.yml`.
+- [x] 3.6 Implement hard intent-merged-before-implementation gate and wire it into `ci-gate`.
+  Evidence: `scripts/ci/check_governance_intent_gate.sh`, `tests/unit/test_governance_intent_gate.py`, and `.github/workflows/ci-gate.yml`.
 
 ## 4. SOP skillization implementation
 

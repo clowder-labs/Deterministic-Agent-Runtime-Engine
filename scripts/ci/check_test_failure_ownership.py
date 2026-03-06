@@ -13,10 +13,37 @@ if __package__ in {None, ""}:
 from scripts.ci.p0_gate import DEFAULT_CATEGORY_SPECS, CategorySpec
 
 
+def _normalize_selector_segments(selector: str) -> list[str]:
+    segments = [segment.strip() for segment in selector.split("::")]
+    normalized: list[str] = []
+    for segment in segments:
+        if not segment:
+            continue
+        # `pytest` parametrization suffixes (`test_x[param]`) are narrower matches
+        # than the base node (`test_x`) and should count as overlapping selectors.
+        normalized.append(segment.split("[", 1)[0])
+    return normalized
+
+
+def _selectors_overlap(left: str, right: str) -> bool:
+    left_segments = _normalize_selector_segments(left)
+    right_segments = _normalize_selector_segments(right)
+    if not left_segments or not right_segments:
+        return False
+
+    def _is_prefix(prefix: list[str], full: list[str]) -> bool:
+        if len(prefix) > len(full):
+            return False
+        return prefix == full[: len(prefix)]
+
+    return _is_prefix(left_segments, right_segments) or _is_prefix(right_segments, left_segments)
+
+
 def validate_category_specs(specs: list[CategorySpec]) -> list[str]:
     """Return validation issues for failure ownership mapping specs."""
     issues: list[str] = []
     test_to_label: dict[str, str] = {}
+    selector_mappings: list[tuple[str, str]] = []
 
     for spec in specs:
         if not spec.tests:
@@ -35,6 +62,7 @@ def validate_category_specs(specs: list[CategorySpec]) -> list[str]:
             if not normalized:
                 issues.append(f"{spec.label}: empty test selector")
                 continue
+
             existing = test_to_label.get(normalized)
             if existing and existing != spec.label:
                 issues.append(
@@ -42,7 +70,20 @@ def validate_category_specs(specs: list[CategorySpec]) -> list[str]:
                     f"{normalized} is mapped by both {existing} and {spec.label}"
                 )
                 continue
+
+            for mapped_selector, mapped_label in selector_mappings:
+                if mapped_label == spec.label:
+                    continue
+                if _selectors_overlap(normalized, mapped_selector):
+                    issues.append(
+                        "overlapping test selector mapping: "
+                        f"{normalized} ({spec.label}) overlaps with "
+                        f"{mapped_selector} ({mapped_label})"
+                    )
+                    break
+
             test_to_label[normalized] = spec.label
+            selector_mappings.append((normalized, spec.label))
 
     return issues
 

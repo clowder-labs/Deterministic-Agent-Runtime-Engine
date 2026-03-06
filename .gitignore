@@ -8,6 +8,7 @@ examples/**/workspace/
 workspace/
 .cursorrules
 agentscope/
+openjiuwen/
 
 # Environment variables and secrets
 .env

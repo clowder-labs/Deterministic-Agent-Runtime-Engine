@@ -37,10 +37,12 @@
 
 ## Active Entries
 
+- `docs/features/add-anthropic-model-adapter.md`
 - `docs/features/agentscope-d2-d4-thinking-transport.md`
 - `docs/features/agentscope-d5-safe-compression.md`
 - `docs/features/agentscope-d7-plan-state-tools.md`
 - `docs/features/enhance-doc-governance-traceability.md`
+- `docs/features/client-session-resume.md`
 - `docs/features/p0-conformance-gate.md`
 - `docs/features/p0-default-eventlog.md`
 - `docs/features/p0-step-driven-execution.md`

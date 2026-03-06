@@ -383,7 +383,7 @@ flowchart LR
 - **职责**：统一模型调用入口 + Prompt 管理。
 - **关键类型**：`ModelInput` / `ModelResponse` / `Prompt`。
 - **核心接口**：`IModelAdapter` / `IModelAdapterManager` / `IPromptStore`。
-- **默认实现**：OpenAI/OpenRouter 适配器 + LayeredPromptStore。
+- **默认实现**：OpenAI/OpenRouter/Anthropic 适配器 + LayeredPromptStore。
 - **扩展点**：多模型路由、流式输出、Prompt Loader。
 - **现状限制**：无流式输出与多阶段 prompt pack。
 

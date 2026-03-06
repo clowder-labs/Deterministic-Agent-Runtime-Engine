@@ -1,6 +1,6 @@
 # Module: model
 
-> Status: detailed design aligned to `dare_framework/model` (2026-02-25).
+> Status: detailed design aligned to `dare_framework/model` (2026-03-05).
 
 ## 1. 定位与职责
 
@@ -58,6 +58,12 @@ flowchart TD
 - **Config**：`Config.llm` 决定 adapter 类型与连接参数。
 - **Observability**：从 `usage` 提取 token 指标。
 
+## 6.1 默认 Adapter 能力矩阵
+
+- `openai`: 基于 `langchain-openai`，适配 OpenAI-compatible Chat 接口。
+- `openrouter`: 基于 `openai` SDK，适配 OpenRouter OpenAI-compatible 接口。
+- `anthropic`: 基于 `anthropic` 官方 SDK，适配 Anthropic Messages API（模型名透传 + tool blocks）。
+
 ## 7. 约束与限制
 
 - 当前流式输出和增量 tool-call 仍是待补齐项。
@@ -91,3 +97,4 @@ flowchart TD
 
 - `tests/unit/test_default_model_adapter_manager.py`（模型适配器管理与选择）
 - `tests/unit/test_openrouter_adapter.py`（adapter 消息序列化与 tool-call 兼容）
+- `tests/unit/test_anthropic_model_adapter.py`（Anthropic adapter 请求/响应规范化）

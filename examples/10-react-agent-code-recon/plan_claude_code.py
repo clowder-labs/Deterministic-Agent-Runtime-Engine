@@ -5,6 +5,7 @@ import asyncio
 import os
 import sys
 from dataclasses import replace
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from dare_framework.plan_v2 import (
     PlannerState,
     SubAgentRegistry,
 )
+from dare_framework.checkpoint import AgentStateCheckpointer
 from dare_framework.tool._internal.tools import (
     EditLineTool,
     ReadFileTool,
@@ -33,9 +35,6 @@ from dare_framework.tool._internal.tools import (
     WriteFileTool,
 )
 
-EXAMPLE_DIR = Path(__file__).resolve().parent
-WORKSPACE_DIR = EXAMPLE_DIR / "workspace"
-
 
 def _parse_args() -> argparse.Namespace:
     """解析命令行：目标工程路径。"""
@@ -44,9 +43,7 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python plan_claude_code.py                    # 目标工程 = 当前目录
-  python plan_claude_code.py .                  # 同上
-  python plan_claude_code.py D:/Agent/realesrgan/Real-ESRGAN
+  python plan_claude_code.py
 """,
     )
     parser.add_argument(
@@ -102,9 +99,9 @@ def _build_plan_prompt(workspace_dir: str, project_path: str) -> str:
     """构建主 Agent prompt（意图驱动），注入路径与 sub-agent 说明。"""
     return PLAN_AGENT_SYSTEM_PROMPT + f"""
 
-【路径 - 全部用绝对路径】
-- 目标工程（只读）: {project_path}
-- 产出目录（可写）: {workspace_dir}
+【路径根目录】
+- 目标工程目录: {project_path}
+- 产出内容目录: {workspace_dir}
 
 【可用 sub-agent】委托格式见上方【委托原则】。
 - sub_agent_recon：侦察。理解代码、回答问题、搜索、生成报告（可写 workspace）。
@@ -125,21 +122,26 @@ def _ensure_run_alias(agent: BaseAgent) -> BaseAgent:
 
 
 async def main() -> None:
-    args = _parse_args()
-    project_path = Path(args.project).resolve()
-    if not project_path.exists():
-        print(f"Error: 目标工程路径不存在: {project_path}")
-        sys.exit(1)
+    # 路径约定（简化版，只有一个 workspace_dir）：
+    # - workspace_dir = D:\Agent 作为工具沙箱根目录
+    # - 目标工程目录 project_path_abs = 绝对路径（只读）
+    # - 交付产物目录 output_dir_abs = 绝对路径（可写）
+    #
+    # 所有工具调用一律使用绝对路径，由调用者自行区分「读项目」和「写产物」。
 
-    api_key = os.getenv("OPENROUTER_API_KEY", "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")
+    project_path_abs = "D:\\Agent\\realesrgan\\Real-ESRGAN\\realesrgan\\archs"
+    output_dir_abs = "D:\\Agent\\realesrgan\\Real-ESRGAN\\realesrgan\\dare"
+    workspace_dir_abs = "D:\\Agent\\realesrgan\\Real-ESRGAN\\realesrgan"  # 工具沙箱根目录，必须同时包含 project / output
+
+    Path(output_dir_abs).mkdir(parents=True, exist_ok=True)
+
+    api_key = os.getenv("OPENROUTER_API_KEY", "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")
     if not api_key:
         print("Error: OPENROUTER_API_KEY environment variable not set")
         sys.exit(1)
 
     model_name = os.getenv("OPENROUTER_MODEL", "moonshotai/kimi-k2.5")
     max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", "4096"))
-
-    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
     model = OpenRouterModelAdapter(
         model=model_name,
@@ -151,26 +153,12 @@ async def main() -> None:
         },
     )
 
-    # 全部用绝对路径，禁止相对路径
-    workspace_dir_abs = str(WORKSPACE_DIR.resolve())
-    project_path_abs = str(project_path.resolve())
-    roots = [workspace_dir_abs, project_path_abs]
-
-    class _ConfigWithRoots:
-        """包装 Config，添加 workspace_roots 供 file_utils 使用。"""
-
-        def __init__(self, base: Config, workspace_roots: list[str]) -> None:
-            object.__setattr__(self, "_base", base)
-            object.__setattr__(self, "workspace_roots", workspace_roots)
-
-        def __getattr__(self, name: str) -> object:
-            return getattr(self._base, name)
-
+    # 单一 workspace_dir，所有工具只检查「路径是否在 workspace_dir_abs 之下」
     base_config = Config(
-        workspace_dir=str(PROJECT_ROOT),
+        workspace_dir=workspace_dir_abs,
         user_dir=str(Path.home()),
     )
-    base_config = _ConfigWithRoots(base_config, roots)
+    checkpointer = AgentStateCheckpointer(user_dir=base_config.user_dir)
 
     def _build_sub_prompt() -> str:
         return SUB_AGENT_TASK_PROMPT
@@ -184,7 +172,9 @@ async def main() -> None:
     )
 
     # sub_agent_recon：只读 + write_file，加载 code-recon skill
-    _code_recon_skill_dir = EXAMPLE_DIR / "skills" / "code-recon"
+    _code_recon_skill_dir = Path(
+        "D:\\Agent\\darev0.1\\Deterministic-Agent-Runtime-Engine\\examples\\10-react-agent-code-recon\\skills\\code-recon"
+    )
     _code_recon_skills = FileSystemSkillLoader(_code_recon_skill_dir).load()
     _code_recon_skill = _code_recon_skills[0] if _code_recon_skills else None
 
@@ -192,7 +182,7 @@ async def main() -> None:
         BaseAgent.react_agent_builder("sub_agent_recon")
         .with_model(model)
         .with_config(base_config)
-        .with_context_strategy("smart")
+        .with_context_strategy("basic")
         .with_prompt(sub_prompt)
         .with_sys_skill(_code_recon_skill)
         .with_skill_tool(False)  # 使用固定 code-recon skill，不启用 search_skill
@@ -207,7 +197,7 @@ async def main() -> None:
         BaseAgent.react_agent_builder("sub_agent_coder")
         .with_model(model)
         .with_config(base_config)
-        .with_context_strategy("smart")
+        .with_context_strategy("basic")
         .with_prompt(sub_prompt)
         .add_tools(ReadFileTool(), WriteFileTool(), SearchCodeTool(), EditLineTool())
         .build()
@@ -219,7 +209,7 @@ async def main() -> None:
         BaseAgent.react_agent_builder("sub_agent_runner")
         .with_model(model)
         .with_config(base_config)
-        .with_context_strategy("smart")
+        .with_context_strategy("basic")
         .with_prompt(sub_prompt)
         .add_tools(RunCommandTool(), ReadFileTool())
         .build()
@@ -249,17 +239,18 @@ async def main() -> None:
     plan_prompt = Prompt(
         prompt_id="plan-agent.system",
         role="system",
-        content=_build_plan_prompt(workspace_dir_abs, project_path_abs),
+        content=_build_plan_prompt(output_dir_abs, project_path_abs),
         supported_models=[],
         order=0,
     )
 
-    plan_config = _ConfigWithRoots(replace(base_config._base, mcp_paths=[]), roots)
+    # plan-agent 使用与 sub-agents 相同的 workspace 规则
+    plan_config = replace(base_config, mcp_paths=[])
     plan_agent = await (
         BaseAgent.react_agent_builder("plan-agent")
         .with_config(plan_config)
         .with_model(model)
-        .with_context_strategy("smart")
+        .with_context_strategy("basic")
         .with_prompt(plan_prompt)
         .with_plan_provider(planner)
         .add_tools(ReadFileTool())
@@ -272,7 +263,7 @@ async def main() -> None:
     print("  Sub-agents: sub_agent_recon (只读) | sub_agent_coder (可写) | sub_agent_runner (可执行)")
     print(f"  Model: {model_name}")
     print(f"  目标工程: {project_path_abs}")
-    print(f"  Workspace: {workspace_dir_abs}")
+    print(f"  产物路径: {output_dir_abs}")
     _print_help(project_path_abs)
     print("-" * 60)
 
@@ -284,6 +275,49 @@ async def main() -> None:
             return
 
         if not raw:
+            continue
+
+        # 优先处理 /resume 命令：基于 checkpoint 恢复 agent_state（当前仅 STM）
+        if raw.startswith("/resume"):
+            parts = raw.split(maxsplit=1)
+            checkpoint_id: str | None = None
+
+            # /resume（无参数）：先列出可选 checkpoint，再由用户选择
+            if len(parts) < 2 or not parts[1].strip():
+                checkpoints = checkpointer.list(print_to_stdout=True)
+                if not checkpoints:
+                    continue
+                choice = input("请输入要恢复的 checkpoint 序号或 ID（回车取消）: ").strip()
+                if not choice:
+                    continue
+
+                # 支持按序号选择
+                if choice.isdigit():
+                    index = int(choice)
+                    if 1 <= index <= len(checkpoints):
+                        checkpoint_id = checkpoints[index - 1].checkpoint_id
+                # 或者按 ID / 前缀选择
+                if checkpoint_id is None:
+                    for cp in checkpoints:
+                        if cp.checkpoint_id.startswith(choice):
+                            checkpoint_id = cp.checkpoint_id
+                            break
+                if checkpoint_id is None:
+                    print("未找到匹配的 checkpoint。", flush=True)
+                    continue
+
+            # /resume <checkpoint_id>：直接按提供的 ID 恢复
+            if checkpoint_id is None:
+                checkpoint_id = parts[1].strip()
+
+            try:
+                checkpointer.restore(checkpoint_id, plan_agent.context)
+            except KeyError:
+                print(f"Checkpoint 不存在: {checkpoint_id}", flush=True)
+            except Exception as exc:
+                print(f"恢复 checkpoint 失败: {exc}", flush=True)
+            else:
+                print(f"已从 checkpoint {checkpoint_id} 恢复 agent_state（当前仅 STM）。", flush=True)
             continue
 
         parsed = _parse_command(raw)
@@ -305,6 +339,13 @@ async def main() -> None:
         print(f"\nAssistant: {output_text}", flush=True)
         if result.errors:
             print(f"Errors: {result.errors}", flush=True)
+
+        # 每轮任务结束后自动保存一次 agent_state checkpoint（当前仅 STM），便于后续 /resume 回到本轮结束现场
+        try:
+            checkpoint_id = checkpointer.save(plan_agent.context)
+            print(f"[checkpoint] 本轮任务结束后已保存 agent_state checkpoint: {checkpoint_id}", flush=True)
+        except Exception as exc:
+            print(f"[checkpoint] 自动保存 checkpoint 失败: {exc}", flush=True)
 
 
 if __name__ == "__main__":

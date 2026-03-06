@@ -90,6 +90,7 @@ def test_config_to_dict_round_trip() -> None:
             "allow_tools": ["tool_a"],
             "components": {"hook": {"stdout": {"level": "info"}}},
             "security": {"boundary": "noop"},
+            "system_prompt": {"mode": "append", "path": ".dare/prompts/extra.txt"},
         }
     )
 
@@ -102,6 +103,21 @@ def test_config_to_dict_round_trip() -> None:
     assert payload["allow_tools"] == ["tool_a"]
     assert payload["components"]["hook"]["stdout"] == {"level": "info"}
     assert payload["security"]["boundary"] == "noop"
+    assert payload["system_prompt"]["mode"] == "append"
+    assert payload["system_prompt"]["path"] == ".dare/prompts/extra.txt"
+
+
+def test_system_prompt_config_defaults_to_none_mode() -> None:
+    config = Config.from_dict({"system_prompt": {"content": "always be precise"}})
+
+    assert config.system_prompt.mode is None
+    assert config.system_prompt.content == "always be precise"
+    assert config.system_prompt.path is None
+
+
+def test_system_prompt_config_invalid_mode_is_ignored() -> None:
+    with pytest.raises(ValueError, match="invalid system_prompt.mode"):
+        Config.from_dict({"system_prompt": {"mode": "invalid", "content": "x"}})
 
 
 def test_config_is_immutable() -> None:

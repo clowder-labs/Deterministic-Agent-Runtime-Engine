@@ -24,9 +24,21 @@
 ```bash
 # 交互模式
 .venv/bin/python -m client chat
+# 恢复最近一次会话
+.venv/bin/python -m client chat --resume
+# 恢复指定会话
+.venv/bin/python -m client chat --resume <session-id>
+# 兼容入口：恢复指定会话
+.venv/bin/python -m client chat --session-id <session-id>
+# 列出当前 workspace 可恢复会话
+.venv/bin/python -m client sessions list
 
 # 一次性执行
 .venv/bin/python -m client run --task "读取 README 并总结"
+# 在已有会话历史上继续执行一次任务
+.venv/bin/python -m client run --resume latest --task "继续上一轮，补充测试计划"
+# 兼容入口：基于指定 session 继续执行
+.venv/bin/python -m client run --session-id <session-id> --task "继续上一轮"
 # 一次性执行（审批等待超时，默认 120s）
 .venv/bin/python -m client run --task "读取 README 并总结" --approval-timeout-seconds 120
 # 一次性执行（自动审批指定工具，例如 run_command）
@@ -36,6 +48,10 @@
 .venv/bin/python -m client script --file /abs/path/to/demo.txt
 # 仓库内示例脚本
 .venv/bin/python -m client chat --script client/examples/basic.script.txt
+# 在已有会话上继续跑脚本
+.venv/bin/python -m client script --resume latest --file /abs/path/to/demo.txt
+# 兼容入口：在指定会话上继续跑脚本
+.venv/bin/python -m client script --session-id <session-id> --file /abs/path/to/demo.txt
 
 # 审批控制
 .venv/bin/python -m client approvals list
@@ -50,6 +66,31 @@
 # 诊断（不要求模型可执行）
 .venv/bin/python -m client doctor
 ```
+
+## 会话持久化与 Resume
+
+`client/` 现在支持基础的跨进程会话恢复：
+
+1. 每个 workspace 会把 CLI session snapshot 写到 `<workspace>/.dare/sessions/<session-id>.json`。
+2. `chat/run/script` 都支持 `--resume [session-id|latest]`。
+3. `chat/run/script` 也支持 `--session-id <session-id>`（兼容别名，等价于 `--resume <session-id>`）。
+4. `--resume` 不带值时等价于 `--resume latest`。
+5. 同时传 `--resume` 和 `--session-id` 时，若目标不一致会直接报参数错误（退出码 `2`）。
+6. 恢复后会继续同一条对话历史，并复用原 `session_id`。
+7. 可以通过 `sessions list` 查看当前 workspace 里有哪些 session 可恢复。
+
+第一版明确 **只恢复可安全恢复的 CLI 状态**：
+
+- 会恢复：消息历史（STM）、执行模式（`plan|execute`）、session id
+- 不恢复：运行中的任务、待审批请求、pending plan preview
+
+因此它对齐的是 Claude/Codex CLI 那类“继续上一条对话”的基础能力，而不是 runtime checkpoint 断点续跑。
+
+常见错误语义：
+
+- `--resume latest` 但当前 workspace 没有任何 session：退出码 `2`
+- `--resume <session-id>` 找不到对应文件：退出码 `2`
+- snapshot 文件损坏或 schema 不兼容：退出码 `2`
 
 ## 配置
 
@@ -123,10 +164,10 @@ export OPENROUTER_API_KEY=sk-or-...
 
 ### `llm` 字段说明
 
-- `adapter`：模型适配器，当前支持 `openai` 和 `openrouter`。不写时默认是 `openai`。
+- `adapter`：模型适配器，当前支持 `openai`、`openrouter`、`anthropic`。不写时默认是 `openai`。
 - `model`：模型名，例如 `gpt-4o-mini`、`gpt-4.1`、`qwen/qwen3-coder:free`。
 - `api_key`：模型服务密钥。也可以通过环境变量提供。
-- `endpoint`：自定义 OpenAI-compatible base URL。对 `openrouter` 来说会作为 `base_url` 使用。
+- `endpoint`：自定义 provider base URL。对 `openrouter`/`anthropic` 来说分别映射到各自 SDK 的 `base_url`。
 - `proxy`：代理配置，支持 `http`、`https`、`no_proxy`、`use_system_proxy`、`disabled`。
 - 其他未显式声明的字段会进入 `llm.extra`，并透传给 adapter；例如可以直接写 `temperature`、`max_tokens`。
 
@@ -151,6 +192,32 @@ export OPENROUTER_API_KEY=sk-or-...
 - `disabled: true` 时，显式关闭代理，并忽略其他代理字段。
 - `use_system_proxy: true` 时，使用系统代理环境变量，并忽略显式 `http/https`。
 - 否则使用配置中的 `https` 或 `http`。
+
+### `system_prompt` 字段说明
+
+可以在配置里声明 CLI 运行时的 system prompt 覆盖策略：
+
+```json
+{
+  "system_prompt": {
+    "mode": "append",
+    "path": ".dare/prompts/local_addendum.txt"
+  }
+}
+```
+
+字段含义：
+
+- `system_prompt.mode`：`replace` 或 `append`
+  - `replace`：完整替换 base system prompt
+  - `append`：在 base system prompt 后追加内容
+- `system_prompt.content`：内联 prompt 文本
+- `system_prompt.path`：从文件读取 prompt 文本（相对路径按 `workspace_dir` 解析）
+
+约束：
+
+- `content` 和 `path` 互斥，不能同时设置。
+- 只设置 `content/path` 未设置 `mode` 时，默认按 `replace` 处理。
 
 ### 常见 LLM 配置示例
 
@@ -190,6 +257,29 @@ export OPENROUTER_MODEL=qwen/qwen3-coder:free
 # 可选，默认就是 https://openrouter.ai/api/v1
 export OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
+
+Anthropic：
+
+```json
+{
+  "llm": {
+    "adapter": "anthropic",
+    "model": "claude-sonnet-4-5"
+  }
+}
+```
+
+配合环境变量：
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+# 建议显式写完整模型名；CLI 会直接透传到 Anthropic SDK
+export ANTHROPIC_MODEL=claude-sonnet-4-5
+```
+
+仓库示例文件：
+
+- `client/examples/config.anthropic.example.json`
 
 OpenAI-compatible / 自建模型网关：
 
@@ -232,6 +322,10 @@ OpenAI-compatible / 自建模型网关：
   "cli": {
     "log_path": "logs/dare.log"
   },
+  "system_prompt": {
+    "mode": "append",
+    "path": ".dare/prompts/local_addendum.txt"
+  },
   "llm": {
     "adapter": "openai",
     "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
@@ -267,6 +361,29 @@ OpenAI-compatible / 自建模型网关：
   run --task "读取 README 并总结"
 ```
 
+临时覆盖 system prompt（完整替换）：
+
+```bash
+.venv/bin/python -m client \
+  --system-prompt-mode replace \
+  --system-prompt-file .dare/prompts/strict_system.txt \
+  run --task "读取 README 并总结"
+```
+
+临时覆盖 system prompt（在默认提示词后追加）：
+
+```bash
+.venv/bin/python -m client \
+  --system-prompt-mode append \
+  --system-prompt-text "Always answer in Chinese unless user explicitly asks otherwise." \
+  chat
+```
+
+说明：
+
+- `--system-prompt-text` 与 `--system-prompt-file` 互斥。
+- 仅提供 `--system-prompt-text/--system-prompt-file` 而未提供 `--system-prompt-mode` 时，默认按 `replace`。
+
 ### 如何确认配置是否生效
 
 建议按下面顺序检查：
@@ -294,6 +411,7 @@ OpenAI-compatible / 自建模型网关：
 
 - `openai` adapter：需要 `langchain-openai`
 - `openrouter` adapter：需要 `openai`
+- `anthropic` adapter：需要 `anthropic`
 
 否则 `doctor` 会提示 adapter probe 或依赖缺失，runtime 也无法正常启动。
 
@@ -341,7 +459,8 @@ Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地
 - `--headless` 不能与 legacy `--output json` 混用
 - `run` / `script --headless` 支持可选 `--control-stdin`
   - 控制响应使用独立 schema：`client-control-stdin.v1`
-  - 当前已接通：`actions:list`、`status:get`、`approvals:list/poll/grant/deny/revoke`、`mcp:list/reload/show-tool`、`skills:list`
+  - 当前已接通：`actions:list`、`status:get`、`session:resume`、`approvals:list/poll/grant/deny/revoke`、`mcp:list/reload/show-tool`、`skills:list`
+  - `session:resume` 仅允许在 idle 状态触发；运行中调用会返回结构化 `INVALID_SESSION_STATE`
   - `mcp:unload` 仍然不是宿主协议 action；宿主发送时会得到结构化 `UNSUPPORTED_ACTION`
   - 未支持或未完成的 action 会返回结构化 error，而不是回落到 prompt 文案
 
@@ -353,7 +472,7 @@ Issue #135 对应的宿主编排能力目前分成“已落地”和“未落地
 
 1. 自动化脚本仍使用 `run/script --output json`。
 2. 宿主事件流接入使用 `run/script --headless`。
-3. 运行中控制当前优先使用 `--control-stdin` 做 `actions:list`、`status:get`、approvals、MCP 与 `skills:list`。
+3. 运行中控制当前优先使用 `--control-stdin` 做 `actions:list`、`status:get`、`session:resume`、approvals、MCP 与 `skills:list`。
 4. 不要把当前 `log/event/result` 三类 JSON 行当作长期稳定的宿主协议。
 
 补充说明：

@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from dare_framework.config import Config
+from dare_framework.context import Message
 
 
 class _FakeClientChannel:
@@ -35,6 +36,26 @@ class _FakeRuntime:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _FakeContext:
+    def __init__(self) -> None:
+        self._messages: list[Message] = []
+
+    def stm_add(self, message: Message) -> None:
+        self._messages.append(message)
+
+    def stm_get(self) -> list[Message]:
+        return list(self._messages)
+
+    def stm_clear(self) -> list[Message]:
+        self._messages.clear()
+        return []
+
+
+class _FakeAgent:
+    def __init__(self) -> None:
+        self.context = _FakeContext()
 
 
 class _FakeActionClient:
@@ -525,6 +546,7 @@ async def test_main_run_headless_control_stdin_bridges_approvals_list(
                     "mcp:list",
                     "mcp:reload",
                     "mcp:show-tool",
+                    "session:resume",
                     "skills:list",
                     "status:get",
                 ]
@@ -810,6 +832,7 @@ async def test_main_script_headless_control_stdin_bridges_actions_list(
     assert control_frames[0]["id"] == "ctl-script-actions-1"
     assert control_frames[0]["ok"] is True
     assert "actions:list" in control_frames[0]["result"]["actions"]
+    assert "session:resume" in control_frames[0]["result"]["actions"]
     assert _FakeActionClient.calls == []
     assert runtime.closed is True
 
@@ -899,9 +922,90 @@ async def test_main_run_headless_control_stdin_actions_list_coexists_with_existi
     assert [frame["id"] for frame in control_frames] == ["ctl-actions-1", "ctl-approvals-2"]
     assert control_frames[0]["ok"] is True
     assert "actions:list" in control_frames[0]["result"]["actions"]
+    assert "session:resume" in control_frames[0]["result"]["actions"]
     assert control_frames[1]["ok"] is True
     assert control_frames[1]["result"] == {"pending": [], "rules": []}
     assert _FakeActionClient.calls == [("approvals:list", {})]
+    assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_run_headless_control_stdin_session_resume_rejects_running_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _slow_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = (agent, task_text, conversation_id, transport)
+        await asyncio.sleep(0.2)
+        return _OkResult()
+
+    control_lines = iter(
+        [
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": "ctl-session-resume-1",
+                    "action": "session:resume",
+                    "params": {"session_id": "session-42"},
+                }
+            ),
+            None,
+        ]
+    )
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0.05)
+        return next(control_lines)
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _slow_run_task)
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "do one task",
+            "--headless",
+            "--control-stdin",
+        ]
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    control_frames = [line for line in lines if line["schema_version"] == "client-control-stdin.v1"]
+
+    assert rc == 0
+    assert len(control_frames) == 1
+    assert control_frames[0]["id"] == "ctl-session-resume-1"
+    assert control_frames[0]["ok"] is False
+    assert control_frames[0]["error"]["code"] == "INVALID_SESSION_STATE"
+    assert control_frames[0]["error"]["target"] == "session:resume"
     assert runtime.closed is True
 
 
@@ -1579,3 +1683,197 @@ async def test_main_run_auto_approves_configured_tool(
     assert "auto-approving request_id=req-auto-1 for tool=run_command" in log_text
     assert any(action_id == "approvals:grant" for action_id, _ in _FakeActionClient.calls)
     assert runtime.closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_run_resume_latest_restores_history_and_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    runtimes: list[_FakeRuntime] = []
+    seen_histories: list[list[str]] = []
+    seen_session_ids: list[str | None] = []
+
+    class _ResumeRuntime(_FakeRuntime):
+        def __init__(self, *, config: Config) -> None:
+            super().__init__(config=config)
+            self.agent = _FakeAgent()
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        runtime = _ResumeRuntime(config=config)
+        runtimes.append(runtime)
+        return runtime
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = transport
+        seen_histories.append([message.content for message in agent.context.stm_get()])
+        seen_session_ids.append(conversation_id)
+        agent.context.stm_add(Message(role="user", content=task_text))
+        agent.context.stm_add(Message(role="assistant", content=f"done:{task_text}"))
+        return _OkResult()
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+
+    first_rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "first task",
+        ]
+    )
+    assert first_rc == 0
+
+    session_dir = Path(config.workspace_dir) / ".dare" / "sessions"
+    session_files = list(session_dir.glob("*.json"))
+    assert len(session_files) == 1
+
+    second_rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--resume",
+            "latest",
+            "--task",
+            "follow up",
+        ]
+    )
+
+    assert second_rc == 0
+    assert seen_histories[0] == []
+    assert seen_histories[1] == ["first task", "done:first task"]
+    assert seen_session_ids[0]
+    assert seen_session_ids[1] == seen_session_ids[0]
+    assert len(runtimes) == 2
+    assert all(runtime.closed is True for runtime in runtimes)
+
+
+@pytest.mark.asyncio
+async def test_main_run_resume_specific_session_restores_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client_main = importlib.import_module("client.main")
+    config = _config_for_tests(tmp_path)
+    seen_histories: list[list[str]] = []
+    seen_session_ids: list[str | None] = []
+
+    class _ResumeRuntime(_FakeRuntime):
+        def __init__(self, *, config: Config) -> None:
+            super().__init__(config=config)
+            self.agent = _FakeAgent()
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return _ResumeRuntime(config=config)
+
+    class _OkResult:
+        success = True
+        output = {"content": "assistant says hi"}
+        errors: list[str] = []
+
+    async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        _ = transport
+        seen_histories.append([message.content for message in agent.context.stm_get()])
+        seen_session_ids.append(conversation_id)
+        agent.context.stm_add(Message(role="user", content=task_text))
+        agent.context.stm_add(Message(role="assistant", content=f"done:{task_text}"))
+        return _OkResult()
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _fake_run_task)
+
+    first_rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--task",
+            "seed task",
+        ]
+    )
+    assert first_rc == 0
+
+    session_dir = Path(config.workspace_dir) / ".dare" / "sessions"
+    session_files = list(session_dir.glob("*.json"))
+    assert len(session_files) == 1
+    session_id = session_files[0].stem
+
+    second_rc = await client_main.main(
+        [
+            "--workspace",
+            config.workspace_dir,
+            "--user-dir",
+            config.user_dir,
+            "run",
+            "--resume",
+            session_id,
+            "--task",
+            "second task",
+        ]
+    )
+
+    assert second_rc == 0
+    assert seen_histories[1] == ["seed task", "done:seed task"]
+    assert seen_session_ids[1] == session_id
+
+
+@pytest.mark.asyncio
+async def test_run_chat_script_sessions_list_emits_saved_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client_main = importlib.import_module("client.main")
+    session_store_module = importlib.import_module("client.session_store")
+    config = _config_for_tests(tmp_path)
+    runtime = _FakeRuntime(config=config)
+    runtime.agent = _FakeAgent()
+
+    store = session_store_module.ClientSessionStore(config.workspace_dir)
+    older_state = client_main.CLISessionState(conversation_id="session-older")
+    newer_state = client_main.CLISessionState(conversation_id="session-newer")
+    store.save(state=older_state, messages=[Message(role="user", content="older")])
+    store.save(state=newer_state, messages=[Message(role="user", content="newer")])
+
+    rc = await client_main._run_chat(
+        runtime=runtime,
+        action_client=object(),
+        output=client_main.OutputFacade("json"),
+        mode="execute",
+        script_lines=["/sessions list", "/quit"],
+        session_store=store,
+    )
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    result_payloads = [line["data"] for line in lines if line.get("type") == "result"]
+
+    assert rc == 0
+    assert result_payloads
+    assert [entry["session_id"] for entry in result_payloads[0]["sessions"]] == [
+        "session-newer",
+        "session-older",
+    ]

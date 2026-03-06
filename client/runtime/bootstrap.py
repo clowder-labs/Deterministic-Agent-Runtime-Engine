@@ -9,6 +9,9 @@ from typing import Any
 from dare_framework.agent import DareAgentBuilder
 from dare_framework.config import Config, FileConfigProvider
 from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
+from dare_framework.model.factories import create_default_prompt_store
+from dare_framework.model.interfaces import IPromptStore
+from dare_framework.model.types import Prompt
 from dare_framework.plan import DefaultPlanner, DefaultRemediator
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
 from dare_framework.transport import AgentChannel, DirectClientChannel
@@ -27,6 +30,9 @@ class RuntimeOptions:
     max_tokens: int | None = None
     timeout_seconds: float | None = None
     mcp_paths: list[str] | None = None
+    system_prompt_mode: str | None = None
+    system_prompt_text: str | None = None
+    system_prompt_file: str | None = None
 
 
 @dataclass
@@ -109,7 +115,109 @@ def apply_runtime_overrides(config: Config, options: RuntimeOptions) -> Config:
             effective,
             mcp_paths=_normalize_mcp_paths(list(options.mcp_paths), options.workspace_dir),
         )
+    system_prompt = effective.system_prompt
+    cli_mode: str | None = None
+    if options.system_prompt_mode is not None:
+        normalized_mode = options.system_prompt_mode.strip().lower()
+        if normalized_mode not in {"replace", "append"}:
+            raise ValueError(f"invalid system prompt mode: {options.system_prompt_mode}")
+        cli_mode = normalized_mode
+        system_prompt = replace(
+            system_prompt,
+            mode="replace" if normalized_mode == "replace" else "append",
+        )
+    if options.system_prompt_text is not None:
+        # CLI text override is authoritative and clears file-based source.
+        system_prompt = replace(system_prompt, content=options.system_prompt_text, path=None)
+        if cli_mode is None:
+            # Per CLI contract, text override without explicit mode defaults to replace.
+            system_prompt = replace(system_prompt, mode="replace")
+    if options.system_prompt_file is not None:
+        # CLI file override is authoritative and clears inline source.
+        system_prompt = replace(system_prompt, path=options.system_prompt_file, content=None)
+        if cli_mode is None:
+            # Per CLI contract, file override without explicit mode defaults to replace.
+            system_prompt = replace(system_prompt, mode="replace")
+    effective = replace(effective, system_prompt=system_prompt)
     return effective
+
+
+def _resolve_system_prompt_content(config: Config) -> tuple[str, str] | None:
+    """Resolve runtime system-prompt mode/content from effective config."""
+    prompt_cfg = config.system_prompt
+    if prompt_cfg.content is not None and prompt_cfg.path is not None:
+        raise ValueError("system_prompt.content and system_prompt.path are mutually exclusive")
+
+    content = prompt_cfg.content
+    if prompt_cfg.path is not None:
+        prompt_path = Path(prompt_cfg.path).expanduser()
+        if not prompt_path.is_absolute():
+            prompt_path = (Path(config.workspace_dir) / prompt_path).resolve()
+        try:
+            content = prompt_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(f"failed to read system_prompt.path: {prompt_path}: {exc}") from exc
+
+    if content is None:
+        return None
+
+    mode = prompt_cfg.mode or "replace"
+    if mode not in {"replace", "append"}:
+        raise ValueError(f"invalid system_prompt.mode: {mode}")
+    return mode, content
+
+
+def _resolve_base_system_prompt(
+    *,
+    config: Config,
+    model: Any,
+    prompt_store: IPromptStore | None = None,
+) -> Prompt:
+    prompt_id = config.default_prompt_id or "base.system"
+    model_name = getattr(model, "model", None) or getattr(model, "name", None)
+    if not model_name:
+        raise ValueError("model adapter must expose model/name for prompt resolution")
+    store = prompt_store or create_default_prompt_store(config)
+    try:
+        return store.get(prompt_id, model=model_name)
+    except KeyError as exc:
+        raise ValueError(f"Prompt not found: {prompt_id}") from exc
+
+
+def _resolve_system_prompt_override(
+    *,
+    config: Config,
+    model: Any,
+    prompt_store: IPromptStore | None = None,
+) -> Prompt | None:
+    """Build a runtime Prompt override from config system_prompt policy."""
+    resolved = _resolve_system_prompt_content(config)
+    if resolved is None:
+        return None
+    mode, user_content = resolved
+    if mode == "replace":
+        # Full replace mode should not depend on prompt-store availability.
+        prompt_id = config.default_prompt_id or "base.system"
+        return Prompt(
+            prompt_id=prompt_id,
+            role="system",
+            content=user_content,
+            supported_models=["*"],
+            order=0,
+        )
+
+    base_prompt = _resolve_base_system_prompt(config=config, model=model, prompt_store=prompt_store)
+    merged_content = base_prompt.content + "\n\n---\n\n" + user_content
+    return Prompt(
+        prompt_id=base_prompt.prompt_id,
+        role=base_prompt.role,
+        content=merged_content,
+        supported_models=list(base_prompt.supported_models),
+        order=base_prompt.order,
+        version=base_prompt.version,
+        name=base_prompt.name,
+        metadata=dict(base_prompt.metadata),
+    )
 
 
 async def bootstrap_runtime(options: RuntimeOptions) -> ClientRuntime:
@@ -132,6 +240,9 @@ async def bootstrap_runtime(options: RuntimeOptions) -> ClientRuntime:
         .with_planner(DefaultPlanner(model, verbose=False))
         .with_remediator(DefaultRemediator(model, verbose=False))
     )
+    prompt_override = _resolve_system_prompt_override(config=config, model=model)
+    if prompt_override is not None:
+        builder = builder.with_prompt(prompt_override)
     agent = await builder.build()
     await agent.start()
     return ClientRuntime(

@@ -66,6 +66,7 @@ Frontmatter mode requirements:
 
 Use a deterministic script gate:
 - script: `scripts/ci/check_governance_evidence_truth.sh`
+- script: `scripts/ci/check_governance_intent_gate.sh`
 - checks:
   - baseline evidence headings exist in active/in_review feature aggregation docs (with tolerant heading variants)
   - acceptance-pack headings are hard-required for `in_review` docs
@@ -75,7 +76,7 @@ Use a deterministic script gate:
   - review/merge gate section contains both intent/implementation PR links and at least one review link
   - intent/implementation links must reference distinct PR numbers
   - zero governed docs in scope is a hard failure (prevents draft/skip bypass)
-  - intent-before-implementation ordering signal is warning-only in this phase
+  - implementation-path changes are hard-blocked unless governed feature docs carry an `Intent PR` link that resolves to a merged PR
 
 This phase blocks structurally incomplete and semantically unreviewable records.
 
@@ -106,10 +107,11 @@ Connect evidence truth with merge policy:
 
 ## 5. Command of Record
 
-Primary gate command:
+Primary gate commands:
 
 ```bash
 ./scripts/ci/check_governance_evidence_truth.sh
+./scripts/ci/check_governance_intent_gate.sh
 ```
 
 This command is intended to run both locally and in CI.

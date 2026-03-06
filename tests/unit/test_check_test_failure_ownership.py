@@ -42,6 +42,17 @@ def test_validate_category_specs_rejects_duplicate_test_mapping() -> None:
     assert any("duplicate test selector mapping" in issue for issue in issues)
 
 
+def test_validate_category_specs_rejects_overlapping_test_mapping() -> None:
+    issues = validate_category_specs(
+        [
+            _spec("SECURITY_REGRESSION", tests=["tests/a.py"]),
+            _spec("STEP_EXEC_REGRESSION", tests=["tests/a.py::test_x"]),
+        ]
+    )
+
+    assert any("overlapping test selector mapping" in issue for issue in issues)
+
+
 def test_validate_category_specs_rejects_missing_owner() -> None:
     issues = validate_category_specs(
         [
@@ -50,4 +61,3 @@ def test_validate_category_specs_rejects_missing_owner() -> None:
     )
 
     assert any("missing owner" in issue for issue in issues)
-

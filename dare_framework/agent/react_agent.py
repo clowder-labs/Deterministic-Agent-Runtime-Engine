@@ -278,7 +278,8 @@ class ReactAgent(BaseAgent):
                 print(f"[{self.name}] 工具调用: {name} | id={tool_call_id or '-'} | args={params_preview}", flush=True)
 
                 try:
-                    result = await gateway.invoke(name, envelope=envelope, **params)
+                    # 关键修复：将当前 Context 传递给 ToolGateway，使工具能看到 config/workspace_dir
+                    result = await gateway.invoke(name, envelope=envelope, context=self._context, **params)
                 except Exception as exc:
                     await self._emit_transport_error(
                         transport=transport,

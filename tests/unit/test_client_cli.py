@@ -17,6 +17,7 @@ from client.parser.kv import parse_key_value_args
 from client.runtime.action_client import ActionClientError, _parse_action_response
 from client.runtime.task_runner import format_run_output
 from dare_framework.config import Config
+from dare_framework.context import Message
 
 
 def test_parse_command_mode() -> None:
@@ -24,6 +25,13 @@ def test_parse_command_mode() -> None:
     assert isinstance(parsed, Command)
     assert parsed.type == CommandType.MODE
     assert parsed.args == ["plan"]
+
+
+def test_parse_command_sessions() -> None:
+    parsed = parse_command("/sessions list")
+    assert isinstance(parsed, Command)
+    assert parsed.type == CommandType.SESSIONS
+    assert parsed.args == ["list"]
 
 
 def test_parse_command_plain_text() -> None:
@@ -242,6 +250,25 @@ def test_build_doctor_report_accepts_openai_with_key() -> None:
     payload = build_doctor_report(config=config)
     assert payload["llm"]["api_key_present"] is True
     assert "workspace_dir" in payload
+
+
+def test_build_doctor_report_accepts_anthropic_with_key() -> None:
+    config = Config.from_dict(
+        {
+            "workspace_dir": ".",
+            "user_dir": ".",
+            "llm": {
+                "adapter": "anthropic",
+                "model": "claude-sonnet-4-5",
+                "api_key": "dummy",
+            },
+            "mcp_paths": [],
+        }
+    )
+    payload = build_doctor_report(config=config)
+    assert payload["llm"]["adapter"] == "anthropic"
+    assert payload["llm"]["api_key_present"] is True
+    assert not any("unsupported adapter configured" in item for item in payload["warnings"])
 
 
 @pytest.mark.asyncio
@@ -1488,6 +1515,27 @@ def test_chat_parser_rejects_headless_flag() -> None:
     assert excinfo.value.code == 2
 
 
+def test_parser_accepts_system_prompt_flags() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    args = parser.parse_args(
+        [
+            "--system-prompt-mode",
+            "append",
+            "--system-prompt-text",
+            "always respond in chinese",
+            "run",
+            "--task",
+            "summarize readme",
+        ]
+    )
+
+    assert args.system_prompt_mode == "append"
+    assert args.system_prompt_text == "always respond in chinese"
+    assert args.system_prompt_file is None
+
+
 def test_run_and_script_parser_accept_control_stdin_flag() -> None:
     client_main = importlib.import_module("client.main")
     parser = client_main._build_parser()
@@ -1499,6 +1547,42 @@ def test_run_and_script_parser_accept_control_stdin_flag() -> None:
 
     assert run_args.control_stdin is True
     assert script_args.control_stdin is True
+
+
+def test_chat_run_and_script_parser_accept_resume_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    chat_args = parser.parse_args(["chat", "--resume"])
+    run_args = parser.parse_args(["run", "--task", "summarize readme", "--resume", "session-42"])
+    script_args = parser.parse_args(["script", "--file", "tasks.txt", "--resume"])
+
+    assert chat_args.resume == "latest"
+    assert run_args.resume == "session-42"
+    assert script_args.resume == "latest"
+
+
+def test_chat_run_and_script_parser_accept_session_id_flag() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    chat_args = parser.parse_args(["chat", "--session-id", "session-42"])
+    run_args = parser.parse_args(["run", "--task", "summarize readme", "--session-id", "session-42"])
+    script_args = parser.parse_args(["script", "--file", "tasks.txt", "--session-id", "session-42"])
+
+    assert chat_args.session_id == "session-42"
+    assert run_args.session_id == "session-42"
+    assert script_args.session_id == "session-42"
+
+
+def test_sessions_parser_accepts_list_subcommand() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+
+    args = parser.parse_args(["sessions", "list"])
+
+    assert args.command == "sessions"
+    assert args.sessions_cmd == "list"
 
 
 def test_chat_parser_rejects_control_stdin_flag() -> None:
@@ -1648,6 +1732,58 @@ async def test_main_run_control_stdin_requires_headless(monkeypatch, tmp_path, c
 
 
 @pytest.mark.asyncio
+async def test_main_rejects_system_prompt_text_and_file_together(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    prompt_file = tmp_path / "system_prompt.txt"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text("prompt", encoding="utf-8")
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for invalid prompt args")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--system-prompt-text",
+            "inline prompt",
+            "--system-prompt-file",
+            str(prompt_file),
+            "run",
+            "--task",
+            "summarize readme",
+        ]
+    )
+
+    assert rc == 2
+    output = capsys.readouterr().out
+    assert "--system-prompt-text and --system-prompt-file are mutually exclusive" in output
+
+
+@pytest.mark.asyncio
 async def test_main_script_control_stdin_requires_headless(monkeypatch, tmp_path, capsys) -> None:
     client_main = importlib.import_module("client.main")
     workspace = tmp_path / "workspace"
@@ -1694,3 +1830,388 @@ async def test_main_script_control_stdin_requires_headless(monkeypatch, tmp_path
     assert rc == 2
     output = capsys.readouterr().out
     assert "--control-stdin requires --headless" in output
+
+
+@pytest.mark.asyncio
+async def test_main_run_resume_missing_session_returns_two(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    class _FakeContext:
+        def stm_get(self):  # noqa: ANN201
+            return []
+
+        def stm_add(self, _message):  # noqa: ANN001, ANN201
+            return None
+
+        def stm_clear(self):  # noqa: ANN201
+            return []
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self.agent = type("Agent", (), {"context": _FakeContext()})()
+            self.channel = object()
+            self.model = object()
+            self.config = config
+            self.client_channel = object()
+
+        async def close(self) -> None:
+            return None
+
+    async def _fake_bootstrap_runtime(_options):  # noqa: ANN001
+        return _FakeRuntime()
+
+    async def _unexpected_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
+        raise AssertionError("run_task should not execute when resume target is missing")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _fake_bootstrap_runtime)
+    monkeypatch.setattr(client_main, "run_task", _unexpected_run_task)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "run",
+            "--resume",
+            "latest",
+            "--task",
+            "continue previous task",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+    assert "resume" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_main_run_rejects_conflicting_resume_and_session_id(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _unexpected_bootstrap(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for conflicting resume targets")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _unexpected_bootstrap)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "run",
+            "--task",
+            "continue previous task",
+            "--resume",
+            "session-a",
+            "--session-id",
+            "session-b",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+    assert "--resume" in payload["message"]
+    assert "--session-id" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_control_action_session_resume_restores_history(tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+
+    runtime_context_messages: list[Message] = []
+
+    class _FakeContext:
+        def stm_get(self):  # noqa: ANN201
+            return list(runtime_context_messages)
+
+        def stm_add(self, message):  # noqa: ANN001, ANN201
+            runtime_context_messages.append(message)
+            return None
+
+        def stm_clear(self):  # noqa: ANN201
+            runtime_context_messages.clear()
+            return []
+
+    runtime = type("Runtime", (), {"agent": type("Agent", (), {"context": _FakeContext()})()})()
+    state = client_main.CLISessionState(conversation_id="fresh-session", mode=client_main.ExecutionMode.EXECUTE)
+
+    snapshot_state = client_main.CLISessionState(conversation_id="session-42", mode=client_main.ExecutionMode.PLAN)
+    session_store.save(
+        state=snapshot_state,
+        messages=[
+            Message(role="user", content="history-user"),
+            Message(role="assistant", content="history-assistant"),
+        ],
+    )
+
+    result = await client_main._dispatch_control_action(
+        action_id="session:resume",
+        params={"session_id": "session-42"},
+        state=state,
+        runtime=runtime,
+        action_client=object(),
+        session_store=session_store,
+    )
+
+    assert result["session_id"] == "session-42"
+    assert result["restored_messages"] == 2
+    assert state.conversation_id == "session-42"
+    assert state.mode == client_main.ExecutionMode.PLAN
+    assert [item.content for item in runtime_context_messages] == ["history-user", "history-assistant"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_control_action_session_resume_rejects_running_state(tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+    state = client_main.CLISessionState(
+        conversation_id="session-live",
+        mode=client_main.ExecutionMode.EXECUTE,
+    )
+    state.status = client_main.SessionStatus.RUNNING
+
+    with pytest.raises(client_main.ActionClientError) as excinfo:
+        await client_main._dispatch_control_action(
+            action_id="session:resume",
+            params={"session_id": "session-42"},
+            state=state,
+            runtime=object(),
+            action_client=object(),
+            session_store=session_store,
+        )
+
+    assert excinfo.value.code == "INVALID_SESSION_STATE"
+    assert excinfo.value.target == "session:resume"
+
+
+@pytest.mark.asyncio
+async def test_run_control_stdin_loop_updates_headless_context_after_session_resume(monkeypatch, tmp_path) -> None:
+    client_main = importlib.import_module("client.main")
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+
+    class _FakeContext:
+        def __init__(self) -> None:
+            self._messages: list[Message] = []
+
+        def stm_get(self) -> list[Message]:
+            return list(self._messages)
+
+        def stm_add(self, message: Message) -> None:
+            self._messages.append(message)
+
+        def stm_clear(self) -> list[Message]:
+            self._messages.clear()
+            return []
+
+    runtime = type("Runtime", (), {"agent": type("Agent", (), {"context": _FakeContext()})()})()
+    state = client_main.CLISessionState(conversation_id="fresh-session", mode=client_main.ExecutionMode.EXECUTE)
+    snapshot_state = client_main.CLISessionState(conversation_id="session-42", mode=client_main.ExecutionMode.PLAN)
+    session_store.save(
+        state=snapshot_state,
+        messages=[Message(role="user", content="history-user")],
+    )
+    output = client_main.OutputFacade("headless")
+    output.set_protocol_context(session_id="fresh-session", run_id="fresh-session")
+
+    frames = iter(
+        [
+            json.dumps(
+                {
+                    "schema_version": "client-control-stdin.v1",
+                    "id": "ctl-1",
+                    "action": "session:resume",
+                    "params": {"session_id": "session-42"},
+                }
+            ),
+            None,
+        ]
+    )
+
+    async def _fake_read_control_stdin_line() -> str | None:
+        await asyncio.sleep(0)
+        return next(frames)
+
+    monkeypatch.setattr(
+        client_main,
+        "_read_control_stdin_line",
+        _fake_read_control_stdin_line,
+        raising=False,
+    )
+
+    await client_main._run_control_stdin_loop(
+        state=state,
+        runtime=runtime,
+        action_client=object(),
+        session_store=session_store,
+        output=output,
+    )
+
+    assert output._headless is not None
+    assert output._headless._session_id == "session-42"
+    assert output._headless._run_id == "session-42"
+    assert state.conversation_id == "session-42"
+
+
+def test_client_session_store_rejects_traversal_session_ids(tmp_path) -> None:
+    store = importlib.import_module("client.session_store")
+    session_store = store.ClientSessionStore(tmp_path / "workspace")
+
+    with pytest.raises(store.SessionStoreError, match="invalid session_id"):
+        session_store.path_for("../../escape")
+
+    with pytest.raises(store.SessionStoreError, match="invalid session_id"):
+        session_store.path_for("session/../../escape")
+
+
+def test_client_session_store_rejects_tampered_snapshot_session_id(tmp_path) -> None:
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+    tampered = session_store.session_dir / "tampered.json"
+    tampered.write_text(
+        json.dumps(
+            {
+                "schema_version": store.SESSION_SNAPSHOT_SCHEMA_VERSION,
+                "session_id": "../../escape",
+                "mode": "execute",
+                "created_at": 1,
+                "updated_at": 2,
+                "workspace_dir": str(workspace),
+                "messages": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(store.SessionStoreError, match="invalid session_id"):
+        session_store.load("tampered")
+
+    assert session_store.list_sessions() == []
+
+
+@pytest.mark.asyncio
+async def test_main_sessions_list_returns_sorted_session_summaries(monkeypatch, tmp_path, capsys) -> None:
+    client_main = importlib.import_module("client.main")
+    workspace = tmp_path / "workspace"
+    user_dir = tmp_path / "user"
+    workspace.mkdir(parents=True, exist_ok=True)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    config = Config.from_dict(
+        {
+            "workspace_dir": str(workspace),
+            "user_dir": str(user_dir),
+            "llm": {
+                "adapter": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "dummy",
+            },
+        }
+    )
+
+    store = importlib.import_module("client.session_store")
+    session_store = store.ClientSessionStore(workspace)
+    state_a = client_main.CLISessionState(conversation_id="session-a")
+    state_b = client_main.CLISessionState(conversation_id="session-b")
+    session_store.save(
+        state=state_a,
+        messages=[Message(role="user", content="older")],
+    )
+    session_store.save(
+        state=state_b,
+        messages=[
+            Message(role="user", content="newer"),
+            Message(role="assistant", content="done"),
+        ],
+    )
+
+    def _fake_load_effective_config(_options):  # noqa: ANN001
+        return object(), config
+
+    async def _unexpected_bootstrap(_options):  # noqa: ANN001
+        raise AssertionError("bootstrap_runtime should not run for sessions list")
+
+    monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
+    monkeypatch.setattr(client_main, "bootstrap_runtime", _unexpected_bootstrap)
+
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "sessions",
+            "list",
+        ]
+    )
+
+    assert rc == 0
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "result"
+    assert [entry["session_id"] for entry in payload["data"]["sessions"]] == ["session-b", "session-a"]
+    assert payload["data"]["sessions"][0]["messages_count"] == 2
