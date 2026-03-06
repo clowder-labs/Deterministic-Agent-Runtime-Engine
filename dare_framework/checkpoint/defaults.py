@@ -165,9 +165,10 @@ class SessionContextContributor:
                 "session_id": getattr(session_context, "session_id", None),
                 "task_id": getattr(session_context, "task_id", None),
             }
-        if "config" in serialized and serialized["config"] is not None:
+        config_value = serialized.get("config")
+        if config_value is not None and not isinstance(config_value, dict):
             try:
-                serialized["config"] = asdict(serialized["config"])
+                serialized["config"] = asdict(config_value)
             except Exception:
                 serialized["config"] = None
         return serialized
