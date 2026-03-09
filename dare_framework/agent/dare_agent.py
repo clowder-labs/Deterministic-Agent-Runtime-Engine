@@ -1250,21 +1250,11 @@ class DareAgent(BaseAgent):
             errors=execute_result.get("errors", []),
         )
 
-        # Call verify_milestone with plan if supported, otherwise without
-        import inspect
-        sig = inspect.signature(self._validator.verify_milestone)
-        if 'plan' in sig.parameters:
-            verify_result = await self._validator.verify_milestone(
-                run_result,
-                self._context,
-                plan=validated_plan,
-            )
-        else:
-            # Backward compatibility: validator doesn't support plan parameter
-            verify_result = await self._validator.verify_milestone(
-                run_result,
-                self._context,
-            )
+        verify_result = await self._validator.verify_milestone(
+            run_result,
+            self._context,
+            plan=validated_plan,
+        )
         await self._emit_hook(HookPhase.AFTER_VERIFY, {
             "milestone_id": milestone_id,
             "success": verify_result.success,

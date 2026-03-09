@@ -160,8 +160,14 @@ def message_parts_to_message(
     resolved_attachments: list[dict[str, Any]] = []
 
     root = Path(workspace_dir) if workspace_dir else Path(tempfile.gettempdir())
-    dest_dir = root / ".a2a_attachments" / uuid4().hex
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_dir: Path | None = None
+
+    def ensure_dest_dir() -> Path:
+        nonlocal dest_dir
+        if dest_dir is None:
+            dest_dir = root / ".a2a_attachments" / uuid4().hex
+            dest_dir.mkdir(parents=True, exist_ok=True)
+        return dest_dir
 
     for part in parts:
         if not isinstance(part, dict):
@@ -177,9 +183,9 @@ def message_parts_to_message(
 
         resolved: dict[str, Any] | None = None
         if "inlineData" in part:
-            resolved = _decode_inline_file_part(part, dest_dir)
+            resolved = _decode_inline_file_part(part, ensure_dest_dir())
         elif "uri" in part:
-            resolved = _fetch_uri_file_part(part, dest_dir)
+            resolved = _fetch_uri_file_part(part, ensure_dest_dir())
             if resolved is None:
                 resolved = {
                     "path": str(part.get("uri") or ""),

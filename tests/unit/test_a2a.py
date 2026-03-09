@@ -126,6 +126,19 @@ def test_message_parts_to_message_promotes_image_file_to_attachment() -> None:
         assert "a2a_attachments" in message.metadata
 
 
+def test_message_parts_to_message_text_only_does_not_create_attachment_dir() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        message = message_parts_to_message(
+            [{"type": "text", "text": "plain text only"}],
+            workspace_dir=tmp,
+        )
+
+        assert message.text == "plain text only"
+        assert message.attachments == []
+        assert not (root / ".a2a_attachments").exists()
+
+
 def test_run_result_to_artifact_parts_text_only() -> None:
     result = RunResult(success=True, output="done")
     parts = run_result_to_artifact_parts(result)

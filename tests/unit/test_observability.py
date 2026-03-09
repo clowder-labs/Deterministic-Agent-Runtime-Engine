@@ -55,7 +55,8 @@ class MockValidator:
 
         return ValidatedPlan(success=True, plan_description=plan.plan_description, steps=[], errors=[])
 
-    async def verify_milestone(self, result: Any, ctx: Any) -> Any:
+    async def verify_milestone(self, result: Any, ctx: Any, *, plan: Any | None = None) -> Any:
+        _ = plan
         from dare_framework.plan.types import VerifyResult
 
         return VerifyResult(success=True, errors=[])

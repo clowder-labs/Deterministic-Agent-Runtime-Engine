@@ -91,6 +91,7 @@ class MockValidator:
         self.verify_success = verify_success
         self.validate_calls = []
         self.verify_calls = []
+        self.verify_plans = []
 
     async def validate_plan(self, plan: Any, ctx: Any) -> Any:
         self.validate_calls.append((plan, ctx))
@@ -102,8 +103,9 @@ class MockValidator:
             errors=[] if self.validate_success else ["validation failed"],
         )
 
-    async def verify_milestone(self, result: Any, ctx: Any) -> Any:
+    async def verify_milestone(self, result: Any, ctx: Any, *, plan: Any | None = None) -> Any:
         self.verify_calls.append((result, ctx))
+        self.verify_plans.append(plan)
         from dare_framework.plan.types import VerifyResult
         return VerifyResult(
             success=self.verify_success,
@@ -1005,6 +1007,7 @@ class TestFiveLayerMode:
         await agent("Complete a milestone")
 
         assert len(validator.verify_calls) >= 1
+        assert validator.verify_plans[-1] is not None
 
     @pytest.mark.asyncio
     async def test_plan_tool_detected_via_registry_metadata(self) -> None:
@@ -1064,8 +1067,8 @@ class TestFiveLayerMode:
         assert result.output is not None
 
     @pytest.mark.asyncio
-    async def test_previous_session_summary_not_auto_injected(self) -> None:
-        """Current implementation keeps previous_session_summary on Task only."""
+    async def test_public_agent_entry_rejects_task_input(self) -> None:
+        """Public agent entry only accepts str or canonical Message."""
         model = MockModelAdapter()
         planner = MockPlanner()
         validator = MockValidator()
@@ -1089,16 +1092,13 @@ class TestFiveLayerMode:
             metadata={},
         )
 
-        await agent(
-            Task(
+        with pytest.raises(TypeError, match="unsupported agent input type: Task"):
+            await agent(
+                Task(
                 description="Follow-up task",
                 previous_session_summary=previous_summary,
             )
-        )
-
-        messages = agent._context.stm_get()
-        assert messages[0].role == "user"
-        assert "Follow-up task" in (messages[0].text or "")
+            )
 
     @pytest.mark.asyncio
     async def test_session_start_includes_task_and_run_ids(self) -> None:

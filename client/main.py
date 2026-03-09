@@ -640,24 +640,12 @@ def _normalize_mode(value: str) -> ExecutionMode:
 def _resolve_resume_target(
     *,
     resume: str | None,
-    session_id: str | None,
 ) -> str | None:
-    """Normalize resume inputs from CLI flags and enforce deterministic conflicts."""
+    """Normalize resume input from CLI flags."""
     resume_target = resume.strip() if isinstance(resume, str) else None
-    session_target = session_id.strip() if isinstance(session_id, str) else None
     if resume_target == "":
         resume_target = None
-    if session_target == "":
-        session_target = None
-    if (
-        resume_target is not None
-        and session_target is not None
-        and resume_target != session_target
-    ):
-        raise ValueError(
-            "cannot use --resume and --session-id with different targets; pass one target or matching values"
-        )
-    return session_target or resume_target
+    return resume_target
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1564,11 +1552,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="resume latest or specified CLI session",
     )
-    chat.add_argument(
-        "--session-id",
-        default=None,
-        help="resume a specific CLI session by id (compat alias of --resume <session-id>)",
-    )
 
     run = sub.add_parser("run", help="run one task and exit")
     run.add_argument("--task", required=True)
@@ -1579,11 +1562,6 @@ def _build_parser() -> argparse.ArgumentParser:
         const="latest",
         default=None,
         help="resume latest or specified CLI session",
-    )
-    run.add_argument(
-        "--session-id",
-        default=None,
-        help="resume a specific CLI session by id (compat alias of --resume <session-id>)",
     )
     run.add_argument("--approve", action="store_true", help="execute after plan preview when mode=plan")
     run.add_argument(
@@ -1623,11 +1601,6 @@ def _build_parser() -> argparse.ArgumentParser:
         const="latest",
         default=None,
         help="resume latest or specified CLI session",
-    )
-    script.add_argument(
-        "--session-id",
-        default=None,
-        help="resume a specific CLI session by id (compat alias of --resume <session-id>)",
     )
     script.add_argument(
         "--headless",
@@ -1747,14 +1720,9 @@ def _validate_cli_args(args: argparse.Namespace, *, output: OutputFacade) -> int
         return 2
 
     if getattr(args, "command", None) in {"chat", "run", "script"}:
-        try:
-            _ = _resolve_resume_target(
-                resume=getattr(args, "resume", None),
-                session_id=getattr(args, "session_id", None),
-            )
-        except ValueError as exc:
-            output.display(str(exc), level="error")
-            return 2
+        _resolve_resume_target(
+            resume=getattr(args, "resume", None),
+        )
 
     return None
 
@@ -1820,7 +1788,6 @@ async def main(argv: list[str] | None = None) -> int:
         action_client = TransportActionClient(runtime.client_channel, timeout_seconds=args.timeout)
         resume_target = _resolve_resume_target(
             resume=getattr(args, "resume", None),
-            session_id=getattr(args, "session_id", None),
         )
 
         if command == "chat":

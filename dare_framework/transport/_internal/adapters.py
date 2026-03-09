@@ -221,7 +221,8 @@ def _normalize_slash_action(token: str) -> tuple[str, dict[str, Any]]:
         if action is not None:
             return action.value, _extract_action_params(action, parts[2:])
 
-    # Unknown slash command: preserve previous behavior for compatibility.
+    # Unknown slash command: keep it as an explicit action id so the transport
+    # contract stays open for custom action handlers.
     return token, {}
 
 

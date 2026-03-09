@@ -4,6 +4,7 @@ import pytest
 
 from dare_framework.context.types import AttachmentKind, Message, MessageKind
 from dare_framework.knowledge import KnowledgeConfig, create_knowledge
+from dare_framework.knowledge._internal.vector_knowledge.document import Document
 from dare_framework.memory import LongTermMemoryConfig, create_long_term_memory
 
 
@@ -89,6 +90,19 @@ def test_rawdata_knowledge_direct_add_get_remove_and_clear() -> None:
 
     knowledge.clear()  # type: ignore[attr-defined]
     assert knowledge.record_count == 0  # type: ignore[attr-defined]
+
+
+def test_vector_document_to_message_uses_canonical_text_field() -> None:
+    document = Document(
+        content="vector memory",
+        metadata={"source": "doc-a"},
+    )
+
+    message = document.to_message(role="assistant")
+
+    assert message.text == "vector memory"
+    assert message.name == "doc-a"
+    assert message.metadata["document_id"] == document.id
 
 
 def test_config_from_dict_falls_back_to_supported_memory_and_knowledge_modes() -> None:
