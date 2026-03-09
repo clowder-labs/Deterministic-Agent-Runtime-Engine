@@ -8,6 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from dare_framework.a2a.types import PartDict, text_part, file_part_inline, file_part_uri
@@ -43,6 +44,22 @@ def _is_image_attachment(*, mime_type: str | None, filename: str | None, uri: st
     candidate_name = filename or uri or ""
     guessed, _ = mimetypes.guess_type(candidate_name)
     return bool(guessed and guessed.startswith("image/"))
+
+
+def _build_inline_attachment_uri(*, mime_type: str | None, data_b64: str | None) -> str | None:
+    """Build a provider-valid data URI for inline image transport."""
+    if not isinstance(data_b64, str) or not data_b64.strip():
+        return None
+    media_type = (mime_type or "application/octet-stream").strip() or "application/octet-stream"
+    return f"data:{media_type};base64,{data_b64.strip()}"
+
+
+def _is_provider_valid_attachment_uri(uri: str | None) -> bool:
+    """Keep canonical attachment URIs limited to provider-safe URI schemes."""
+    if not isinstance(uri, str) or not uri.strip():
+        return False
+    parsed = urlparse(uri.strip())
+    return parsed.scheme in {"http", "https", "data"}
 
 
 def _decode_inline_file_part(p: dict[str, Any], dest_dir: Path) -> dict[str, Any] | None:
@@ -182,33 +199,45 @@ def message_parts_to_message(
             continue
 
         resolved: dict[str, Any] | None = None
+        attachment_uri: str | None = None
         if "inlineData" in part:
             resolved = _decode_inline_file_part(part, ensure_dest_dir())
+            inline = part.get("inlineData")
+            attachment_uri = _build_inline_attachment_uri(
+                mime_type=str(part.get("mimeType") or (resolved or {}).get("mimeType") or ""),
+                data_b64=inline.get("data") if isinstance(inline, dict) else None,
+            )
         elif "uri" in part:
+            source_uri = str(part.get("uri") or "")
             resolved = _fetch_uri_file_part(part, ensure_dest_dir())
             if resolved is None:
                 resolved = {
-                    "path": str(part.get("uri") or ""),
-                    "filename": str(part.get("filename") or os.path.basename(str(part.get("uri") or "")) or "attachment"),
+                    "path": source_uri,
+                    "filename": str(part.get("filename") or os.path.basename(source_uri) or "attachment"),
                     "mimeType": str(part.get("mimeType") or ""),
                 }
+            if _is_provider_valid_attachment_uri(source_uri):
+                attachment_uri = source_uri
 
         if resolved is not None:
             resolved_attachments.append(resolved)
             if _is_image_attachment(
                 mime_type=resolved.get("mimeType"),
                 filename=resolved.get("filename"),
-                uri=resolved.get("path"),
+                uri=attachment_uri or resolved.get("path"),
             ):
-                attachment_refs.append(
-                    AttachmentRef(
-                        kind=AttachmentKind.IMAGE,
-                        uri=str(resolved.get("path") or ""),
-                        mime_type=str(resolved.get("mimeType") or "") or None,
-                        filename=str(resolved.get("filename") or "") or None,
+                # Keep model-facing attachment URIs provider-valid; local temp paths
+                # remain available only through metadata for audit/debugging.
+                if attachment_uri is not None:
+                    attachment_refs.append(
+                        AttachmentRef(
+                            kind=AttachmentKind.IMAGE,
+                            uri=attachment_uri,
+                            mime_type=str(resolved.get("mimeType") or "") or None,
+                            filename=str(resolved.get("filename") or "") or None,
+                        )
                     )
-                )
-                continue
+                    continue
 
         label = (
             (resolved or {}).get("filename")

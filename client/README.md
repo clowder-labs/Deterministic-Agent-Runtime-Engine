@@ -28,6 +28,8 @@
 .venv/bin/python -m client chat --resume
 # 恢复指定会话
 .venv/bin/python -m client chat --resume <session-id>
+# 兼容入口：恢复指定会话
+.venv/bin/python -m client chat --session-id <session-id>
 # 列出当前 workspace 可恢复会话
 .venv/bin/python -m client sessions list
 
@@ -35,6 +37,8 @@
 .venv/bin/python -m client run --task "读取 README 并总结"
 # 在已有会话历史上继续执行一次任务
 .venv/bin/python -m client run --resume latest --task "继续上一轮，补充测试计划"
+# 兼容入口：基于指定 session 继续执行
+.venv/bin/python -m client run --session-id <session-id> --task "继续上一轮"
 # 一次性执行（审批等待超时，默认 120s）
 .venv/bin/python -m client run --task "读取 README 并总结" --approval-timeout-seconds 120
 # 一次性执行（自动审批指定工具，例如 run_command）
@@ -46,6 +50,8 @@
 .venv/bin/python -m client chat --script client/examples/basic.script.txt
 # 在已有会话上继续跑脚本
 .venv/bin/python -m client script --resume latest --file /abs/path/to/demo.txt
+# 兼容入口：在指定会话上继续跑脚本
+.venv/bin/python -m client script --session-id <session-id> --file /abs/path/to/demo.txt
 
 # 审批控制
 .venv/bin/python -m client approvals list
@@ -67,9 +73,11 @@
 
 1. 每个 workspace 会把 CLI session snapshot 写到 `<workspace>/.dare/sessions/<session-id>.json`。
 2. `chat/run/script` 都支持 `--resume [session-id|latest]`。
-3. `--resume` 不带值时等价于 `--resume latest`。
-4. 恢复后会继续同一条对话历史，并复用原 `session_id`。
-5. 可以通过 `sessions list` 查看当前 workspace 里有哪些 session 可恢复。
+3. `chat/run/script` 也支持 `--session-id <session-id>`（兼容别名，等价于 `--resume <session-id>`）。
+4. `--resume` 不带值时等价于 `--resume latest`。
+5. 同时传 `--resume` 和 `--session-id` 时，若目标不一致会直接报参数错误（退出码 `2`）。
+6. 恢复后会继续同一条对话历史，并复用原 `session_id`。
+7. 可以通过 `sessions list` 查看当前 workspace 里有哪些 session 可恢复。
 
 第一版明确 **只恢复可安全恢复的 CLI 状态**：
 

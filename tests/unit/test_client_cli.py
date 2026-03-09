@@ -1658,16 +1658,17 @@ def test_chat_run_and_script_parser_accept_resume_flag() -> None:
     assert script_args.resume == "latest"
 
 
-def test_chat_run_and_script_parser_reject_session_id_alias() -> None:
+def test_chat_run_and_script_parser_accept_session_id_flag() -> None:
     client_main = importlib.import_module("client.main")
     parser = client_main._build_parser()
 
-    with pytest.raises(SystemExit):
-        parser.parse_args(["chat", "--session-id", "session-42"])
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--task", "summarize readme", "--session-id", "session-42"])
-    with pytest.raises(SystemExit):
-        parser.parse_args(["script", "--file", "tasks.txt", "--session-id", "session-42"])
+    chat_args = parser.parse_args(["chat", "--session-id", "session-42"])
+    run_args = parser.parse_args(["run", "--task", "summarize readme", "--session-id", "session-42"])
+    script_args = parser.parse_args(["script", "--file", "tasks.txt", "--session-id", "session-42"])
+
+    assert chat_args.session_id == "session-42"
+    assert run_args.session_id == "session-42"
+    assert script_args.session_id == "session-42"
 
 
 def test_sessions_parser_accepts_list_subcommand() -> None:
@@ -2007,7 +2008,7 @@ async def test_main_run_resume_missing_session_returns_two(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_main_run_rejects_removed_session_id_alias(monkeypatch, tmp_path) -> None:
+async def test_main_run_rejects_conflicting_resume_and_session_id(monkeypatch, tmp_path, capsys) -> None:
     client_main = importlib.import_module("client.main")
     workspace = tmp_path / "workspace"
     user_dir = tmp_path / "user"
@@ -2035,22 +2036,32 @@ async def test_main_run_rejects_removed_session_id_alias(monkeypatch, tmp_path) 
     monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
     monkeypatch.setattr(client_main, "bootstrap_runtime", _unexpected_bootstrap)
 
-    with pytest.raises(SystemExit):
-        await client_main.main(
-            [
-                "--workspace",
-                str(workspace),
-                "--user-dir",
-                str(user_dir),
-                "--output",
-                "json",
-                "run",
-                "--task",
-                "continue previous task",
-                "--session-id",
-                "session-b",
-            ]
-        )
+    rc = await client_main.main(
+        [
+            "--workspace",
+            str(workspace),
+            "--user-dir",
+            str(user_dir),
+            "--output",
+            "json",
+            "run",
+            "--task",
+            "continue previous task",
+            "--resume",
+            "session-a",
+            "--session-id",
+            "session-b",
+        ]
+    )
+
+    assert rc == 2
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines
+    payload = json.loads(lines[-1])
+    assert payload["type"] == "log"
+    assert payload["level"] == "error"
+    assert "--resume" in payload["message"]
+    assert "--session-id" in payload["message"]
 
 
 @pytest.mark.asyncio

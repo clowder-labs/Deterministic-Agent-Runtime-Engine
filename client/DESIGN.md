@@ -115,9 +115,9 @@ client/
 ### 5.1 顶层命令树
 
 ```text
-dare chat [--resume [session-id|latest]] [options]
-dare run --task "..." [--resume [session-id|latest]]
-dare script --file demo.txt [--resume [session-id|latest]]
+dare chat [--resume [session-id|latest]] [--session-id <session-id>] [options]
+dare run --task "..." [--resume [session-id|latest]] [--session-id <session-id>]
+dare script --file demo.txt [--resume [session-id|latest]] [--session-id <session-id>]
 dare sessions list
 
 dare approvals list
@@ -196,7 +196,9 @@ dare doctor
    - `workspace_dir`
    - `messages`
 3. `chat/run/script` 都支持 `--resume [session-id|latest]`
-4. `--resume` 不带值时默认解析为 `latest`
+4. `chat/run/script` 同时支持 `--session-id <session-id>` 兼容入口，等价于 `--resume <session-id>`
+5. `--resume` 不带值时默认解析为 `latest`
+6. `--resume` 与 `--session-id` 目标冲突时返回参数错误
 
 恢复边界：
 

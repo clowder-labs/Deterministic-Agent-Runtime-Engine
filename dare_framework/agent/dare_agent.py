@@ -1250,11 +1250,20 @@ class DareAgent(BaseAgent):
             errors=execute_result.get("errors", []),
         )
 
-        verify_result = await self._validator.verify_milestone(
-            run_result,
-            self._context,
-            plan=validated_plan,
-        )
+        import inspect
+
+        verify_signature = inspect.signature(self._validator.verify_milestone)
+        if "plan" in verify_signature.parameters:
+            verify_result = await self._validator.verify_milestone(
+                run_result,
+                self._context,
+                plan=validated_plan,
+            )
+        else:
+            verify_result = await self._validator.verify_milestone(
+                run_result,
+                self._context,
+            )
         await self._emit_hook(HookPhase.AFTER_VERIFY, {
             "milestone_id": milestone_id,
             "success": verify_result.success,

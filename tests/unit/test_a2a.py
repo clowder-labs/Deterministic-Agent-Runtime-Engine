@@ -121,9 +121,33 @@ def test_message_parts_to_message_promotes_image_file_to_attachment() -> None:
         assert message.text == "Look at this"
         assert len(message.attachments) == 1
         assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
         assert message.attachments[0].filename == "photo.png"
         assert message.metadata["conversation_id"] == "c1"
         assert "a2a_attachments" in message.metadata
+
+
+def test_message_parts_to_message_preserves_remote_image_uri_for_model_delivery(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from dare_framework.a2a.server import message_adapter as adapter
+
+        def _fake_fetch(_part, dest_dir):  # noqa: ANN001
+            path = Path(dest_dir) / "photo.png"
+            path.write_bytes(b"pngdata")
+            return {"path": str(path), "filename": "photo.png", "mimeType": "image/png"}
+
+        monkeypatch.setattr(adapter, "_fetch_uri_file_part", _fake_fetch)
+
+        message = adapter.message_parts_to_message(
+            [
+                {"type": "file", "uri": "https://example.com/photo.png", "mimeType": "image/png"},
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert len(message.attachments) == 1
+        assert message.attachments[0].uri == "https://example.com/photo.png"
+        assert message.metadata["a2a_attachments"][0]["path"].endswith("photo.png")
 
 
 def test_message_parts_to_message_text_only_does_not_create_attachment_dir() -> None:

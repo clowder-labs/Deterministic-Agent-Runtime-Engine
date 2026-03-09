@@ -242,6 +242,10 @@ def _serialize_image_attachments(message: Any) -> list[dict[str, Any]]:
     for attachment in list(getattr(message, "attachments", []) or []):
         if str(getattr(attachment, "kind", "")).strip().lower() != "image":
             raise ValueError("unsupported attachment kind for Anthropic serialization")
+        inline_block = _serialize_inline_image_attachment(attachment)
+        if inline_block is not None:
+            blocks.append(inline_block)
+            continue
         blocks.append(
             {
                 "type": "image",
@@ -252,6 +256,26 @@ def _serialize_image_attachments(message: Any) -> list[dict[str, Any]]:
             }
         )
     return blocks
+
+
+def _serialize_inline_image_attachment(attachment: Any) -> dict[str, Any] | None:
+    uri = getattr(attachment, "uri", None)
+    if not isinstance(uri, str) or not uri.startswith("data:"):
+        return None
+    header, _, encoded = uri.partition(",")
+    if not header or not encoded or ";base64" not in header:
+        raise ValueError("unsupported data URI image for Anthropic serialization")
+    media_type = header[5:].split(";", 1)[0].strip()
+    if not media_type:
+        media_type = str(getattr(attachment, "mime_type", "") or "").strip() or "application/octet-stream"
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": encoded,
+        },
+    }
 
 
 def _message_text(message: Any) -> str:

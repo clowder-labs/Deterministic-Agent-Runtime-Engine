@@ -120,6 +120,42 @@ def test_serialize_system_and_messages_supports_chat_text_with_image_attachments
     ]
 
 
+def test_serialize_system_and_messages_supports_inline_data_uri_images() -> None:
+    system_prompt, payload_messages = _serialize_system_and_messages(
+        [
+            Message(
+                role="user",
+                text="describe inline image",
+                attachments=[
+                    AttachmentRef(
+                        kind=AttachmentKind.IMAGE,
+                        uri="data:image/png;base64,cG5nZGF0YQ==",
+                        mime_type="image/png",
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert system_prompt is None
+    assert payload_messages == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe inline image"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "cG5nZGF0YQ==",
+                    },
+                },
+            ],
+        }
+    ]
+
+
 def test_tool_call_messages_require_data_instead_of_metadata_fallback() -> None:
     with pytest.raises(ValueError, match="data is required"):
         Message(
