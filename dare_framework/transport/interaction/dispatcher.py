@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any
+from typing import Any, Mapping
 
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.interaction.handlers import IActionHandler
@@ -59,7 +59,14 @@ class ActionHandlerDispatcher:
                 code="INVALID_ACTION_PAYLOAD",
                 reason="invalid action payload (expected ActionPayload)",
             )
-        params = {**dict(payload.params), **dict(envelope.meta)}
+        params = _coerce_action_params(payload.params)
+        if params is None:
+            return ActionDispatchResult.error(
+                target="action",
+                code="INVALID_ACTION_PAYLOAD",
+                reason="invalid action payload params (expected mapping with string keys)",
+            )
+        params.update(envelope.meta)
         action_id = payload.resource_action.strip()
         if not action_id:
             return ActionDispatchResult.error(
@@ -130,6 +137,17 @@ def _jsonify(value: Any) -> Any:
     if dataclasses.is_dataclass(value):
         return _jsonify(dataclasses.asdict(value))
     return str(value)
+
+
+def _coerce_action_params(params: Any) -> dict[str, Any] | None:
+    if not isinstance(params, Mapping):
+        return None
+    normalized: dict[str, Any] = {}
+    for key, value in params.items():
+        if not isinstance(key, str):
+            return None
+        normalized[key] = value
+    return normalized
 
 
 __all__ = ["ActionDispatchResult", "ActionHandlerDispatcher"]
