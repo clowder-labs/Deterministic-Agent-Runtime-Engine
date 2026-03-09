@@ -81,7 +81,8 @@ def _decode_inline_file_part(p: dict[str, Any], dest_dir: Path) -> dict[str, Any
     filename = p.get("filename") or "attachment"
     # Sanitize filename
     filename = os.path.basename(filename) or "attachment"
-    mime = p.get("mimeType") or "application/octet-stream"
+    inline_mime = inline.get("mimeType") if isinstance(inline.get("mimeType"), str) else None
+    mime = p.get("mimeType") or inline_mime or "application/octet-stream"
     path = dest_dir / filename
     if path.exists():
         path = dest_dir / f"{uuid4().hex}_{filename}"

@@ -141,6 +141,24 @@ def test_message_parts_to_message_infers_inline_image_mime_from_filename() -> No
         assert message.attachments[0].uri.startswith("data:image/png;base64,")
 
 
+def test_message_parts_to_message_uses_inline_data_mime_for_image_classification() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        parts = [
+            {
+                "type": "file",
+                "filename": "upload",  # no extension; classification must rely on MIME.
+                "inlineData": {
+                    "mimeType": "image/png",
+                    "data": base64.b64encode(b"pngdata").decode(),
+                },
+            },
+        ]
+        message = message_parts_to_message(parts, workspace_dir=tmp)
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
+
+
 def test_message_parts_to_message_preserves_remote_image_uri_for_model_delivery() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         message = message_parts_to_message(
