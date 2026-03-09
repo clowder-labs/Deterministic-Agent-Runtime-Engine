@@ -98,6 +98,7 @@ Reference contract: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
 - TODO fallback mode: archive fallback docs/ledgers and keep an explicit migration plan/status until OpenSpec migration is completed
 - if master TODO still has pending slices, keep initiative active and start next slice workflow
 - ensure archived entries stay discoverable via index/evidence links
+- if the human explicitly asks for lessons learned or workflow hardening after completion, hand off to `.codex/skills/retrospective-process-hardening/SKILL.md` instead of embedding ad-hoc retrospective rules here
 
 ## Output expectations
 For each workflow run, report:

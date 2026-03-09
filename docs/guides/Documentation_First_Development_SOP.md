@@ -40,6 +40,7 @@
 
 ### Step 1: 全局分析（先于执行）
 - 对任务做完整分析：现状、目标、影响范围、风险、依赖、边界。
+- 若属于结构性改造（接口/schema/protocol/state model/workflow 边界调整），必须在分析阶段完成 scope freeze：明确 `in scope`、`out of scope`、`deferred`。
 - 产出或更新 gap 分析文档，确保每条分析有文档/代码证据锚点。
 - 大改动必须先得到“可拆分切片”的分析结论，禁止直接进入执行。
 
@@ -57,6 +58,7 @@
 
 ### Step 3: 先更新 docs（作为 OpenSpec 输入）
 - 在执行前先更新 `docs/design/**` 与相关治理文档，形成当前基线。
+- 对接口/schema/protocol 改造，docs 更新前必须先列出入口清单：public API、transport、client helper、examples、tests、adapter、持久化、文档/guide。
 - TODO 与 design 是 OpenSpec proposal/design 的输入，不是执行后补写。
 - 若缺文档，先补文档，不允许“先写代码再补文档”。
 - 文档结构必须满足最小标准（见 `Design_Doc_Minimum_Standard.md`）。
@@ -102,6 +104,7 @@
   - `Review and Merge Gate Links`
 - 必须执行并通过：`./scripts/ci/check_governance_evidence_truth.sh`。
 - 对实现路径变更 PR，必须执行并通过：`./scripts/ci/check_governance_intent_gate.sh`。
+- 对结构性改造，Step 6 结束前必须执行一次全局回扫：确认代码、测试、examples、active docs、规范文档、归档索引中不存在旧接口/旧协议/旧术语残留。
 
 ### Step 7: 归档
 - 总体 TODO 全部切片完成后：
@@ -189,5 +192,13 @@ SOP 关键阶段必须有可调用技能承载，并保持 checkpoint 与 skill 
   - `.codex/skills/documentation-management/SKILL.md`
 - 开发流程技能（模式选择/checkpoint/证据回写）：
   - `.codex/skills/development-workflow/SKILL.md`
+- 经验沉淀技能（仅在用户明确要求总结经验/刷新流程时触发）：
+  - `.codex/skills/retrospective-process-hardening/SKILL.md`
+
+经验沉淀技能的职责边界：
+- 抽取已完成工作的 lessons learned
+- 将候选经验分类为 `update-sop` / `update-existing-skill` / `create-new-skill` / `do-not-codify`
+- 仅将经过分类筛选的高价值通用规则回写到 SOP/skill
+- 不得把 domain-specific 设计结论直接写成通用流程规则
 
 若 SOP 与 skill 行为不一致，以规范文档更新 + skill 同步更新为同一任务，禁止只改其一。

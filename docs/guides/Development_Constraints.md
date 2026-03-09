@@ -14,6 +14,7 @@
 - 所有代码开发以 `docs/design/` 全量最新设计为准；若实现与文档冲突，必须先更新文档再改代码。
 - 设计文档必须可独立重建实现：至少显式描述总体架构、核心流程、数据结构、关键接口、异常错误处理（详见 `docs/design/Design_Doc_Minimum_Standard.md`）。
 - 任何 Bug/新增 Feature/重构，必须先执行“全局分析 + 总体 TODO 主清单 + docs 更新”，再按 TODO 切片进入 OpenSpec 流程逐项落地（大改动通常对应多个 OpenSpec change）。
+- 结构性改造（接口/schema/protocol/state model/workflow 边界调整）在进入实现前，必须显式完成 scope freeze：至少写清 `in scope`、`out of scope`、`deferred`。
 - 任何进入实现态的切片，必须先完成 `Claim Ledger` 认领声明，并先合入 docs-only `spec-sync / intent PR`；未合入前不得开始代码实现。
 - 实现态门禁由 `./scripts/ci/check_governance_intent_gate.sh` 强制执行：一旦 PR 涉及实现路径改动，必须同 PR 更新至少一个 `docs/features/*.md`（`status: active|in_review`）并提供已合并的 `Intent PR` 链接。
 - 默认采用 OpenSpec 协作；仅在 OpenSpec 不可用时允许 TODO-driven 回退模式，并必须在 OpenSpec 恢复后完成迁移回写。
@@ -27,6 +28,9 @@
 - 接口优先：先定义/复用抽象接口，后实现；遵循 SOLID/DRY/KISS，小函数、小对象，避免静态全局单例。默认使用 `ABC` 定义框架接口；仅在确需结构化子类型匹配时使用 `Protocol`（当前优先用于 Model 相关抽象）。
 - 依赖注入：通过构造器或显式参数传递依赖，不隐式从全局获取，以便测试和替换。
 - 数据约束：使用 Pydantic 或严格类型别名表达输入输出，不信任 LLM 生成的字段；所有函数/方法必须完整类型标注。Domain 层禁止通过字符串解析推断行为，必须使用强类型（枚举/数据对象）表达语义。
+- 边界归一：公共输入边界允许存在有限 sugar，但进入系统后必须尽快归一为单一 canonical 内部类型；禁止将 union 输入类型持续传播到内部执行链路。
+- 入口清单：任何接口/schema/protocol 改造，在编码前必须盘点所有入口与旁路，包括 public API、transport、client helper、examples、tests、adapter、持久化与文档；未完成入口盘点不得开始实现。
+- 封闭域与扩展槽分离：强类型默认用于封闭且稳定的语义域；承担扩展能力的开放槽位不得误收死为封闭枚举。
 - 兼容策略：当前仓库处于开发阶段，不为历史行为保留保护性兼容分支或回退逻辑；发现设计问题优先重构到清晰职责边界。
 - Python 版本策略：最低兼容版本为 Python `3.12`，不再为 Python `3.11` 及更老版本添加兼容代码。
 
@@ -61,3 +65,4 @@
 - 代码通过 `ruff`/`black`/`mypy`/`pytest`，接口/公共函数有 docstring，命名清晰。
 - 日志/审计点到位，敏感数据已脱敏，EventLog 记录关键操作。
 - 代码改动前已完成设计文档更新；存在对应 gap 分析文档与 TODO 清单，并与 OpenSpec 任务一一对应。
+- 结构性改造完成前已执行一次全局回扫：代码、测试、examples、active docs、规范文档与归档状态不存在旧契约残留。
