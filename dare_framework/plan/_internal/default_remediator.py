@@ -155,7 +155,11 @@ class DefaultRemediator:
             # Get last few messages for context
             recent = messages[-3:] if len(messages) >= 3 else messages
             recent_context = "\n".join(
-                f"[{m.role}]: {m.content[:200]}..." if len(m.content) > 200 else f"[{m.role}]: {m.content}"
+                (
+                    f"[{m.role}]: {m.text[:200]}..."
+                    if m.text is not None and len(m.text) > 200
+                    else f"[{m.role}]: {m.text or ''}"
+                )
                 for m in recent
             )
 
@@ -174,8 +178,8 @@ Please analyze this failure and provide your structured reflection."""
 
         model_input = ModelInput(
             messages=[
-                Message(role="system", content=self._system_prompt),
-                Message(role="user", content=user_prompt),
+                Message(role="system", text=self._system_prompt),
+                Message(role="user", text=user_prompt),
             ],
         )
 

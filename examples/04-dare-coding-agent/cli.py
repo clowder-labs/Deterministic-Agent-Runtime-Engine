@@ -27,7 +27,7 @@ from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.model import OpenRouterModelAdapter
-from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
+from dare_framework.plan import DefaultPlanner, DefaultRemediator
 from dare_framework.tool.action_handler import ApprovalsActionHandler
 from dare_framework.tool._internal.control.approval_manager import (
     ApprovalMatcherKind,
@@ -466,7 +466,7 @@ async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: C
         id="plan-preview",
         config=Config(workspace_dir=str(PROJECT_ROOT), user_dir=str(Path.home())),
     )
-    ctx.stm_add(Message(role="user", content=task_text))
+    ctx.stm_add(Message(role="user", text=task_text))
     planner = DefaultPlanner(model, verbose=False)
     plan = await planner.plan(ctx)
     display.show_plan(plan)
@@ -553,7 +553,7 @@ async def run_task(
     if isinstance(conversation_id, str) and conversation_id.strip():
         metadata["conversation_id"] = conversation_id.strip()
     try:
-        result = await agent(Task(description=task_text, metadata=metadata))
+        result = await agent(Message(role="user", text=task_text, metadata=metadata))
     except Exception as exc:
         display.error(f"execution error: {exc}")
         return

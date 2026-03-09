@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dare_framework.context.types import Message
+from dare_framework.context.types import AttachmentKind, Message, MessageKind
 from dare_framework.knowledge import KnowledgeConfig, create_knowledge
 from dare_framework.memory import LongTermMemoryConfig, create_long_term_memory
 
@@ -24,21 +24,41 @@ async def test_rawdata_long_term_memory_roundtrip_and_defaults() -> None:
 
     await ltm.persist(
         [
-            Message(role="assistant", name="memo", content="alpha memory", metadata={"topic": "alpha"}),
-            Message(role="user", content="", metadata={"topic": "blank"}),
+            Message(
+                role="assistant",
+                kind=MessageKind.CHAT,
+                name="memo",
+                text="alpha memory",
+                attachments=[
+                    {
+                        "kind": AttachmentKind.IMAGE,
+                        "uri": "https://example.com/alpha.png",
+                        "mime_type": "image/png",
+                    }
+                ],
+                data={"source": "memory"},
+                metadata={"topic": "alpha"},
+            ),
+            Message(role="user", kind=MessageKind.CHAT, text="", metadata={"topic": "blank"}),
         ]
     )
 
     alpha_matches = ltm.get("alpha", top_k=5)
     assert len(alpha_matches) == 1
     assert alpha_matches[0].role == "assistant"
+    assert alpha_matches[0].kind == MessageKind.CHAT
     assert alpha_matches[0].name == "memo"
     assert alpha_matches[0].metadata["topic"] == "alpha"
+    assert alpha_matches[0].data == {"source": "memory"}
+    assert len(alpha_matches[0].attachments) == 1
+    assert alpha_matches[0].attachments[0].kind == AttachmentKind.IMAGE
+    assert alpha_matches[0].attachments[0].uri == "https://example.com/alpha.png"
 
     # Non-int top_k should fallback to default without raising.
     all_matches = ltm.get("", top_k="invalid")  # type: ignore[arg-type]
     assert len(all_matches) >= 2
-    assert any(msg.content == " " for msg in all_matches)
+    blank = next(msg for msg in all_matches if msg.metadata.get("topic") == "blank")
+    assert blank.text == ""
 
 
 def test_create_knowledge_returns_none_for_empty_or_vector_without_embedding() -> None:
@@ -58,7 +78,7 @@ def test_rawdata_knowledge_direct_add_get_remove_and_clear() -> None:
     matches = knowledge.get("python", top_k=5)
     assert len(matches) == 1
     first = matches[0]
-    assert first.content == "python basics"
+    assert first.text == "python basics"
     assert first.name == "doc-a"
     assert first.metadata["tag"] == "lang"
     assert "document_id" in first.metadata

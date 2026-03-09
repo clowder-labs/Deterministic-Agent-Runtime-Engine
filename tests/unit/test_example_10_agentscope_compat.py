@@ -9,9 +9,10 @@ import pytest
 
 from dare_framework.config import Config
 from dare_framework.context import Context, Message
+from dare_framework.context.types import MessageKind, MessageRole
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.types import GenerateOptions, ModelInput, ModelResponse
-from dare_framework.transport import AgentChannel, DirectClientChannel, EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport import AgentChannel, DirectClientChannel, EnvelopeKind, MessagePayload, TransportEnvelope, new_envelope_id
 
 
 def _load_example_module():
@@ -114,7 +115,8 @@ class _DeterministicCompatTestModel(IModelAdapter):
         for message in messages:
             if message.role != "assistant":
                 continue
-            for call in message.metadata.get("tool_calls", []):
+            tool_calls = message.data.get("tool_calls", []) if isinstance(message.data, dict) else []
+            for call in tool_calls:
                 if not isinstance(call, dict):
                     continue
                 name = str(call.get("name", "")).strip()
@@ -154,21 +156,19 @@ def _new_scripted_model() -> _DeterministicCompatTestModel:
     return _DeterministicCompatTestModel()
 
 
-def test_example_10_cli_parse_response_uses_event_type_for_errors() -> None:
+def test_example_10_cli_parse_response_uses_typed_summary_payload_for_errors() -> None:
     cli_module = _load_example_cli_module()
     success, text = cli_module._parse_response(  # type: ignore[attr-defined]
         TransportEnvelope(
             id="resp-error",
             kind=EnvelopeKind.MESSAGE,
-            event_type="error",
-            payload={
-                "kind": "message",
-                "target": "agent",
-                "ok": False,
-                "reason": "boom",
-                "error": "boom",
-                "resp": {"code": "runtime_error", "reason": "boom"},
-            },
+            payload=MessagePayload(
+                id="msg-error",
+                role=MessageRole.ASSISTANT,
+                message_kind=MessageKind.SUMMARY,
+                text="boom",
+                data={"success": False, "code": "runtime_error", "reason": "boom"},
+            ),
         )
     )
     assert success is False
@@ -198,7 +198,8 @@ class _DeterministicSimpleLoopModel(IModelAdapter):
         for message in model_input.messages:
             if message.role != "assistant":
                 continue
-            for call in message.metadata.get("tool_calls", []):
+            tool_calls = message.data.get("tool_calls", []) if isinstance(message.data, dict) else []
+            for call in tool_calls:
                 if isinstance(call, dict):
                     used_tools.append(str(call.get("name", "")))
         self.called_tools = used_tools
@@ -218,7 +219,7 @@ class _DeterministicSimpleLoopModel(IModelAdapter):
 
 def test_compat_msg_roundtrip() -> None:
     module = _load_example_module()
-    framework_msg = Message(role="user", content="hello", name="alice")
+    framework_msg = Message(role="user", text="hello", name="alice")
     compat = module.CompatMsg.from_framework_message(framework_msg)
     assert compat.blocks[0]["type"] == "text"
     assert compat.blocks[0]["text"] == "hello"
@@ -226,25 +227,25 @@ def test_compat_msg_roundtrip() -> None:
     restored = compat.to_framework_message()
     assert restored.role == "user"
     assert restored.name == "alice"
-    assert restored.content == "hello"
+    assert restored.text == "hello"
 
 
 def test_truncated_formatter_truncates_and_preserves_tool_pairs() -> None:
     module = _load_example_module()
     formatter = module.CompatTruncatedFormatter(max_chars=120)
     messages = [
-        Message(role="system", content="system prompt"),
+        Message(role="system", text="system prompt"),
         Message(
             role="assistant",
-            content="tool step",
-            metadata={
+            text="tool step",
+            data={
                 "tool_calls": [
                     {"id": "tc_1", "name": "demo_tool", "arguments": {"x": 1}},
                 ]
             },
         ),
-        Message(role="tool", name="tc_1", content='{"success": true, "output": "ok"}'),
-        Message(role="user", content="x" * 220),
+        Message(role="tool", name="tc_1", text='{"success": true, "output": "ok"}'),
+        Message(role="user", text="x" * 220),
     ]
 
     formatted = formatter.format(messages)
@@ -280,8 +281,8 @@ def test_json_session_bridge_roundtrip(tmp_path: Path) -> None:
     notebook.update_subtask_state(0, "in_progress")
 
     context = Context(config=Config())
-    context.stm_add(Message(role="user", content="first"))
-    context.stm_add(Message(role="assistant", content="second"))
+    context.stm_add(Message(role="user", text="first"))
+    context.stm_add(Message(role="assistant", text="second"))
 
     session = module.JsonSessionBridge(save_dir=tmp_path)
     session_id = "session-example-10"
@@ -304,7 +305,7 @@ def test_json_session_bridge_roundtrip(tmp_path: Path) -> None:
     )
 
     restored_messages = context.stm_get()
-    assert [m.content for m in restored_messages] == ["first", "second"]
+    assert [m.text for m in restored_messages] == ["first", "second"]
     assert notebook.current_plan is not None
     assert notebook.current_plan.subtasks[0].state == "in_progress"
 
@@ -378,20 +379,24 @@ async def test_single_agent_demo_transport_message_loop(tmp_path: Path) -> None:
             TransportEnvelope(
                 id=new_envelope_id(),
                 kind=EnvelopeKind.MESSAGE,
-                payload="请运行一次基础循环并返回结论。",
+                payload=MessagePayload(
+                    id=new_envelope_id(),
+                    role=MessageRole.USER,
+                    message_kind=MessageKind.CHAT,
+                    text="请运行一次基础循环并返回结论。",
+                ),
             ),
             timeout=30.0,
         )
     finally:
         await bundle.agent.stop()
 
-    assert isinstance(response.payload, dict)
-    assert response.event_type == "result"
+    assert isinstance(response.payload, MessagePayload)
     payload = response.payload
-    resp = payload.get("resp")
-    assert isinstance(resp, dict)
-    assert resp.get("success") is True
-    assert "单 agent 演示完成" in str(resp.get("output", ""))
+    assert payload.message_kind is MessageKind.CHAT
+    assert payload.data is not None
+    assert payload.data.get("success") is True
+    assert "单 agent 演示完成" in str(payload.data.get("output", ""))
 
 
 @pytest.mark.asyncio

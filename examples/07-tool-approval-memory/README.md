@@ -18,7 +18,7 @@ python main.py
 
 ## 你会看到什么
 
-- 第一次 run：先收到 `event_type=approval.pending` 通知并打印 `pending request: ...`，随后调用 `approvals:grant`。
+- 第一次 run：先收到 `select(kind=ask, domain=approval)` 通知并打印 `pending request: ...`，随后调用 `approvals:grant`。
 - 第一次 run 同时演示 `approvals:poll`（控制面阻塞拉取待审批请求）。
 - 第二次 run：`pending_count=0`（自动放行）。
 - 撤销规则后第三次 run：再次出现 `pending request after revoke: ...`。

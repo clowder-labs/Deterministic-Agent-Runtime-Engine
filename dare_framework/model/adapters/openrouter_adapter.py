@@ -144,17 +144,65 @@ class OpenRouterModelAdapter(IModelAdapter):
 def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
     serialized: list[dict[str, Any]] = []
     for msg in messages:
-        payload: dict[str, Any] = {"role": msg.role, "content": msg.content}
-        if msg.role == "assistant":
-            tool_calls = _normalize_tool_calls_for_openrouter(getattr(msg, "metadata", {}).get("tool_calls", []))
+        role = str(getattr(msg, "role", "user"))
+        payload: dict[str, Any] = {
+            "role": role,
+            "content": _serialize_openai_compatible_content(msg),
+        }
+        if role == "assistant":
+            tool_calls = _normalize_tool_calls_for_openrouter(_extract_message_tool_calls(msg))
             if tool_calls:
                 payload["tool_calls"] = tool_calls
-        if msg.role == "tool" and msg.name:
-            payload["tool_call_id"] = msg.name
-        elif msg.name:
-            payload["name"] = msg.name
+        tool_call_id = _extract_message_tool_call_id(msg)
+        name = getattr(msg, "name", None)
+        if role == "tool" and tool_call_id:
+            payload["tool_call_id"] = tool_call_id
+        elif name:
+            payload["name"] = name
         serialized.append(payload)
     return serialized
+
+
+def _serialize_openai_compatible_content(message: Any) -> Any:
+    text = _message_text(message)
+    attachments = list(getattr(message, "attachments", []) or [])
+    if not attachments:
+        return text
+
+    content: list[dict[str, Any]] = []
+    if text:
+        content.append({"type": "text", "text": text})
+    for attachment in attachments:
+        if str(getattr(attachment, "kind", "")).strip().lower() != "image":
+            raise ValueError("unsupported attachment kind for OpenRouter serialization")
+        content.append({"type": "image_url", "image_url": {"url": attachment.uri}})
+    return content
+
+
+def _message_text(message: Any) -> str:
+    text = getattr(message, "text", None)
+    if isinstance(text, str):
+        return text
+    return ""
+
+
+def _extract_message_tool_calls(message: Any) -> Any:
+    data = getattr(message, "data", None)
+    if isinstance(data, dict) and isinstance(data.get("tool_calls"), list):
+        return data["tool_calls"]
+    return []
+
+
+def _extract_message_tool_call_id(message: Any) -> str | None:
+    data = getattr(message, "data", None)
+    if isinstance(data, dict):
+        tool_call_id = data.get("tool_call_id")
+        if isinstance(tool_call_id, str) and tool_call_id.strip():
+            return tool_call_id
+    name = getattr(message, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name
+    return None
 
 
 def _normalize_tool_calls_for_openrouter(tool_calls: Any) -> list[dict[str, Any]]:

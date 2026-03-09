@@ -3,19 +3,15 @@
 Alignment note:
 - The minimal runtime surface is `IAgent.__call__(...)` (orchestration is an agent concern).
 
-Design Decision (2026-01-30):
-    The `IAgent.__call__()` method accepts both `str` and `Task` for flexibility:
-    
-    - **Simple usage**: Pass a string for basic task execution (ReAct or simple mode).
-    - **Advanced usage**: Pass a `Task` object with pre-defined `milestones` for
-      full five-layer orchestration mode.
-    
-    While `Task.milestones` is technically an orchestration concept, keeping it in the
-    `IAgent` interface provides a unified entry point. The agent implementation
-    (e.g., DareAgent) internally routes to the appropriate execution mode based on
-    whether milestones are present and whether a planner is configured.
-    
-    See: docs/用户旅程地图：全栈智能研发 Agent 交付云服务 LandingZone 对接.md
+Design Decision (2026-03-09):
+    The public agent input boundary accepts canonical user input only:
+
+    - **Preferred**: Pass a `Message` for all rich-media and structured input.
+    - **Convenience**: Pass a `str` for simple text prompts; the runtime will
+      normalize it into `Message(role=user, kind=chat, text=...)`.
+
+    `Task` remains an internal orchestration object and is no longer part of the
+    public runtime contract.
 """
 
 from __future__ import annotations
@@ -24,7 +20,8 @@ from abc import ABC, abstractmethod
 from typing import Any, TYPE_CHECKING
 
 from dare_framework.agent.status import AgentStatus
-from dare_framework.plan.types import RunResult, Task
+from dare_framework.context import Message
+from dare_framework.plan.types import RunResult
 
 if TYPE_CHECKING:
     from dare_framework.transport.kernel import AgentChannel
@@ -43,28 +40,20 @@ class IAgent(ABC):
         2. **ReAct Mode** (str input, with tools):
            Agent uses tools in a reasoning loop without explicit planning.
         
-        3. **Five-Layer Mode** (Task with milestones, or with planner):
+        3. **Five-Layer Mode** (internal orchestration from canonical Message):
            Full orchestration with Session → Milestone → Plan → Execute → Tool loops.
 
     Example:
         # Simple string input (auto-routed based on agent config)
         result = await agent("Explain this codebase")
 
-        # Task object for advanced control
-        task = Task(
-            description="Implement feature X",
-            milestones=[
-                Milestone(milestone_id="m1", description="Design API"),
-                Milestone(milestone_id="m2", description="Write tests"),
-            ],
-        )
-        result = await agent(task)
+        result = await agent(Message(role="user", text="Implement feature X"))
     """
 
     @abstractmethod
     async def __call__(
         self,
-        message: str | Task,
+        message: str | Message,
         deps: Any | None = None,
         *,
         transport: AgentChannel | None = None,

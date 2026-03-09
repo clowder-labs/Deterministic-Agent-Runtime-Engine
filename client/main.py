@@ -1319,13 +1319,14 @@ async def _on_transport_event_async(
     on_approval_resolved: Callable[[str], Awaitable[None] | None] | None = None,
     suppress_human_approval_pending_output: bool = False,
 ) -> None:
-    payload_type = payload.get("type")
-    if payload_type == "approval_pending":
-        resp = payload.get("resp", {})
-        request = resp.get("request", {}) if isinstance(resp, dict) else {}
-        request_id = str(request.get("request_id", "?"))
-        capability_id = str(resp.get("capability_id", "?")) if isinstance(resp, dict) else "?"
-        tool_name = str(resp.get("tool_name", "?")) if isinstance(resp, dict) else "?"
+    select_kind = payload.get("select_kind")
+    select_domain = payload.get("select_domain")
+    if select_domain == "approval" and select_kind == "ask":
+        metadata = payload.get("metadata", {})
+        request = metadata.get("request", {}) if isinstance(metadata, dict) else {}
+        request_id = str(request.get("request_id", payload.get("id", "?")))
+        capability_id = str(metadata.get("capability_id", "?")) if isinstance(metadata, dict) else "?"
+        tool_name = str(metadata.get("tool_name", "?")) if isinstance(metadata, dict) else "?"
         if on_approval_pending is not None:
             maybe_awaitable = on_approval_pending(request, tool_name, capability_id)
             if maybe_awaitable is not None:
@@ -1347,10 +1348,10 @@ async def _on_transport_event_async(
         else:
             output.display(message, level="warn")
         return
-    if payload_type == "approval_resolved":
-        resp = payload.get("resp", {})
-        request_id = str(resp.get("request_id", "?")) if isinstance(resp, dict) else "?"
-        decision = resp.get("decision", "?") if isinstance(resp, dict) else "?"
+    if select_domain == "approval" and select_kind == "answered":
+        selected = payload.get("selected", {})
+        request_id = str(selected.get("request_id", payload.get("id", "?"))) if isinstance(selected, dict) else "?"
+        decision = selected.get("decision", "?") if isinstance(selected, dict) else "?"
         if on_approval_resolved is not None:
             maybe_awaitable = on_approval_resolved(request_id)
             if maybe_awaitable is not None:
@@ -1363,9 +1364,11 @@ async def _on_transport_event_async(
             return
         output.info(f"approval resolved: request_id={request_id}, decision={decision}")
         return
-    if payload_type == "hook":
-        hook_phase = str(payload.get("phase", "")).strip()
-        hook_payload = payload.get("payload", {})
+    message_kind = payload.get("message_kind")
+    data = payload.get("data", {})
+    if message_kind == "summary" and isinstance(data, dict) and data.get("source") == "hook":
+        hook_phase = str(data.get("phase", "")).strip()
+        hook_payload = data.get("payload", {})
         if output.is_headless and isinstance(hook_payload, dict):
             if hook_phase == "before_tool":
                 output.emit_event("tool.invoke", hook_payload)
@@ -1377,7 +1380,7 @@ async def _on_transport_event_async(
             if hook_phase == "after_model":
                 output.emit_event("model.response", hook_payload)
                 return
-        output.info(f"hook event: {payload.get('event')}")
+        output.info(f"hook event: {payload.get('text')}")
         return
     # Keep unknown payloads observable in json mode while avoiding noisy human logs.
     if output.is_headless:

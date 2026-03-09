@@ -133,7 +133,7 @@ class GovernancePolicyHook(IHook):
 def _first_user_message(messages: list[Message]) -> str | None:
     for message in messages:
         if message.role == "user":
-            return message.content
+            return message.text
     return None
 
 
@@ -142,13 +142,13 @@ def _patch_model_input(model_input: ModelInput) -> ModelInput | None:
     patched_messages: list[Message] = []
     for message in model_input.messages:
         if not patched and message.role == "user":
-            content = message.content
+            content = message.text or ""
             if not content.startswith("[hook patched]"):
                 content = f"[hook patched] {content}"
             patched_messages.append(
                 Message(
                     role=message.role,
-                    content=content,
+                    text=content,
                     name=message.name,
                     metadata=dict(message.metadata),
                 )

@@ -6,7 +6,7 @@ import pytest
 
 from dare_framework.hook._internal.agent_event_transport_hook import AgentEventTransportHook
 from dare_framework.hook.types import HookPhase
-from dare_framework.transport import TransportEventType
+from dare_framework.transport import EnvelopeKind, MessageKind, MessagePayload, MessageRole
 
 
 class _RecordingTransport:
@@ -18,7 +18,7 @@ class _RecordingTransport:
 
 
 @pytest.mark.asyncio
-async def test_agent_event_transport_hook_sets_event_type() -> None:
+async def test_agent_event_transport_hook_emits_typed_message_payload() -> None:
     transport = _RecordingTransport()
     hook = AgentEventTransportHook(transport)
 
@@ -26,6 +26,12 @@ async def test_agent_event_transport_hook_sets_event_type() -> None:
 
     assert len(transport.sent) == 1
     envelope = transport.sent[0]
-    assert envelope.event_type == TransportEventType.HOOK.value
-    assert isinstance(envelope.payload, dict)
-    assert envelope.payload.get("phase") == HookPhase.BEFORE_PLAN.value
+    assert envelope.kind is EnvelopeKind.MESSAGE
+    assert isinstance(envelope.payload, MessagePayload)
+    assert envelope.payload.role is MessageRole.ASSISTANT
+    assert envelope.payload.message_kind is MessageKind.SUMMARY
+    assert envelope.payload.data == {
+        "source": "hook",
+        "phase": HookPhase.BEFORE_PLAN.value,
+        "payload": {"task_id": "task-1"},
+    }

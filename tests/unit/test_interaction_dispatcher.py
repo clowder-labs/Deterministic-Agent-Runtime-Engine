@@ -1,13 +1,20 @@
 import pytest
 
-from dare_framework.transport import EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport import ActionPayload, EnvelopeKind, TransportEnvelope, new_envelope_id
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
 from dare_framework.transport.interaction.handlers import IActionHandler
 
 
 def _env(*, payload: str) -> TransportEnvelope:
-    return TransportEnvelope(id=new_envelope_id(), kind=EnvelopeKind.ACTION, payload=payload)
+    return TransportEnvelope(
+        id=new_envelope_id(),
+        kind=EnvelopeKind.ACTION,
+        payload=ActionPayload(
+            id=new_envelope_id(),
+            resource_action=payload,
+        ),
+    )
 
 
 class RecordActionHandler(IActionHandler):

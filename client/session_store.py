@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from client.session import CLISessionState, ExecutionMode
-from dare_framework.context import Message, MessageMark
+from dare_framework.context import AttachmentRef, Message, MessageKind, MessageMark, MessageRole
 
 SESSION_SNAPSHOT_SCHEMA_VERSION = "client-session.v1"
 LATEST_SESSION_ALIAS = "latest"
@@ -217,8 +217,20 @@ class ClientSessionStore:
 
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
         return {
-            "role": message.role,
-            "content": message.content,
+            "role": message.role.value if hasattr(message.role, "value") else str(message.role),
+            "kind": message.kind.value if hasattr(message.kind, "value") else str(message.kind),
+            "text": message.text,
+            "attachments": [
+                {
+                    "kind": attachment.kind.value,
+                    "uri": attachment.uri,
+                    "mime_type": attachment.mime_type,
+                    "filename": attachment.filename,
+                    "metadata": _json_safe(dict(attachment.metadata)),
+                }
+                for attachment in message.attachments
+            ],
+            "data": _json_safe(dict(message.data or {})),
             "name": message.name,
             "metadata": _json_safe(dict(message.metadata)),
             "mark": message.mark.value if hasattr(message.mark, "value") else str(message.mark),
@@ -239,9 +251,15 @@ class ClientSessionStore:
             if isinstance(metadata_raw, dict)
             else {}
         )
+        attachments_raw = raw.get("attachments", [])
+        attachments = AttachmentRef.coerce_many(attachments_raw if isinstance(attachments_raw, list) else [])
+        data_raw = raw.get("data")
         return Message(
-            role=str(raw.get("role", "user")),
-            content=str(raw.get("content", "")),
+            role=raw.get("role", MessageRole.USER),
+            kind=raw.get("kind", MessageKind.CHAT),
+            text=raw.get("text", raw.get("content")),
+            attachments=attachments,
+            data={str(key): value for key, value in data_raw.items()} if isinstance(data_raw, dict) else None,
             name=str(raw.get("name")) if raw.get("name") is not None else None,
             metadata=metadata,
             mark=mark,

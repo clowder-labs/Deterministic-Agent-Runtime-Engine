@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from dare_framework.context.types import Budget
+from dare_framework.context.types import Budget, Message
 from dare_framework.security.types import RiskLevel
 
 
@@ -41,7 +41,11 @@ class Milestone:
 class Task:
     """A high-level execution request.
 
-    Task is the top-level input to `IAgent.run()`. It can be used in two ways:
+    Task is an internal orchestration object used by the five-layer runtime.
+    Public agent callers should provide canonical `Message` input; the runtime
+    projects that input into Task before session/milestone planning begins.
+
+    It can be used in two ways internally:
 
     1. **Simple Mode**: Just provide `description`, milestones will be auto-generated.
     2. **Orchestrated Mode**: Pre-define `milestones` for explicit multi-step execution.
@@ -72,6 +76,7 @@ class Task:
     task_id: str | None = None
     milestones: list[Milestone] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    input_message: Message | None = None
     previous_session_summary: SessionSummary | None = None
     resume_from_checkpoint: str | None = None
 
@@ -88,7 +93,11 @@ class Task:
             Milestone(
                 milestone_id=f"{self.task_id or uuid4().hex[:8]}_m1",
                 description=self.description,
-                user_input=self.description,
+                user_input=(
+                    self.input_message.text
+                    if self.input_message is not None and self.input_message.text
+                    else self.description
+                ),
             )
         ]
 

@@ -73,11 +73,11 @@ class SmartContext(Context):
         for m in messages:
             mid = getattr(m, "id", None)
             if mid == "core" or (getattr(m, "mark", None) == MessageMark.PERSISTENT and mid != "task_complete"):
-                object.__setattr__(m, "content", content)
+                object.__setattr__(m, "text", content)
                 if mid != "core":
                     object.__setattr__(m, "id", "core")
                 return
-        core_msg = Message(role="system", content=content, mark=MessageMark.PERSISTENT, id="core")
+        core_msg = Message(role="system", text=content, mark=MessageMark.PERSISTENT, id="core")
         self.stm_add(core_msg)
 
     def update_task_complete(self, value: bool) -> None:
@@ -86,11 +86,11 @@ class SmartContext(Context):
         content = "true" if value else "false"
         for m in messages:
             if getattr(m, "id", None) == "task_complete":
-                object.__setattr__(m, "content", content)
+                object.__setattr__(m, "text", content)
                 return
         task_complete_msg = Message(
             role="system",
-            content=content,
+            text=content,
             mark=MessageMark.PERSISTENT,
             id="task_complete",
         )
@@ -101,7 +101,7 @@ class SmartContext(Context):
         messages = self._short_term_memory.get()
         for m in messages:
             if getattr(m, "id", None) == "task_complete":
-                return (getattr(m, "content", "") or "").strip().lower() in ("true", "1", "yes")
+                return (getattr(m, "text", "") or "").strip().lower() in ("true", "1", "yes")
         return False
 
     def order_messages_for_llm(
@@ -151,7 +151,10 @@ def _add_id_mark_prefix(msgs: list[Message]) -> list[Message]:
             prefix = f"[id={mid}, mark={mval}]\n"
         result.append(Message(
             role=m.role,
-            content=prefix + m.content,
+            kind=m.kind,
+            text=prefix + (m.text or ""),
+            attachments=list(m.attachments),
+            data=dict(m.data) if m.data is not None else None,
             name=m.name,
             metadata=dict(m.metadata),
             mark=m.mark,

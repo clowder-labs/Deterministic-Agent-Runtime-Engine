@@ -25,7 +25,7 @@ from dare_framework.tool._internal.control.approval_manager import (
     ToolApprovalManager,
 )
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityKind, CapabilityType
-from dare_framework.transport.types import EnvelopeKind
+from dare_framework.transport.types import EnvelopeKind, SelectPayload
 
 
 # =============================================================================
@@ -438,6 +438,7 @@ class TestDareAgentExecution:
         context.budget_remaining = MagicMock(return_value=float("inf"))
         context.assemble = MagicMock(return_value=MagicMock(
             messages=[],
+            sys_prompt=None,
             tools=[],
             metadata={},
         ))
@@ -523,7 +524,12 @@ class TestNoPlannerToolExecution:
         assert len(tool_gateway.invoke_calls) == 1
         assert tool_gateway.invoke_calls[0][0] == "read_file"
         messages = agent._context.stm_get()
-        assert any(msg.role == "assistant" and msg.metadata.get("tool_calls") for msg in messages)
+        assert any(
+            msg.role == "assistant"
+            and isinstance(msg.data, dict)
+            and msg.data.get("tool_calls")
+            for msg in messages
+        )
         assert any(msg.role == "tool" for msg in messages)
 
     @pytest.mark.asyncio
@@ -636,15 +642,14 @@ class TestNoPlannerToolExecution:
         request_id: str | None = None
         for _ in range(100):
             for envelope in transport.sent:
-                if getattr(envelope, "event_type", None) != "approval.pending":
+                if getattr(envelope, "kind", None) != EnvelopeKind.SELECT:
                     continue
                 payload = getattr(envelope, "payload", None)
-                if not isinstance(payload, dict):
+                if not isinstance(payload, SelectPayload):
                     continue
-                resp = payload.get("resp")
-                if not isinstance(resp, dict):
+                if payload.select_domain != "approval" or payload.select_kind != "ask":
                     continue
-                request = resp.get("request")
+                request = payload.metadata.get("request")
                 if isinstance(request, dict) and isinstance(request.get("request_id"), str):
                     request_id = request["request_id"]
                     break
@@ -653,8 +658,10 @@ class TestNoPlannerToolExecution:
             await asyncio.sleep(0.01)
         assert request_id is not None
         assert any(
-            getattr(envelope, "event_type", None) == "approval.pending"
-            and getattr(envelope, "kind", None) == EnvelopeKind.SELECT
+            getattr(envelope, "kind", None) == EnvelopeKind.SELECT
+            and isinstance(getattr(envelope, "payload", None), SelectPayload)
+            and getattr(envelope.payload, "select_domain", None) == "approval"
+            and getattr(envelope.payload, "select_kind", None) == "ask"
             for envelope in transport.sent
         )
 
@@ -668,7 +675,7 @@ class TestNoPlannerToolExecution:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_no_planner_denied_approval_reports_not_allow_without_resolved_event(self, tmp_path) -> None:
+    async def test_no_planner_denied_approval_reports_not_allow_without_answered_select_event(self, tmp_path) -> None:
         capability = CapabilityDescriptor(
             id="run_command",
             type=CapabilityType.TOOL,
@@ -719,13 +726,17 @@ class TestNoPlannerToolExecution:
 
         tool_messages = [msg for msg in agent._context.stm_get() if msg.role == "tool"]
         assert tool_messages
-        tool_payload = json.loads(tool_messages[-1].content)
+        tool_payload = json.loads(tool_messages[-1].text or "")
         assert tool_payload.get("status") == "not_allow"
         assert tool_payload.get("success") is False
 
-        event_types = [getattr(envelope, "event_type", None) for envelope in transport.sent]
-        assert "approval.pending" in event_types
-        assert "approval.resolved" not in event_types
+        approval_selects = [
+            envelope.payload
+            for envelope in transport.sent
+            if getattr(envelope, "kind", None) == EnvelopeKind.SELECT and isinstance(getattr(envelope, "payload", None), SelectPayload)
+        ]
+        assert any(payload.select_kind == "ask" for payload in approval_selects)
+        assert not any(payload.select_kind == "answered" for payload in approval_selects)
 
     @pytest.mark.asyncio
     async def test_no_planner_emits_approval_lifecycle_events_for_event_log_auto_resolution(self, tmp_path) -> None:
@@ -946,7 +957,7 @@ class TestNoPlannerToolExecution:
         await agent("Run command")
         tool_messages = [msg for msg in agent._context.stm_get() if msg.role == "tool"]
         assert tool_messages
-        tool_payload = json.loads(tool_messages[-1].content)
+        tool_payload = json.loads(tool_messages[-1].text or "")
         assert tool_payload.get("success") is False
         assert tool_payload.get("status") == "fail"
         assert "no approval manager" in str(tool_payload.get("error", ""))
@@ -1087,7 +1098,7 @@ class TestFiveLayerMode:
 
         messages = agent._context.stm_get()
         assert messages[0].role == "user"
-        assert "Follow-up task" in (messages[0].content or "")
+        assert "Follow-up task" in (messages[0].text or "")
 
     @pytest.mark.asyncio
     async def test_session_start_includes_task_and_run_ids(self) -> None:

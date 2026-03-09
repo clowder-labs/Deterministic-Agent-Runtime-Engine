@@ -473,7 +473,7 @@ async def test_run_execute_loop_returns_content_when_model_has_no_tool_calls() -
     assert result["outputs"] == [{"content": "final answer"}]
     assert len(agent._context.stm_messages) == 1
     assert agent._context.stm_messages[0].role == "assistant"
-    assert agent._context.stm_messages[0].content == "final answer"
+    assert agent._context.stm_messages[0].text == "final answer"
 
 
 @pytest.mark.asyncio

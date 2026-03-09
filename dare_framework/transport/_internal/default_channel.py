@@ -9,14 +9,15 @@ import logging
 from typing import TYPE_CHECKING
 
 from dare_framework.transport.interaction.controls import AgentControl
-from dare_framework.transport.interaction.payloads import build_error_payload, build_success_payload
 from dare_framework.transport.kernel import AgentChannel, ClientChannel
 from dare_framework.transport.types import (
+    ActionPayload,
+    ControlPayload,
     EnvelopeKind,
+    MessagePayload,
     Receiver,
     Sender,
     TransportEnvelope,
-    TransportEventType,
     new_envelope_id,
 )
 
@@ -110,13 +111,13 @@ class DefaultAgentChannel(AgentChannel):
 
     async def _enqueue_inbox(self, msg: TransportEnvelope) -> None:
         if msg.kind == EnvelopeKind.MESSAGE:
-            if not isinstance(msg.payload, str):
+            if not isinstance(msg.payload, MessagePayload):
                 await self._send_error(
                     reply_to=msg.id,
                     kind="message",
                     target="prompt",
                     code="INVALID_MESSAGE_PAYLOAD",
-                    reason="invalid message payload (expected string)",
+                    reason="invalid message payload (expected MessagePayload)",
                 )
                 return
             await self._inbox.put(msg)
@@ -186,29 +187,30 @@ class DefaultAgentChannel(AgentChannel):
             return
 
         payload = msg.payload
-        if not isinstance(payload, str):
+        if not isinstance(payload, ControlPayload):
             await self._send_error(
                 reply_to=msg.id,
                 kind="control",
                 target="control",
                 code="INVALID_CONTROL_PAYLOAD",
-                reason="invalid control payload (expected string)",
+                reason="invalid control payload (expected ControlPayload)",
             )
             return
+        params = {**payload.params, **dict(msg.meta)}
 
-        control = AgentControl.value_of(payload)
+        control = AgentControl.value_of(payload.control_id)
         if control is None:
             await self._send_error(
                 reply_to=msg.id,
                 kind="control",
-                target=payload,
+                target=payload.control_id or "control",
                 code="UNSUPPORTED_OPERATION",
-                reason=f"unknown control: {payload!r}",
+                reason=f"unknown control: {payload.control_id!r}",
             )
             return
 
         try:
-            result = self._control_handler.invoke(control, **dict(msg.meta))
+            result = self._control_handler.invoke(control, **params)
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:
@@ -226,7 +228,7 @@ class DefaultAgentChannel(AgentChannel):
                 reply_to=msg.id,
                 kind="control",
                 target=control.value,
-                resp={"result": result},
+                resp=result,
             )
 
     async def _write_action_result(self, *, reply_to: str | None, result: ActionDispatchResult) -> None:
@@ -255,16 +257,12 @@ class DefaultAgentChannel(AgentChannel):
         resp: object,
     ) -> None:
         await self.send(
-            TransportEnvelope(
-                id=new_envelope_id(),
+            _build_reply_envelope(
                 reply_to=reply_to,
-                kind=EnvelopeKind.MESSAGE,
-                event_type=TransportEventType.RESULT.value,
-                payload=build_success_payload(
-                    kind=kind,
-                    target=target,
-                    resp=resp,
-                ),
+                kind=kind,
+                target=target,
+                ok=True,
+                result=resp,
             )
         )
 
@@ -278,21 +276,91 @@ class DefaultAgentChannel(AgentChannel):
         reason: str,
     ) -> None:
         await self.send(
-            TransportEnvelope(
-                id=new_envelope_id(),
+            _build_reply_envelope(
                 reply_to=reply_to,
-                kind=EnvelopeKind.MESSAGE,
-                event_type=TransportEventType.ERROR.value,
-                payload=build_error_payload(
-                    kind=kind,
-                    target=target,
-                    code=code,
-                    reason=reason,
-                ),
+                kind=kind,
+                target=target,
+                ok=False,
+                code=code,
+                reason=reason,
             )
         )
 
 def _action_target(payload: object) -> str:
-    if isinstance(payload, str) and payload.strip():
-        return payload.strip()
+    if isinstance(payload, ActionPayload) and payload.resource_action.strip():
+        return payload.resource_action.strip()
     return "action"
+
+
+def _build_reply_envelope(
+    *,
+    reply_to: str | None,
+    kind: str,
+    target: str,
+    ok: bool,
+    result: object | None = None,
+    code: str | None = None,
+    reason: str | None = None,
+) -> TransportEnvelope:
+    if kind == "message":
+        text = ""
+        data: dict[str, object] = {
+            "success": ok,
+            "target": target,
+        }
+        if ok:
+            if isinstance(result, dict):
+                text = str(result.get("output") or "")
+                data["result"] = result
+            else:
+                text = str(result or "")
+                data["result"] = result
+            message_kind = "chat"
+        else:
+            text = reason or code or "transport error"
+            if code is not None:
+                data["code"] = code
+            if reason is not None:
+                data["reason"] = reason
+            message_kind = "summary"
+        return TransportEnvelope(
+            id=new_envelope_id(),
+            reply_to=reply_to,
+            kind=EnvelopeKind.MESSAGE,
+            payload=MessagePayload(
+                id=new_envelope_id(),
+                role="assistant",
+                message_kind=message_kind,
+                text=text,
+                data=data,
+            ),
+        )
+    if kind == "action":
+        return TransportEnvelope(
+            id=new_envelope_id(),
+            reply_to=reply_to,
+            kind=EnvelopeKind.ACTION,
+            payload=ActionPayload(
+                id=new_envelope_id(),
+                resource_action=target,
+                ok=ok,
+                result=result,
+                code=code,
+                reason=reason,
+            ),
+        )
+    if kind == "control":
+        return TransportEnvelope(
+            id=new_envelope_id(),
+            reply_to=reply_to,
+            kind=EnvelopeKind.CONTROL,
+            payload=ControlPayload(
+                id=new_envelope_id(),
+                control_id=target,
+                ok=ok,
+                result=result,
+                code=code,
+                reason=reason,
+            ),
+        )
+    raise ValueError(f"unsupported reply kind: {kind!r}")

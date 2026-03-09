@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import mimetypes
 import os
 import tempfile
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 from uuid import uuid4
 
 from dare_framework.a2a.types import PartDict, text_part, file_part_inline, file_part_uri
+from dare_framework.context import Message
+from dare_framework.context.types import AttachmentKind, AttachmentRef, MessageKind, MessageRole
 from dare_framework.plan.types import RunResult
 
 
@@ -30,6 +33,16 @@ def message_parts_to_user_input(parts: list[PartDict]) -> str:
             filename = p.get("filename") or p.get("uri") or "file"
             segments.append(f"[Attachment: {filename}]")
     return "\n".join(s for s in segments if s).strip() or ""
+
+
+def _is_image_attachment(*, mime_type: str | None, filename: str | None, uri: str | None = None) -> bool:
+    """Return whether a resolved A2A file part should become a canonical image attachment."""
+    normalized_mime = (mime_type or "").strip().lower()
+    if normalized_mime.startswith("image/"):
+        return True
+    candidate_name = filename or uri or ""
+    guessed, _ = mimetypes.guess_type(candidate_name)
+    return bool(guessed and guessed.startswith("image/"))
 
 
 def _decode_inline_file_part(p: dict[str, Any], dest_dir: Path) -> dict[str, Any] | None:
@@ -127,6 +140,89 @@ def message_parts_to_user_input_and_attachments(
 
     user_input = "\n".join(s for s in segments if s).strip() or ""
     return (user_input, attachments)
+
+
+def message_parts_to_message(
+    parts: list[PartDict],
+    *,
+    workspace_dir: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> Message:
+    """Convert A2A parts into a canonical DARE user message.
+
+    Text parts stay in `Message.text`. Supported image file parts become
+    `Message.attachments`; unsupported file parts degrade to textual placeholders
+    and remain visible via `metadata["a2a_attachments"]`.
+    """
+    base_metadata = dict(metadata or {})
+    text_segments: list[str] = []
+    attachment_refs: list[AttachmentRef] = []
+    resolved_attachments: list[dict[str, Any]] = []
+
+    root = Path(workspace_dir) if workspace_dir else Path(tempfile.gettempdir())
+    dest_dir = root / ".a2a_attachments" / uuid4().hex
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        kind = part.get("type")
+        if kind == "text":
+            segment = (part.get("text") or "").strip()
+            if segment:
+                text_segments.append(segment)
+            continue
+        if kind != "file":
+            continue
+
+        resolved: dict[str, Any] | None = None
+        if "inlineData" in part:
+            resolved = _decode_inline_file_part(part, dest_dir)
+        elif "uri" in part:
+            resolved = _fetch_uri_file_part(part, dest_dir)
+            if resolved is None:
+                resolved = {
+                    "path": str(part.get("uri") or ""),
+                    "filename": str(part.get("filename") or os.path.basename(str(part.get("uri") or "")) or "attachment"),
+                    "mimeType": str(part.get("mimeType") or ""),
+                }
+
+        if resolved is not None:
+            resolved_attachments.append(resolved)
+            if _is_image_attachment(
+                mime_type=resolved.get("mimeType"),
+                filename=resolved.get("filename"),
+                uri=resolved.get("path"),
+            ):
+                attachment_refs.append(
+                    AttachmentRef(
+                        kind=AttachmentKind.IMAGE,
+                        uri=str(resolved.get("path") or ""),
+                        mime_type=str(resolved.get("mimeType") or "") or None,
+                        filename=str(resolved.get("filename") or "") or None,
+                    )
+                )
+                continue
+
+        label = (
+            (resolved or {}).get("filename")
+            or part.get("filename")
+            or part.get("uri")
+            or "file"
+        )
+        text_segments.append(f"[Attachment: {label}]")
+
+    if resolved_attachments:
+        base_metadata["a2a_attachments"] = resolved_attachments
+
+    text_value = "\n".join(segment for segment in text_segments if segment).strip() or None
+    return Message(
+        role=MessageRole.USER,
+        kind=MessageKind.CHAT,
+        text=text_value,
+        attachments=attachment_refs,
+        metadata=base_metadata,
+    )
 
 
 def message_parts_to_artifact_parts(parts: list[PartDict]) -> list[PartDict]:

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from dare_framework.config import Config
-from dare_framework.context import Message
+from dare_framework.context import AttachmentKind, AttachmentRef, Message
 from dare_framework.hook.types import HookPhase
 from dare_framework.model.types import ModelInput
 from dare_framework.observability._internal.llm_io_capture_hook import (
@@ -21,7 +21,7 @@ async def test_llm_io_capture_hook_writes_jsonl_and_summary(tmp_path: Path) -> N
     hook = LLMIOCaptureHook(base_dir=tmp_path)
     run_id = "run-123"
     model_input = ModelInput(
-        messages=[Message(role="user", content="hello")],
+        messages=[Message(role="user", text="hello")],
         tools=[],
         metadata={"source": "unit-test"},
     )
@@ -60,7 +60,7 @@ async def test_llm_io_capture_hook_writes_jsonl_and_summary(tmp_path: Path) -> N
     assert record["run_id"] == "run-123"
     assert record["iteration"] == 1
     assert record["model_name"] == "mock-model"
-    assert record["request"]["messages"][0]["content"] == "hello"
+    assert record["request"]["messages"][0]["text"] == "hello"
     assert record["response"]["content"] == "world"
     assert record["usage"]["total_tokens"] == 10
 
@@ -75,12 +75,12 @@ async def test_llm_io_capture_hook_writes_jsonl_and_summary(tmp_path: Path) -> N
 async def test_llm_io_capture_hook_groups_records_by_conversation_id(tmp_path: Path) -> None:
     hook = LLMIOCaptureHook(base_dir=tmp_path)
     first_input = ModelInput(
-        messages=[Message(role="user", content="hello")],
+        messages=[Message(role="user", text="hello")],
         tools=[],
         metadata={},
     )
     second_input = ModelInput(
-        messages=[Message(role="user", content="who are you")],
+        messages=[Message(role="user", text="who are you")],
         tools=[],
         metadata={},
     )
@@ -161,3 +161,48 @@ def test_create_default_llm_io_capture_hook_uses_observability_config(tmp_path: 
 
     hook = create_default_llm_io_capture_hook(config)
     assert hook is not None
+
+
+@pytest.mark.asyncio
+async def test_llm_io_capture_hook_records_text_attachments_and_data(tmp_path: Path) -> None:
+    hook = LLMIOCaptureHook(base_dir=tmp_path)
+    model_input = ModelInput(
+        messages=[
+            Message(
+                role="user",
+                kind="chat",
+                text="describe image",
+                attachments=[AttachmentRef(kind=AttachmentKind.IMAGE, uri="https://example.com/a.png")],
+                data={"hint": "focus on charts"},
+            )
+        ],
+        tools=[],
+        metadata={},
+    )
+
+    await hook.invoke(
+        HookPhase.BEFORE_MODEL,
+        payload={
+            "run_id": "run-typed",
+            "iteration": 1,
+            "model_name": "mock-model",
+            "model_input": model_input,
+        },
+    )
+    await hook.invoke(
+        HookPhase.AFTER_MODEL,
+        payload={
+            "run_id": "run-typed",
+            "iteration": 1,
+            "model_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            "duration_ms": 1.0,
+            "model_output": {"content": "ok", "tool_calls": []},
+        },
+    )
+
+    record = json.loads((tmp_path / "run-typed.llm_io.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    message = record["request"]["messages"][0]
+    assert message["text"] == "describe image"
+    assert message["attachments"][0]["kind"] == "image"
+    assert message["attachments"][0]["uri"] == "https://example.com/a.png"
+    assert message["data"] == {"hint": "focus on charts"}

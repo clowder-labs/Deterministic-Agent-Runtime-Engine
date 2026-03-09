@@ -56,7 +56,7 @@ class RawDataKnowledge(IKnowledge):
         """Retrieve raw knowledge by substring in content.
 
         No semantic search; matches query as substring in content.
-        Returns list of Message (role=assistant, content=record.content, metadata).
+        Returns list of Message (role=assistant, text=record.content, metadata).
 
         Args:
             query: Substring to match in content; empty returns recent records.
@@ -75,7 +75,7 @@ class RawDataKnowledge(IKnowledge):
             messages.append(
                 Message(
                     role="assistant",
-                    content=r.content,
+                    text=r.content,
                     name=name,
                     metadata={**r.metadata, "document_id": r.id},
                 )

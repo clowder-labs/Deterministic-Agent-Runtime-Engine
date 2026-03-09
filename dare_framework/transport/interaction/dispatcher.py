@@ -8,7 +8,7 @@ from typing import Any
 
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.interaction.handlers import IActionHandler
-from dare_framework.transport.types import EnvelopeKind, TransportEnvelope
+from dare_framework.transport.types import ActionPayload, EnvelopeKind, TransportEnvelope
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,16 +52,24 @@ class ActionHandlerDispatcher:
                 code="INVALID_ENVELOPE_KIND",
                 reason=f"invalid envelope kind for action: {envelope.kind.value!r}",
             )
-        raw_action_id = envelope.payload
-        if not isinstance(raw_action_id, str):
+        payload = envelope.payload
+        if not isinstance(payload, ActionPayload):
             return ActionDispatchResult.error(
                 target="action",
                 code="INVALID_ACTION_PAYLOAD",
-                reason="invalid action payload (expected string 'resource:action')",
+                reason="invalid action payload (expected ActionPayload)",
+            )
+        params = {**dict(payload.params), **dict(envelope.meta)}
+        action_id = payload.resource_action.strip()
+        if not action_id:
+            return ActionDispatchResult.error(
+                target="action",
+                code="INVALID_ACTION_PAYLOAD",
+                reason="invalid action payload (missing resource_action)",
             )
         return await self._route_action(
-            action_id=raw_action_id.strip(),
-            params=dict(envelope.meta),
+            action_id=action_id,
+            params=params,
         )
 
     async def _route_action(

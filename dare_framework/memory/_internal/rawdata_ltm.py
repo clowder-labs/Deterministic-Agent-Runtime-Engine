@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from dare_framework.context import Message
+from dare_framework.context import AttachmentRef, Message, MessageKind, MessageMark, MessageRole
 from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.memory.kernel import ILongTermMemory
 from dare_framework.knowledge._internal.rawdata_knowledge.storage.interfaces import (
@@ -13,11 +13,31 @@ from dare_framework.knowledge._internal.rawdata_knowledge.storage.interfaces imp
 
 
 def _message_to_content_metadata(message: Message) -> tuple[str, dict[str, Any]]:
-    """Serialize Message to (content, metadata) for storage. Content must be non-empty."""
-    content = message.content if message.content else " "
+    """Serialize Message to (content, metadata) for storage.
+
+    Raw-data storage requires a non-empty searchable text payload. Canonical message
+    fields are persisted in metadata so text-less rich messages can still be restored
+    losslessly.
+    """
+    content = message.text if message.text else " "
     metadata: dict[str, Any] = {
-        "role": message.role,
+        "role": message.role.value,
+        "kind": message.kind.value,
+        "text": message.text,
+        "attachments": [
+            {
+                "kind": attachment.kind.value,
+                "uri": attachment.uri,
+                "mime_type": attachment.mime_type,
+                "filename": attachment.filename,
+                "metadata": dict(attachment.metadata),
+            }
+            for attachment in message.attachments
+        ],
+        "data": dict(message.data or {}),
         "name": message.name,
+        "mark": message.mark.value,
+        "id": message.id,
         **message.metadata,
     }
     return content, metadata
@@ -26,11 +46,23 @@ def _message_to_content_metadata(message: Message) -> tuple[str, dict[str, Any]]
 def _record_to_message(record: Any) -> Message:
     """Deserialize storage record to Message (RawRecord has id, content, metadata)."""
     meta = getattr(record, "metadata", {}) or {}
+    attachments_raw = meta.get("attachments")
+    attachments = AttachmentRef.coerce_many(attachments_raw if isinstance(attachments_raw, list) else [])
+    data_raw = meta.get("data")
     return Message(
-        role=meta.get("role", "user"),
-        content=getattr(record, "content", ""),
+        role=meta.get("role", MessageRole.USER),
+        kind=meta.get("kind", MessageKind.CHAT),
+        text=meta.get("text", getattr(record, "content", "")),
+        attachments=attachments,
+        data=dict(data_raw) if isinstance(data_raw, dict) else None,
         name=meta.get("name"),
-        metadata={k: v for k, v in meta.items() if k not in ("role", "name")},
+        metadata={
+            k: v
+            for k, v in meta.items()
+            if k not in ("role", "kind", "text", "attachments", "data", "name", "mark", "id")
+        },
+        mark=meta.get("mark", MessageMark.TEMPORARY),
+        id=meta.get("id"),
     )
 
 

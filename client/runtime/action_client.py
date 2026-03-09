@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from dare_framework.transport import (
+    ActionPayload,
+    ControlPayload,
     DirectClientChannel,
     EnvelopeKind,
     TransportEnvelope,
@@ -43,8 +45,11 @@ class TransportActionClient:
         envelope = TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.ACTION,
-            payload=action_id,
-            meta=dict(params),
+            payload=ActionPayload(
+                id=new_envelope_id(),
+                resource_action=action_id,
+                params=dict(params),
+            ),
         )
         response = await self._channel.ask(envelope, timeout=self._timeout)
         return _parse_action_response(response.payload, expected_kind="action")
@@ -58,14 +63,33 @@ class TransportActionClient:
         envelope = TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.CONTROL,
-            payload=control_id,
-            meta=dict(params),
+            payload=ControlPayload(
+                id=new_envelope_id(),
+                control_id=control_id,
+                params=dict(params),
+            ),
         )
         response = await self._channel.ask(envelope, timeout=self._timeout)
         return _parse_action_response(response.payload, expected_kind="control")
 
 
 def _parse_action_response(payload: Any, *, expected_kind: str) -> Any:
+    if expected_kind == "action" and isinstance(payload, ActionPayload):
+        if payload.ok is False:
+            raise ActionClientError(
+                code=str(payload.code or "UNKNOWN_ERROR"),
+                reason=str(payload.reason or "unknown transport error"),
+                target=str(payload.resource_action or expected_kind),
+            )
+        return payload.result
+    if expected_kind == "control" and isinstance(payload, ControlPayload):
+        if payload.ok is False:
+            raise ActionClientError(
+                code=str(payload.code or "UNKNOWN_ERROR"),
+                reason=str(payload.reason or "unknown transport error"),
+                target=str(payload.control_id or expected_kind),
+            )
+        return payload.result
     if not isinstance(payload, dict):
         raise ActionClientError(
             code="INVALID_RESPONSE",

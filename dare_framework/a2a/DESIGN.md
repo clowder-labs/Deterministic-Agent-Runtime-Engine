@@ -150,8 +150,8 @@ dare_framework/a2a/
 
 - **config**：提供 agent 名称、描述、技能路径等。`Config.a2a` 为可选 dict（`config.json` 中 `"a2a": {"name", "description", "provider", "capabilities", "auth"}`），`build_agent_card(config, base_url)` 会优先用其覆盖默认的 name/description/provider/capabilities/auth。
 - **skill**：只读 skill 元数据用于 AgentCard 与 AgentSkill；执行仍由现有 skill + tool 链完成。
-- **agent**：A2A server 将「协议入参」转为 DARE 输入，调用现有执行入口（如 `IAgentOrchestration.execute`），再将「DARE 结果」转为 Task 状态与 Artifact。
-- **context**：A2A Message 的 parts 注入为 task.description（文本 + `[Attachment: path]`）及 `task.metadata["a2a_attachments"]`；Artifact 从 run 结果收集。
+- **agent**：A2A server 将「协议入参」转为 canonical `Message`，调用现有执行入口（如 `IAgentOrchestration.execute`），再将「DARE 结果」转为 Task 状态与 Artifact。
+- **context**：A2A Message 的 text/file parts 注入为 canonical `Message.text + attachments`；解析后的本地附件路径列表仍写入 `message.metadata["a2a_attachments"]` 供 agent/tool 按需读取；Artifact 从 run 结果收集。
 - **mcp**：不改动；Agent 内部继续用 MCP 调用工具；A2A 仅负责智能体对外的协议与传输。
 
 ### 8.1 与执行层的必要约定（A2A 入参/出参）
@@ -160,7 +160,7 @@ dare_framework/a2a/
 
 | 约定 | 说明 | 谁负责 |
 |------|------|--------|
-| **a2a_attachments 的消费** | 用户通过 A2A 上传的文件会落盘到 `workspace_dir/.a2a_attachments/<uuid>/`，路径列表在 `task.metadata["a2a_attachments"]`（每项 `{path, filename, mimeType}`）。task.description 中会有 `[Attachment: path]`。 | Agent 或 prompt 若需「看到」附件内容，应读取 `task.metadata["a2a_attachments"]` 并用 read_file 等工具按 path 读取；或由上层在构建 context 时把附件路径/摘要注入 system 或 user 消息。 |
+| **a2a_attachments 的消费** | 用户通过 A2A 上传的文件会落盘到 `workspace_dir/.a2a_attachments/<uuid>/`，路径列表在 `message.metadata["a2a_attachments"]`（每项 `{path, filename, mimeType}`）。图片文件同时会进入 canonical `Message.attachments`。 | Agent 或 prompt 若需读取原始附件文件，可读取 `message.metadata["a2a_attachments"]` 并用 read_file 等工具按 path 访问；模型可见的图片输入优先通过 `Message.attachments` 进入上下文。 |
 | **a2a_output_files 的产出** | A2A 将 `RunResult.metadata["a2a_output_files"]` 视为「本次任务产出的文件」并加入 Artifact（inline 或 URI）。 | 执行层在返回 `RunResult` 前，若有需要作为 A2A 产出返回的文件，应写入 `result.metadata["a2a_output_files"]`（路径字符串列表或 `[{path, filename?, mimeType?}]`）。当前框架未自动收集 write_file 等工具的写入路径，可由业务在 run 后根据执行结果组装，或后续在 tool/agent 层增加统一收集逻辑。 |
 
 ---

@@ -15,7 +15,7 @@ from dare_framework.tool._internal.control.approval_manager import (
     JsonApprovalRuleStore,
     ToolApprovalManager,
 )
-from dare_framework.transport import EnvelopeKind, TransportEnvelope
+from dare_framework.transport import ActionPayload, EnvelopeKind, MessageKind, MessagePayload, MessageRole, TransportEnvelope
 from dare_framework.transport.interaction.resource_action import ResourceAction
 
 
@@ -76,14 +76,19 @@ class _HandlerBackedApprovalClient:
 
     async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
         _ = timeout
-        action = ResourceAction(str(req.payload))
+        assert isinstance(req.payload, ActionPayload)
+        action = ResourceAction(req.payload.resource_action)
         result = await self._handler.invoke(action, **dict(req.meta))
         return TransportEnvelope(
             id=f"resp-{req.id}",
             reply_to=req.id,
-            kind=EnvelopeKind.MESSAGE,
-            event_type="result",
-            payload={"resp": {"result": result}},
+            kind=EnvelopeKind.ACTION,
+            payload=ActionPayload(
+                id=f"act-{req.id}",
+                resource_action=action.value,
+                ok=True,
+                result=result,
+            ),
         )
 
 
@@ -97,9 +102,13 @@ class _CaptureApprovalClient:
         return TransportEnvelope(
             id=f"resp-{req.id}",
             reply_to=req.id,
-            kind=EnvelopeKind.MESSAGE,
-            event_type="result",
-            payload={"resp": {"result": {"request": None}}},
+            kind=EnvelopeKind.ACTION,
+            payload=ActionPayload(
+                id=f"act-{req.id}",
+                resource_action="approvals:list",
+                ok=True,
+                result={"request": None},
+            ),
         )
 
 
@@ -112,32 +121,45 @@ class _CaptureTimeoutApprovalClient:
         self.last_timeout = timeout
         return TransportEnvelope(
             id="resp-timeout",
-            kind=EnvelopeKind.MESSAGE,
-            event_type="result",
-            payload={"resp": {"result": {"request": None}}},
+            kind=EnvelopeKind.ACTION,
+            payload=ActionPayload(
+                id="act-timeout",
+                resource_action="approvals:poll",
+                ok=True,
+                result={"request": None},
+            ),
         )
 
 
-class _MissingEventTypeApprovalClient:
+class _UnexpectedPayloadApprovalClient:
     async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
         _ = timeout
         return TransportEnvelope(
             id=f"resp-{req.id}",
             reply_to=req.id,
             kind=EnvelopeKind.MESSAGE,
-            payload={"resp": {"result": {"request": None}}},
+            payload=MessagePayload(
+                id=f"msg-{req.id}",
+                role=MessageRole.ASSISTANT,
+                message_kind=MessageKind.SUMMARY,
+                text="wrong payload family",
+            ),
         )
 
 
-class _UnexpectedEventTypeApprovalClient:
+class _InvalidResultApprovalClient:
     async def ask(self, req: TransportEnvelope, timeout: float = 30.0) -> TransportEnvelope:
         _ = timeout
         return TransportEnvelope(
             id=f"resp-{req.id}",
             reply_to=req.id,
-            kind=EnvelopeKind.MESSAGE,
-            event_type="tool.result",
-            payload={"resp": {"result": {"request": None}}},
+            kind=EnvelopeKind.ACTION,
+            payload=ActionPayload(
+                id=f"act-{req.id}",
+                resource_action="approvals:list",
+                ok=True,
+                result=None,
+            ),
         )
 
 
@@ -262,36 +284,36 @@ async def test_handle_approvals_poll_uses_user_timeout_for_transport_wait_mcp_cl
 
 
 @pytest.mark.asyncio
-async def test_handle_approvals_command_requires_event_type_in_response_mcp_cli() -> None:
+async def test_handle_approvals_command_requires_typed_action_payload_in_response_mcp_cli() -> None:
     cli_mcp = _load_cli_module(
         "examples_06_cli_missing_event_type",
         "examples/06-dare-coding-agent-mcp/cli.py",
     )
     display = _CaptureDisplay()
-    approval_client = _MissingEventTypeApprovalClient()
+    approval_client = _UnexpectedPayloadApprovalClient()
     await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
         ["list"],
         approval_client=approval_client,
         display=display,
     )
-    assert any("missing event_type" in msg for level, msg in display.messages if level == "error")
+    assert any("unexpected action response payload" in msg for level, msg in display.messages if level == "error")
 
 
 @pytest.mark.asyncio
-async def test_handle_approvals_command_requires_result_event_type_mcp_cli() -> None:
+async def test_handle_approvals_command_requires_dict_action_result_mcp_cli() -> None:
     cli_mcp = _load_cli_module(
         "examples_06_cli_invalid_event_type",
         "examples/06-dare-coding-agent-mcp/cli.py",
     )
     display = _CaptureDisplay()
-    approval_client = _UnexpectedEventTypeApprovalClient()
+    approval_client = _InvalidResultApprovalClient()
     await cli_mcp._handle_approvals_command(  # type: ignore[attr-defined]
         ["list"],
         approval_client=approval_client,
         display=display,
     )
     assert any(
-        "invalid action response event_type" in msg
+        "unexpected action result shape" in msg
         for level, msg in display.messages
         if level == "error"
     )

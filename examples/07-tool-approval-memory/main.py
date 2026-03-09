@@ -26,9 +26,16 @@ from dare_framework.model.kernel import IModelAdapter  # noqa: E402
 from dare_framework.model.types import GenerateOptions, ModelInput, ModelResponse  # noqa: E402
 from dare_framework.tool._internal.tools import RunCommandTool  # noqa: E402
 from dare_framework.transport import (  # noqa: E402
+    ActionPayload,
     AgentChannel,
     DirectClientChannel,
     EnvelopeKind,
+    MessageKind,
+    MessagePayload,
+    MessageRole,
+    SelectDomain,
+    SelectKind,
+    SelectPayload,
     TransportEnvelope,
     new_envelope_id,
 )
@@ -109,28 +116,22 @@ async def _invoke_action(
         TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.ACTION,
-            payload=action_id,
+            payload=ActionPayload(
+                id=new_envelope_id(),
+                resource_action=action_id,
+            ),
             meta=params,
         ),
         timeout=30.0,
     )
     payload = response.payload
-    if not isinstance(payload, dict):
+    if not isinstance(payload, ActionPayload):
         raise RuntimeError(f"unexpected action response payload: {payload!r}")
-    event_type = response.event_type
-    if not isinstance(event_type, str) or not event_type:
-        raise RuntimeError("invalid action response: missing event_type")
-    if event_type == "error":
-        raise RuntimeError(f"action failed ({action_id}): {payload.get('reason')}")
-
-    resp = payload.get("resp")
-    if not isinstance(resp, dict):
-        raise RuntimeError(f"unexpected action response shape: {payload!r}")
-
-    result = resp.get("result")
-    if not isinstance(result, dict):
+    if payload.ok is False:
+        raise RuntimeError(f"action failed ({action_id}): {payload.reason}")
+    if not isinstance(payload.result, dict):
         raise RuntimeError(f"unexpected action result shape: {payload!r}")
-    return result
+    return payload.result
 
 
 async def _wait_for_pending_request_id(
@@ -144,15 +145,14 @@ async def _wait_for_pending_request_id(
         if envelope is None:
             continue
         payload = envelope.payload
-        if not isinstance(payload, dict):
+        if not isinstance(payload, SelectPayload):
             continue
-        event_type = envelope.event_type
-        if event_type != "approval.pending":
+        if payload.select_domain is not SelectDomain.APPROVAL or payload.select_kind is not SelectKind.ASK:
             continue
-        resp = payload.get("resp")
-        if not isinstance(resp, dict):
+        metadata = payload.metadata
+        if not isinstance(metadata, dict):
             continue
-        request = resp.get("request")
+        request = metadata.get("request")
         if isinstance(request, dict) and isinstance(request.get("request_id"), str):
             return request["request_id"]
     raise TimeoutError("approval.pending event was not received in time")
@@ -162,24 +162,23 @@ def _new_prompt_envelope(prompt: str) -> TransportEnvelope:
     return TransportEnvelope(
         id=new_envelope_id(),
         kind=EnvelopeKind.MESSAGE,
-        payload=prompt,
+        payload=MessagePayload(
+            id=new_envelope_id(),
+            role=MessageRole.USER,
+            message_kind=MessageKind.CHAT,
+            text=prompt,
+        ),
     )
 
 
 def _extract_run_success(response: TransportEnvelope) -> bool:
     payload = response.payload
-    if not isinstance(payload, dict):
+    if not isinstance(payload, MessagePayload):
         return False
-    event_type = response.event_type
-    if event_type != "result":
+    if payload.message_kind is not MessageKind.CHAT:
         return False
-    raw_success = payload.get("success")
-    if isinstance(raw_success, bool):
-        return raw_success
-    resp = payload.get("resp")
-    if isinstance(resp, dict):
-        return bool(resp.get("success", False))
-    return False
+    data = payload.data if isinstance(payload.data, dict) else {}
+    return bool(data.get("success", False))
 
 
 async def main() -> None:

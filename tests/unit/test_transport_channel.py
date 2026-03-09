@@ -4,12 +4,15 @@ import inspect
 import pytest
 
 from dare_framework.transport import (
+    ActionPayload,
     AgentChannel,
+    ControlPayload,
     EnvelopeKind,
+    MessagePayload,
     TransportEnvelope,
-    TransportEventType,
     new_envelope_id,
 )
+from dare_framework.context.types import MessageKind, MessageRole
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.interaction.control_handler import AgentControlHandler
 from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
@@ -28,8 +31,16 @@ class DummyClientChannel:
         return self._receiver
 
 
-def _envelope(payload: str = "ping") -> TransportEnvelope:
-    return TransportEnvelope(id=new_envelope_id(), payload=payload)
+def _envelope(text: str = "ping") -> TransportEnvelope:
+    return TransportEnvelope(
+        id=new_envelope_id(),
+        payload=MessagePayload(
+            id=new_envelope_id(),
+            role="user",
+            message_kind="chat",
+            text=text,
+        ),
+    )
 
 
 class FakeAgent:
@@ -234,7 +245,10 @@ async def test_action_envelope_is_dispatched_by_channel() -> None:
         TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.ACTION,
-            payload="tools:list",
+            payload=ActionPayload(
+                id=new_envelope_id(),
+                resource_action="tools:list",
+            ),
         )
     )
 
@@ -259,7 +273,10 @@ async def test_control_envelope_is_dispatched_by_channel() -> None:
         TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.CONTROL,
-            payload="interrupt",
+            payload=ControlPayload(
+                id=new_envelope_id(),
+                control_id="interrupt",
+            ),
         )
     )
 
@@ -270,75 +287,30 @@ async def test_control_envelope_is_dispatched_by_channel() -> None:
 
 @pytest.mark.asyncio
 async def test_invalid_control_payload_returns_structured_error() -> None:
-    seen: list[TransportEnvelope] = []
-    sent = asyncio.Event()
-
-    async def receiver(msg: TransportEnvelope) -> None:
-        seen.append(msg)
-        sent.set()
-
-    client = DummyClientChannel(receiver)
-    channel = AgentChannel.build(client)
-    channel.add_agent_control_handler(AgentControlHandler(FakeAgent()))
-    await channel.start()
-    try:
-        sender = client.sender
-        assert sender is not None
-        await sender(
-            TransportEnvelope(
-                id="req-control-1",
-                kind=EnvelopeKind.CONTROL,
-                payload={"bad": "payload"},
-            )
+    with pytest.raises(TypeError, match="invalid payload type for envelope kind"):
+        TransportEnvelope(
+            id="req-control-1",
+            kind=EnvelopeKind.CONTROL,
+            payload=MessagePayload(
+                id="msg-bad-control",
+                role=MessageRole.USER,
+                message_kind=MessageKind.CHAT,
+                text="bad",
+            ),
         )
-        await asyncio.wait_for(sent.wait(), timeout=1.0)
-    finally:
-        await channel.stop()
-
-    assert len(seen) == 1
-    assert seen[0].event_type == TransportEventType.ERROR.value
-    payload = seen[0].payload
-    assert isinstance(payload, dict)
-    assert payload.get("kind") == "control"
-    assert payload.get("ok") is False
-    assert payload.get("code") == "INVALID_CONTROL_PAYLOAD"
-    assert isinstance(payload.get("reason"), str)
 
 
 @pytest.mark.asyncio
 async def test_invalid_message_payload_returns_structured_error_and_is_not_enqueued() -> None:
-    seen: list[TransportEnvelope] = []
-    sent = asyncio.Event()
-
-    async def receiver(msg: TransportEnvelope) -> None:
-        seen.append(msg)
-        sent.set()
-
-    client = DummyClientChannel(receiver)
-    channel = AgentChannel.build(client)
-    await channel.start()
-    try:
-        sender = client.sender
-        assert sender is not None
-        await sender(
-            TransportEnvelope(
-                id="req-message-invalid",
-                kind=EnvelopeKind.MESSAGE,
-                payload={"invalid": "payload"},
-            )
+    with pytest.raises(TypeError, match="invalid payload type for envelope kind"):
+        TransportEnvelope(
+            id="req-message-invalid",
+            kind=EnvelopeKind.MESSAGE,
+            payload=ActionPayload(
+                id="action-invalid",
+                resource_action="tools:list",
+            ),
         )
-        await asyncio.wait_for(sent.wait(), timeout=1.0)
-    finally:
-        await channel.stop()
-
-    assert len(seen) == 1
-    assert seen[0].event_type == TransportEventType.ERROR.value
-    payload = seen[0].payload
-    assert isinstance(payload, dict)
-    assert payload.get("kind") == "message"
-    assert payload.get("ok") is False
-    assert payload.get("code") == "INVALID_MESSAGE_PAYLOAD"
-    assert isinstance(payload.get("reason"), str)
 
 
 @pytest.mark.asyncio
@@ -367,7 +339,10 @@ async def test_action_timeout_returns_structured_error_and_channel_keeps_process
             TransportEnvelope(
                 id="req-action-timeout",
                 kind=EnvelopeKind.ACTION,
-                payload="tools:list",
+                payload=ActionPayload(
+                    id="action-timeout-1",
+                    resource_action="tools:list",
+                ),
             )
         )
         await asyncio.wait_for(sent.wait(), timeout=1.0)
@@ -375,18 +350,23 @@ async def test_action_timeout_returns_structured_error_and_channel_keeps_process
             TransportEnvelope(
                 id="req-message-after-timeout",
                 kind=EnvelopeKind.MESSAGE,
-                payload="hello-after-timeout",
+                payload=MessagePayload(
+                    id="msg-after-timeout",
+                    role="user",
+                    message_kind="chat",
+                    text="hello-after-timeout",
+                ),
             )
         )
         msg = await asyncio.wait_for(channel.poll(), timeout=1.0)
     finally:
         await channel.stop()
 
-    assert msg.payload == "hello-after-timeout"
-    assert seen[0].event_type == TransportEventType.ERROR.value
+    assert isinstance(msg.payload, MessagePayload)
+    assert msg.payload.text == "hello-after-timeout"
+    assert seen[0].kind is EnvelopeKind.ACTION
     timeout_payload = seen[0].payload
-    assert isinstance(timeout_payload, dict)
-    assert timeout_payload.get("kind") == "action"
-    assert timeout_payload.get("ok") is False
-    assert timeout_payload.get("code") == "ACTION_TIMEOUT"
-    assert isinstance(timeout_payload.get("reason"), str)
+    assert isinstance(timeout_payload, ActionPayload)
+    assert timeout_payload.ok is False
+    assert timeout_payload.code == "ACTION_TIMEOUT"
+    assert isinstance(timeout_payload.reason, str)

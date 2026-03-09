@@ -25,7 +25,6 @@ from dare_framework.transport.interaction.payloads import build_approval_pending
 from dare_framework.transport.types import (
     EnvelopeKind,
     TransportEnvelope,
-    TransportEventType,
     new_envelope_id,
 )
 
@@ -365,21 +364,9 @@ class GovernedToolGateway(IToolGateway):
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         )
-        # Approval pending is an explicit user-choice interaction shape.
-        resp = payload.get("resp")
-        if isinstance(resp, dict):
-            resp.setdefault(
-                "options",
-                [
-                    {"label": "allow", "description": "Approve this tool invocation."},
-                    {"label": "deny", "description": "Deny this tool invocation."},
-                ],
-            )
-
         envelope = TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.SELECT,
-            event_type=TransportEventType.APPROVAL_PENDING.value,
             payload=payload,
         )
         try:

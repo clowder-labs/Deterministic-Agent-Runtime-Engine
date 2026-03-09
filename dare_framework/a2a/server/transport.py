@@ -32,7 +32,7 @@ def create_a2a_app(
 
     Args:
         agent_card_json: AgentCard dict to serve at /.well-known/agent.json.
-        agent_run: Async callable(task: str | Task) -> RunResult (e.g. agent.run).
+        agent_run: Async callable(message: canonical Message) -> RunResult (e.g. agent.run).
         store: Optional shared task store; one is created if not provided.
         workspace_dir: Optional workspace path for resolving FilePart attachments (inline/URI -> temp files).
         auth_validate: Optional callable(token: str) -> bool. If set, POST / and GET /a2a/artifacts/ require

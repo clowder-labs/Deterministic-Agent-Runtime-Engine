@@ -17,11 +17,13 @@ from dare_framework.a2a.types import (
     text_part,
 )
 from dare_framework.a2a.server.message_adapter import (
+    message_parts_to_message,
     message_parts_to_user_input,
     message_parts_to_user_input_and_attachments,
     run_result_to_artifact_parts,
     run_result_to_artifact_dict,
 )
+from dare_framework.context.types import AttachmentKind, MessageKind, MessageRole
 from dare_framework.plan.types import RunResult
 
 
@@ -102,6 +104,28 @@ def test_message_parts_to_user_input_and_attachments_inline() -> None:
         assert Path(attachments[0]["path"]).read_text() == "content"
 
 
+def test_message_parts_to_message_promotes_image_file_to_attachment() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        parts = [
+            {"type": "text", "text": "Look at this"},
+            {
+                "type": "file",
+                "filename": "photo.png",
+                "mimeType": "image/png",
+                "inlineData": {"data": base64.b64encode(b"pngdata").decode()},
+            },
+        ]
+        message = message_parts_to_message(parts, workspace_dir=tmp, metadata={"conversation_id": "c1"})
+        assert message.role == MessageRole.USER
+        assert message.kind == MessageKind.CHAT
+        assert message.text == "Look at this"
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].filename == "photo.png"
+        assert message.metadata["conversation_id"] == "c1"
+        assert "a2a_attachments" in message.metadata
+
+
 def test_run_result_to_artifact_parts_text_only() -> None:
     result = RunResult(success=True, output="done")
     parts = run_result_to_artifact_parts(result)
@@ -158,8 +182,13 @@ def test_run_result_to_artifact_dict() -> None:
 def test_dispatch_request_tasks_send() -> None:
     import asyncio
     from dare_framework.a2a.server.handlers import dispatch_request
+    from dare_framework.context import Message
 
-    async def mock_run(task: object) -> RunResult:
+    async def mock_run(task: Message) -> RunResult:
+        assert isinstance(task, Message)
+        assert task.role == MessageRole.USER
+        assert task.kind == MessageKind.CHAT
+        assert task.text == "Hi"
         return RunResult(success=True, output="hello")
 
     async def run() -> None:

@@ -106,7 +106,7 @@ async def test_governance_block_prevents_tool_execution() -> None:
     assert result.success is True
     tool_messages = [msg for msg in agent.context.stm_get() if msg.role == "tool"]
     assert tool_messages
-    assert "hook policy" in tool_messages[0].content
+    assert "hook policy" in (tool_messages[0].text or "")
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_governance_ask_prevents_tool_execution_without_approval_bridge() 
     assert result.success is True
     tool_messages = [msg for msg in agent.context.stm_get() if msg.role == "tool"]
     assert tool_messages
-    assert "requires hook approval" in tool_messages[0].content
+    assert "requires hook approval" in (tool_messages[0].text or "")
 
 
 @pytest.mark.asyncio

@@ -178,7 +178,7 @@ class DefaultPlanner:
         """
         # Get task from context STM
         messages = ctx.stm_get()
-        task_description = messages[-1].content if messages else "Unknown task"
+        task_description = messages[-1].text if messages else "Unknown task"
 
         # Build prompt
         user_prompt = f"""Task: {task_description}
@@ -188,8 +188,8 @@ Output ONLY valid JSON following the structure defined in your instructions."""
 
         model_input = ModelInput(
             messages=[
-                Message(role="system", content=self._system_prompt),
-                Message(role="user", content=user_prompt),
+                Message(role="system", text=self._system_prompt),
+                Message(role="user", text=user_prompt),
             ],
         )
 
@@ -305,7 +305,11 @@ Output ONLY valid JSON following the structure defined in your instructions."""
                 Milestone(
                     milestone_id=f"{task.task_id or uuid4().hex[:8]}_m1",
                     description=task.description,
-                    user_input=task.description,
+                    user_input=(
+                        task.input_message.text
+                        if task.input_message is not None and task.input_message.text
+                        else task.description
+                    ),
                 )
             ],
             reasoning="Default: single milestone from task description",

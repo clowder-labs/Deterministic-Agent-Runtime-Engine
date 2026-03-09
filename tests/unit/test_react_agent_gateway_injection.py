@@ -7,10 +7,10 @@ import pytest
 from dare_framework.agent.react_agent import ReactAgent
 from dare_framework.config import Config
 from dare_framework.context import Context
+from dare_framework.context.types import MessageKind
 from dare_framework.context.smartcontext import SmartContext
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import CapabilityDescriptor, CapabilityType, ToolResult
-from dare_framework.transport import TransportEventType
 
 
 class _SequenceModel:
@@ -213,7 +213,11 @@ async def test_react_agent_prefers_injected_gateway_over_context_gateway() -> No
     result = await agent("test")
 
     assert result.success is True
-    assert injected_gateway.invoke_calls == [("tool:echo", {"value": "ping"})]
+    assert len(injected_gateway.invoke_calls) == 1
+    capability_id, params = injected_gateway.invoke_calls[0]
+    assert capability_id == "tool:echo"
+    assert params["value"] == "ping"
+    assert params["context"] is context
     assert context_gateway.invoke_calls == []
 
 
@@ -273,18 +277,18 @@ async def test_react_agent_emits_intermediate_transport_events_in_order() -> Non
     result = await agent.execute("test", transport=transport)
 
     assert result.success is True
-    event_types = [getattr(envelope, "event_type", None) for envelope in transport.sent]
-    assert event_types == [
-        TransportEventType.THINKING.value,
-        TransportEventType.TOOL_CALL.value,
-        TransportEventType.TOOL_RESULT.value,
-        TransportEventType.MESSAGE.value,
+    message_kinds = [envelope.payload.message_kind for envelope in transport.sent]
+    assert message_kinds == [
+        MessageKind.THINKING,
+        MessageKind.TOOL_CALL,
+        MessageKind.TOOL_RESULT,
+        MessageKind.CHAT,
     ]
-    payloads = [getattr(envelope, "payload", None) for envelope in transport.sent]
-    assert payloads[0]["ok"] is True
-    assert payloads[1]["resp"]["name"] == "tool:echo"
-    assert payloads[2]["resp"]["success"] is True
-    assert payloads[3]["resp"]["output"] == "final answer"
+    payloads = [envelope.payload for envelope in transport.sent]
+    assert payloads[0].data == {"target": "model"}
+    assert payloads[1].data["name"] == "tool:echo"
+    assert payloads[2].data["success"] is True
+    assert payloads[3].text == "final answer"
 
 
 @pytest.mark.asyncio
@@ -307,17 +311,17 @@ async def test_react_agent_transport_loop_emits_single_terminal_result_event() -
         envelope_id="req_1",
     )
 
-    event_types = [getattr(envelope, "event_type", None) for envelope in transport.sent]
-    assert event_types == [
-        TransportEventType.THINKING.value,
-        TransportEventType.TOOL_CALL.value,
-        TransportEventType.TOOL_RESULT.value,
-        TransportEventType.RESULT.value,
+    message_kinds = [envelope.payload.message_kind for envelope in transport.sent]
+    assert message_kinds == [
+        MessageKind.THINKING,
+        MessageKind.TOOL_CALL,
+        MessageKind.TOOL_RESULT,
+        MessageKind.CHAT,
     ]
 
-    terminal_payload = getattr(transport.sent[-1], "payload", {})
-    assert terminal_payload.get("resp", {}).get("success") is True
-    assert terminal_payload.get("resp", {}).get("output", {}).get("content") == "final answer"
+    terminal_payload = transport.sent[-1].payload
+    assert terminal_payload.data["success"] is True
+    assert terminal_payload.data["output"]["content"] == "final answer"
 
 
 @pytest.mark.asyncio
@@ -338,8 +342,8 @@ async def test_react_agent_emits_terminal_message_for_repeated_tool_guard() -> N
     assert result.success is True
     assert transport.sent
     last_envelope = transport.sent[-1]
-    assert getattr(last_envelope, "event_type", None) == TransportEventType.MESSAGE.value
-    assert "连续重复调用相同工具" in str(getattr(last_envelope, "payload", {}).get("resp", {}).get("output", ""))
+    assert last_envelope.payload.message_kind is MessageKind.CHAT
+    assert "连续重复调用相同工具" in str(last_envelope.payload.data["output"])
 
 
 @pytest.mark.asyncio
@@ -361,8 +365,8 @@ async def test_react_agent_emits_terminal_message_for_max_round_exit() -> None:
     assert result.success is True
     assert transport.sent
     last_envelope = transport.sent[-1]
-    assert getattr(last_envelope, "event_type", None) == TransportEventType.MESSAGE.value
-    assert "达到最大轮次" in str(getattr(last_envelope, "payload", {}).get("resp", {}).get("output", ""))
+    assert last_envelope.payload.message_kind is MessageKind.CHAT
+    assert "达到最大轮次" in str(last_envelope.payload.data["output"])
 
 
 @pytest.mark.asyncio
@@ -468,9 +472,8 @@ async def test_react_agent_loop_guard_emits_terminal_message_event() -> None:
     result = await agent.execute("test loop guard", transport=transport)
 
     assert result.success is True
-    assert getattr(transport.sent[-1], "event_type", None) == TransportEventType.MESSAGE.value
-    terminal_payload = getattr(transport.sent[-1], "payload", {})
-    assert "连续重复调用相同工具" in terminal_payload.get("resp", {}).get("output", "")
+    assert transport.sent[-1].payload.message_kind is MessageKind.CHAT
+    assert "连续重复调用相同工具" in transport.sent[-1].payload.data["output"]
 
 
 @pytest.mark.asyncio
@@ -489,6 +492,5 @@ async def test_react_agent_max_round_exit_emits_terminal_message_event() -> None
     result = await agent.execute("test max rounds", transport=transport)
 
     assert result.success is True
-    assert getattr(transport.sent[-1], "event_type", None) == TransportEventType.MESSAGE.value
-    terminal_payload = getattr(transport.sent[-1], "payload", {})
-    assert "未收敛" in terminal_payload.get("resp", {}).get("output", "")
+    assert transport.sent[-1].payload.message_kind is MessageKind.CHAT
+    assert "未收敛" in transport.sent[-1].payload.data["output"]

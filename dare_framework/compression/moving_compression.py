@@ -32,8 +32,9 @@ def _estimate_tokens(messages: List[Message]) -> int:
     """Rough token estimate: ~4 chars/token + 8 per message overhead."""
     total = 0
     for msg in messages:
-        content = (msg.content or "").strip()
-        total += max(1, len(content) // 4) + 8
+        content = (msg.text or "").strip()
+        attachment_tokens = len(msg.attachments) * 32
+        total += max(1, len(content) // 4) + attachment_tokens + 8
     return total
 
 
@@ -43,10 +44,10 @@ def _estimate_tokens(messages: List[Message]) -> int:
 
 
 def _extract_tool_call_ids(message: Message) -> List[str]:
-    """Collect tool call ids from an assistant message's metadata."""
+    """Collect tool call ids from an assistant message's canonical data payload."""
     if message.role != "assistant":
         return []
-    tool_calls = message.metadata.get("tool_calls", [])
+    tool_calls = message.data.get("tool_calls", []) if isinstance(message.data, dict) else []
     if not isinstance(tool_calls, list):
         return []
     ids: List[str] = []
@@ -78,7 +79,7 @@ def _enforce_tool_pair_safety(messages: List[Message]) -> Tuple[List[Message], i
         if message.role != "assistant":
             updated_messages.append(message)
             continue
-        raw_calls = message.metadata.get("tool_calls", [])
+        raw_calls = message.data.get("tool_calls", []) if isinstance(message.data, dict) else []
         if not isinstance(raw_calls, list):
             updated_messages.append(message)
             continue
@@ -104,12 +105,17 @@ def _enforce_tool_pair_safety(messages: List[Message]) -> Tuple[List[Message], i
 
         if len(filtered_calls) != len(raw_calls):
             changes += len(raw_calls) - len(filtered_calls)
+            data = dict(message.data) if isinstance(message.data, dict) else {}
+            data["tool_calls"] = filtered_calls
             updated_messages.append(
                 Message(
                     role=message.role,
-                    content=message.content,
+                    kind=message.kind,
+                    text=message.text,
+                    attachments=list(message.attachments),
+                    data=data,
                     name=message.name,
-                    metadata={**message.metadata, "tool_calls": filtered_calls},
+                    metadata=dict(message.metadata),
                     mark=getattr(message, "mark", MessageMark.TEMPORARY),
                     id=getattr(message, "id", None),
                 )
@@ -331,7 +337,7 @@ async def _summarize_messages_to_text(
         return ""
     lines: List[str] = []
     for msg in messages:
-        content = (msg.content or "").strip()
+        content = (msg.text or "").strip()
         if not content:
             continue
         snippet = content.replace("\n", " ")
@@ -348,8 +354,8 @@ async def _summarize_messages_to_text(
     )
     from dare_framework.model import ModelInput
 
-    sys_msg = Message(role="system", content=system_prompt)
-    user_msg = Message(role="user", content=user_content)
+    sys_msg = Message(role="system", kind="summary", text=system_prompt)
+    user_msg = Message(role="user", text=user_content)
     model_input = ModelInput(
         messages=[sys_msg, user_msg],
         tools=[],
@@ -463,7 +469,8 @@ class MovingCompressor:
             if summary_text:
                 summary_message = Message(
                     role="system",
-                    content=summary_text,
+                    kind="summary",
+                    text=summary_text,
                     metadata={"compressed": True, "strategy": "moving_llm_summary"},
                 )
                 _write_stm(context, [summary_message] + kept_messages)
