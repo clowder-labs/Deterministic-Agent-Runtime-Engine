@@ -148,7 +148,7 @@ Typical examples:
 
 ## Output contract
 
-Produce four sections in order:
+Produce five sections in order:
 
 1. `Evidence`
 - concise list of the specific completed work and review signals used

@@ -37,9 +37,9 @@ Harden the retrospective/process-governance path so explicitly deferred-but-requ
 - `git diff --check`: passed after updating the retrospective skill, development-workflow handoff, SOP wording, and this feature aggregation doc.
 
 ### Contract Delta
-- `schema`: no runtime schema change; governance/skill contract now adds a `todo-later` classification path for retrospective outputs.
-- `error semantics`: none; this slice changes process rules only.
-- `retry`: none; reruns are deterministic because deferred follow-ups must be written into TODO docs instead of prose-only summaries.
+- `schema`: no runtime schema field changes are introduced in this docs-only slice because the governed surface is the retrospective workflow contract. The substantive contract change is that retrospective outputs now include a required deferred-follow-up classification path and a required deferred-writeback section for out-of-scope-but-required follow-ups.
+- `error semantics`: no runtime `error_code` / `error_type` / `exception_class` / `ToolResult.error` payload contract changes are introduced because this slice does not touch execution-time error carriers. The governance delta is documentation-only and narrows how deferred work must be recorded after retrospective review.
+- `retry`: no runtime retry protocol changes are introduced because this slice does not modify retry loops or delivery orchestration. Re-running the retrospective remains deterministic because deferred follow-ups must be written into tracked backlog artifacts instead of being left in prose-only summaries.
 
 ### Golden Cases
 - `.codex/skills/retrospective-process-hardening/SKILL.md`
@@ -53,8 +53,11 @@ Harden the retrospective/process-governance path so explicitly deferred-but-requ
 - Summary: pass 1, fail 0, skip 0.
 
 ### Observability and Failure Localization
-- N/A for runtime event chain in this docs-only governance slice.
-- Reason: the change only updates skill/SOP behavior and documentation landing rules.
+- N/A for the runtime event chain in this docs-only governance slice because no execution path, transport path, or model/tool lifecycle was modified.
+- Reason: there are no new runtime `start`, `tool_call`, `end`, or `fail` events to emit; the only affected surface is governance text and skill output requirements.
+- Fallback evidence: `git diff --check`, the feature doc diff, and the PR review thread show whether the new retrospective contract is applied consistently.
+- Runtime locator fields `run_id`, `tool_call_id`, `capability_id`, `attempt`, and `trace_id` are n.a. here because no runtime execution artifact is produced by this slice.
+- Error locator semantics such as `error_code`, `error_type`, `exception_class`, and `ToolResult.error` are likewise n.a. because the change does not alter runtime error payloads; failure localization is instead anchored to the failing governance gate and review discussion.
 
 ### Structured Review Report
 - Changed Module Boundaries / Public API: governance-only; no runtime public API changed.
@@ -72,6 +75,6 @@ Harden the retrospective/process-governance path so explicitly deferred-but-requ
 - Rollback: revert the three governance text updates and remove this feature aggregation doc if the repository decides to keep retrospective output prose-only.
 
 ### Review and Merge Gate Links
-- Intent PR: N/A (docs-only governance refinement)
-- Implementation PR: pending
-- Review thread: this chat session
+- Intent PR baseline: [#205](https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/205)
+- Implementation PR: [#210](https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/210)
+- Review thread: [review comment](https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/210#discussion_r2905515773)
