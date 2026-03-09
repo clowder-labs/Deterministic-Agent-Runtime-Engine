@@ -195,8 +195,16 @@ def message_parts_to_message(
         if "inlineData" in part:
             resolved = _decode_inline_file_part(part, ensure_dest_dir())
             inline = part.get("inlineData")
+            # Preserve only caller-supplied MIME for URI construction.
+            # Do not pass decode-time defaults (application/octet-stream),
+            # otherwise filename-based inference can never apply.
+            raw_mime = ""
+            if isinstance(part.get("mimeType"), str):
+                raw_mime = str(part.get("mimeType") or "").strip()
+            elif isinstance(inline, dict) and isinstance(inline.get("mimeType"), str):
+                raw_mime = str(inline.get("mimeType") or "").strip()
             attachment_uri = _build_inline_attachment_uri(
-                mime_type=str(part.get("mimeType") or (resolved or {}).get("mimeType") or ""),
+                mime_type=raw_mime,
                 filename=str(part.get("filename") or (resolved or {}).get("filename") or "") or None,
                 data_b64=inline.get("data") if isinstance(inline, dict) else None,
             )
