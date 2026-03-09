@@ -38,7 +38,7 @@ def message_parts_to_user_input(parts: list[PartDict]) -> str:
 
 def _is_image_attachment(*, mime_type: str | None, filename: str | None, uri: str | None = None) -> bool:
     """Return whether a resolved A2A file part should become a canonical image attachment."""
-    normalized_mime = (mime_type or "").strip().lower()
+    normalized_mime = mime_type.strip().lower() if isinstance(mime_type, str) else ""
     if normalized_mime.startswith("image/"):
         return True
     candidate_name = filename or uri or ""
@@ -95,9 +95,26 @@ def _describe_uri_file_part(p: dict[str, Any]) -> dict[str, Any] | None:
     uri = p.get("uri")
     if not isinstance(uri, str) or not _is_provider_valid_attachment_uri(uri):
         return None
-    filename = p.get("filename") or os.path.basename(uri.split("?")[0]) or "attachment"
+    parsed = urlparse(uri)
+    filename = p.get("filename")
+    if not isinstance(filename, str) or not filename.strip():
+        filename = os.path.basename(uri.split("?")[0]) if parsed.scheme != "data" else "attachment"
     filename = os.path.basename(filename) or "attachment"
-    mime = p.get("mimeType") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    explicit_mime = p.get("mimeType") if isinstance(p.get("mimeType"), str) else None
+    uri_mime: str | None = None
+    # For data URIs, MIME type is encoded in the URI header and must be
+    # considered for image classification when caller does not provide mimeType.
+    if parsed.scheme == "data":
+        header = uri[5:].split(",", 1)[0]
+        media_type = header.split(";", 1)[0].strip().lower()
+        if media_type and "/" in media_type:
+            uri_mime = media_type
+    mime = (
+        (explicit_mime or "").strip()
+        or uri_mime
+        or mimetypes.guess_type(filename)[0]
+        or "application/octet-stream"
+    )
     return {"uri": uri, "filename": filename, "mimeType": mime}
 
 

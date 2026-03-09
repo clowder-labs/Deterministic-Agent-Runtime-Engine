@@ -202,6 +202,37 @@ def test_message_parts_to_message_text_only_does_not_create_attachment_dir() -> 
         assert not (root / ".a2a_attachments").exists()
 
 
+def test_message_parts_to_message_handles_non_string_uri_mime_without_crashing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        message = message_parts_to_message(
+            [
+                {"type": "file", "uri": "https://example.com/photo.png", "mimeType": {"bad": "mime"}},
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri == "https://example.com/photo.png"
+
+
+def test_message_parts_to_message_parses_data_uri_mime_for_image_classification() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        message = message_parts_to_message(
+            [
+                {
+                    "type": "file",
+                    "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+                },
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
+
+
 def test_run_result_to_artifact_parts_text_only() -> None:
     result = RunResult(success=True, output="done")
     parts = run_result_to_artifact_parts(result)
