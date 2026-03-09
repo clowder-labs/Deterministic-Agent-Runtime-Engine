@@ -3,7 +3,7 @@ change_ids: ["agentscope-d1-d3-message-pipeline", "transport-typed-payload-cutov
 doc_kind: feature
 topics: ["message-schema", "rich-media", "transport", "agent-input", "a2a"]
 created: 2026-03-09
-updated: 2026-03-10
+updated: 2026-03-09
 status: active
 mode: openspec
 ---
