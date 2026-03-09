@@ -140,7 +140,7 @@ async def test_transport_action_client_sends_typed_action_and_control_payloads()
     assert sent[0].payload.resource_action == "tools:list"
     assert sent[0].payload.params == {"scope": "workspace"}
     assert isinstance(sent[1].payload, ControlPayload)
-    assert sent[1].payload.control_id.value == "interrupt"
+    assert sent[1].payload.control_id == "interrupt"
 
 
 def test_summarize_tools_split_mcp_and_local() -> None:

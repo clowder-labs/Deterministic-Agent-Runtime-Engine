@@ -43,8 +43,10 @@ async def test_action_handler_routing_matches_resource_action() -> None:
     assert calls == ["tools:list", "config:get"]
     assert tools_result.ok is True
     assert tools_result.target == "tools:list"
+    assert tools_result.resp == {"ok": True}
     assert config_result.ok is True
     assert config_result.target == "config:get"
+    assert config_result.resp == {"ok": True}
 
 
 @pytest.mark.asyncio

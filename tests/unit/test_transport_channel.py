@@ -301,6 +301,49 @@ async def test_invalid_control_payload_returns_structured_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unknown_control_returns_structured_error_reply() -> None:
+    seen: list[TransportEnvelope] = []
+    sent = asyncio.Event()
+
+    async def receiver(msg: TransportEnvelope) -> None:
+        seen.append(msg)
+        sent.set()
+
+    client = DummyClientChannel(receiver)
+    channel = AgentChannel.build(client)
+    fake_agent = FakeAgent()
+    channel.add_agent_control_handler(AgentControlHandler(fake_agent))
+
+    await channel.start()
+    try:
+        sender = client.sender
+        assert sender is not None
+        await sender(
+            TransportEnvelope(
+                id="req-control-unknown",
+                kind=EnvelopeKind.CONTROL,
+                payload=ControlPayload(
+                    id="ctl-unknown",
+                    control_id="unknown-control",
+                ),
+            )
+        )
+        await asyncio.wait_for(sent.wait(), timeout=1.0)
+    finally:
+        await channel.stop()
+
+    assert len(seen) == 1
+    response = seen[0]
+    assert response.kind is EnvelopeKind.CONTROL
+    assert isinstance(response.payload, ControlPayload)
+    assert response.payload.control_id == "unknown-control"
+    assert response.payload.ok is False
+    assert response.payload.code == "UNSUPPORTED_OPERATION"
+    assert isinstance(response.payload.reason, str)
+    assert "unknown control" in response.payload.reason
+
+
+@pytest.mark.asyncio
 async def test_invalid_message_payload_returns_structured_error_and_is_not_enqueued() -> None:
     with pytest.raises(TypeError, match="invalid payload type for envelope kind"):
         TransportEnvelope(

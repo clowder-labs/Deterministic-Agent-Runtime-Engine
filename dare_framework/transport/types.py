@@ -14,10 +14,6 @@ from dare_framework.context.types import (
     _validate_message_components,
     _validate_message_payload_requirements,
 )
-if TYPE_CHECKING:
-    from dare_framework.transport.interaction.controls import AgentControl
-
-
 class EnvelopeKind(StrEnum):
     """Strong envelope categories for transport dispatch."""
 
@@ -40,14 +36,6 @@ class SelectDomain(StrEnum):
     APPROVAL = "approval"
     CHOICE = "choice"
     FORM = "form"
-
-
-def _default_agent_control() -> AgentControl:
-    """Provide a default control id without importing interaction package at module init."""
-    from dare_framework.transport.interaction.controls import AgentControl
-
-    return AgentControl.INTERRUPT
-
 
 @dataclass(frozen=True)
 class EnvelopePayload:
@@ -108,7 +96,7 @@ class ActionPayload(EnvelopePayload):
 class ControlPayload(EnvelopePayload):
     """Typed payload for control envelopes."""
 
-    control_id: AgentControl = field(default_factory=_default_agent_control)
+    control_id: str = ""
     params: dict[str, Any] = field(default_factory=dict)
     ok: bool | None = None
     result: Any = None
@@ -116,13 +104,12 @@ class ControlPayload(EnvelopePayload):
     reason: str | None = None
 
     def __post_init__(self) -> None:
-        from dare_framework.transport.interaction.controls import AgentControl
-
-        object.__setattr__(
-            self,
-            "control_id",
-            _coerce_enum_member(self.control_id, AgentControl, "control_id"),
-        )
+        if not isinstance(self.control_id, str):
+            raise TypeError(f"invalid control_id type: {type(self.control_id).__name__}")
+        normalized = self.control_id.strip()
+        if not normalized:
+            raise ValueError("control_id must not be empty")
+        object.__setattr__(self, "control_id", normalized)
 
 
 _PAYLOAD_TYPES_BY_KIND: dict[EnvelopeKind, tuple[type[Any], ...]] = {

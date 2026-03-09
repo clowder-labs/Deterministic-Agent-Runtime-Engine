@@ -109,7 +109,7 @@ class ActionHandlerDispatcher:
             )
         return ActionDispatchResult.success(
             target=action.value,
-            resp={"result": _jsonify(result)},
+            resp=_jsonify(result),
         )
 
     def _list_actions(self) -> list[str]:
