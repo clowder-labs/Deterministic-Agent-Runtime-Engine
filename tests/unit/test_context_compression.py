@@ -142,6 +142,56 @@ def test_compress_context_tool_pair_safe_preserves_assistant_id_and_mark_when_fi
     }
 
 
+def test_compress_context_dedup_preserves_distinct_tool_call_payloads() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(
+        Message(
+            role="assistant",
+            kind=MessageKind.TOOL_CALL,
+            text="",
+            data={"tool_calls": [{"id": "tc_1", "name": "demo_tool", "arguments": {"x": 1}}]},
+        )
+    )
+    ctx.stm_add(
+        Message(
+            role="tool",
+            kind=MessageKind.TOOL_RESULT,
+            name="tc_1",
+            text='{"success": true}',
+            data={"success": True},
+        )
+    )
+    ctx.stm_add(
+        Message(
+            role="assistant",
+            kind=MessageKind.TOOL_CALL,
+            text="",
+            data={"tool_calls": [{"id": "tc_2", "name": "demo_tool", "arguments": {"x": 2}}]},
+        )
+    )
+    ctx.stm_add(
+        Message(
+            role="tool",
+            kind=MessageKind.TOOL_RESULT,
+            name="tc_2",
+            text='{"success": true}',
+            data={"success": True},
+        )
+    )
+
+    compress_context(ctx, strategy="dedup_then_truncate", max_messages=10, tool_pair_safe=True)
+
+    assistant_tool_ids = [
+        _tool_ids(message)
+        for message in ctx.stm_get()
+        if message.role == "assistant" and message.kind == MessageKind.TOOL_CALL
+    ]
+    tool_result_ids = [message.name for message in ctx.stm_get() if message.role == "tool"]
+
+    assert assistant_tool_ids == [["tc_1"], ["tc_2"]]
+    assert tool_result_ids == ["tc_1", "tc_2"]
+
+
 def test_compress_context_target_tokens_trims_long_history() -> None:
     ctx = Context(config=Config())
     for idx in range(8):

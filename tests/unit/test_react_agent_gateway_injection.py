@@ -7,6 +7,7 @@ import pytest
 from dare_framework.agent.react_agent import ReactAgent
 from dare_framework.config import Config
 from dare_framework.context import Context
+from dare_framework.context.manage_context import MANAGE_CONTEXT_TOOL_NAME
 from dare_framework.context.types import MessageKind
 from dare_framework.context.smartcontext import SmartContext
 from dare_framework.model.types import ModelInput, ModelResponse
@@ -178,6 +179,16 @@ class _FinalOnlyModel:
         return ModelResponse(content="final", tool_calls=[])
 
 
+class _CapturingFinalModel:
+    def __init__(self) -> None:
+        self.last_messages: list[Any] | None = None
+
+    async def generate(self, model_input: ModelInput, *, options: Any | None = None) -> ModelResponse:
+        _ = options
+        self.last_messages = list(model_input.messages)
+        return ModelResponse(content="final", tool_calls=[])
+
+
 class _NonConvergingToolModel:
     def __init__(self) -> None:
         self._idx = 0
@@ -195,6 +206,21 @@ class _NonConvergingToolModel:
                 }
             ],
         )
+
+
+class _ManageContextGateway(_RecordingGateway):
+    def __init__(self) -> None:
+        super().__init__("manage-context")
+        self._capabilities = [
+            CapabilityDescriptor(
+                id=MANAGE_CONTEXT_TOOL_NAME,
+                type=CapabilityType.TOOL,
+                name=MANAGE_CONTEXT_TOOL_NAME,
+                description="manage context",
+                input_schema={"type": "object"},
+                output_schema={"type": "object"},
+            )
+        ]
 
 
 @pytest.mark.asyncio
@@ -454,6 +480,33 @@ async def test_react_agent_auto_compress_triggers_in_smart_context_path() -> Non
     assert result.success is True
     assert len(context.compress_calls) >= 1
     assert context.compress_calls[0].get("tool_pair_safe") is True
+
+
+@pytest.mark.asyncio
+async def test_react_agent_auto_compress_reappends_reflection_prompt_in_smart_context_path() -> None:
+    context = _CompressionRecordingSmartContext(config=Config())
+    context.budget.max_tokens = 100
+    context.update_task_complete(True)
+    gateway = _ManageContextGateway()
+    model = _CapturingFinalModel()
+    agent = ReactAgent(
+        name="react-test-smartcontext-reflection-prompt",
+        model=model,
+        context=context,
+        tool_gateway=gateway,
+        auto_compress=True,
+        compress_trigger_ratio=0.01,
+        compress_target_ratio=0.5,
+    )
+
+    result = await agent("smart context compress")
+
+    assert result.success is True
+    assert model.last_messages is not None
+    assert any(
+        (message.text or "") == "【提示】请先调用 manage_context 根据任务初始化 context 状态。"
+        for message in model.last_messages
+    )
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,25 @@ if TYPE_CHECKING:
 _UNCHANGED = object()
 
 
+def _freeze_value(value: Any) -> Any:
+    """Build a hashable structural key for nested message payloads."""
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _freeze_value(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_value(item) for item in value)
+    if hasattr(value, "kind") and hasattr(value, "uri"):
+        return (
+            getattr(value.kind, "value", value.kind),
+            value.uri,
+            value.mime_type,
+            value.filename,
+            _freeze_value(getattr(value, "metadata", {})),
+        )
+    return value
+
+
 def _copy_message(
     message: Message,
     *,
@@ -41,18 +60,24 @@ def _copy_message(
 
 
 def _dedup_messages(messages: List[Message]) -> Tuple[List[Message], int]:
-    """Lightweight de-duplication on (role, text)."""
-    seen: set[int] = set()
+    """De-duplicate only when the full public message payload matches."""
+    seen: set[Any] = set()
     result: List[Message] = []
     removed = 0
 
     for msg in messages:
-        key = (msg.role, msg.text)
-        digest = hash(key)
-        if digest in seen:
+        key = (
+            msg.role,
+            msg.kind,
+            msg.text,
+            msg.name,
+            _freeze_value(msg.attachments),
+            _freeze_value(msg.data),
+        )
+        if key in seen:
             removed += 1
             continue
-        seen.add(digest)
+        seen.add(key)
         result.append(msg)
 
     return result, removed

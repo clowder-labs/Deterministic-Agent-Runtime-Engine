@@ -444,6 +444,8 @@ class ReactAgent(BaseAgent):
                     else None
                 )
                 messages = self._context.order_messages_for_llm(messages, sys_prompt_message)
+                if injected_reflection_prompt is not None:
+                    messages.append(injected_reflection_prompt)
 
             # Inject critical_block from plan_provider (maintained by plan tools)
             # Disabled: skip injection to observe plan agent behavior without it
