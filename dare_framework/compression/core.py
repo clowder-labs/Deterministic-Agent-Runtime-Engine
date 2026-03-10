@@ -7,6 +7,7 @@ design docs while the moving-window compressor remains available for
 
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Any, List, Tuple
 
 from dare_framework.context.types import Message as CtxMessage, MessageKind, MessageMark
@@ -29,6 +30,11 @@ def _freeze_value(value: Any) -> Any:
         return tuple(_freeze_value(item) for item in value)
     if isinstance(value, tuple):
         return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        frozen_items = [_freeze_value(item) for item in value]
+        return tuple(sorted(frozen_items, key=repr))
+    if is_dataclass(value) and not isinstance(value, type):
+        return ("dataclass", type(value).__qualname__, _freeze_value(asdict(value)))
     if hasattr(value, "kind") and hasattr(value, "uri"):
         return (
             getattr(value.kind, "value", value.kind),
@@ -37,6 +43,12 @@ def _freeze_value(value: Any) -> Any:
             value.filename,
             _freeze_value(getattr(value, "metadata", {})),
         )
+    try:
+        hash(value)
+    except TypeError:
+        if hasattr(value, "__dict__"):
+            return (type(value).__qualname__, _freeze_value(vars(value)))
+        return (type(value).__qualname__, repr(value))
     return value
 
 

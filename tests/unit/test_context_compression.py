@@ -192,6 +192,18 @@ def test_compress_context_dedup_preserves_distinct_tool_call_payloads() -> None:
     assert tool_result_ids == ["tc_1", "tc_2"]
 
 
+def test_compress_context_dedup_handles_unhashable_payload_values() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(Message(role="assistant", text="tool result", data={"values": {1, 2, 3}}))
+    ctx.stm_add(Message(role="assistant", text="tool result", data={"values": {3, 2, 1}}))
+
+    compress_context(ctx, strategy="dedup_then_truncate", max_messages=10)
+
+    messages = ctx.stm_get()
+    assert len(messages) == 1
+    assert messages[0].data == {"values": {1, 2, 3}}
+
+
 def test_compress_context_target_tokens_trims_long_history() -> None:
     ctx = Context(config=Config())
     for idx in range(8):

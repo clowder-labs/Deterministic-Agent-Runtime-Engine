@@ -176,13 +176,17 @@ class Context(IContext):
         """Get remaining budget for a resource."""
         b = self._budget
         if resource == "tokens":
-            return (b.max_tokens - b.used_tokens) if b.max_tokens else float("inf")
+            return (b.max_tokens - b.used_tokens) if b.max_tokens is not None else float("inf")
         elif resource == "cost":
-            return (b.max_cost - b.used_cost) if b.max_cost else float("inf")
+            return (b.max_cost - b.used_cost) if b.max_cost is not None else float("inf")
         elif resource == "tool_calls":
-            return (b.max_tool_calls - b.used_tool_calls) if b.max_tool_calls else float("inf")
+            return (b.max_tool_calls - b.used_tool_calls) if b.max_tool_calls is not None else float("inf")
         elif resource == "time_seconds":
-            return (b.max_time_seconds - b.used_time_seconds) if b.max_time_seconds else float("inf")
+            return (
+                (b.max_time_seconds - b.used_time_seconds)
+                if b.max_time_seconds is not None
+                else float("inf")
+            )
         return float("inf")
 
     # ========== Tool Methods ==========

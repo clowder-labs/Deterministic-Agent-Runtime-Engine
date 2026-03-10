@@ -201,6 +201,26 @@ def test_context_assemble_degrades_when_token_budget_low():
     assert assembled.metadata["retrieval"]["degrade_reason"] == "token_budget_low"
 
 
+def test_context_assemble_zero_token_budget_skips_retrieval() -> None:
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
+    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
+    ctx = Context(
+        config=Config(),
+        budget=Budget(max_tokens=0),
+        long_term_memory=ltm,
+        knowledge=knowledge,
+    )
+    ctx.stm_add(Message(role="user", text="query"))
+
+    assembled = ctx.assemble()
+
+    assert [message.text for message in assembled.messages] == ["query"]
+    assert assembled.metadata["retrieval"]["degraded"] is True
+    assert assembled.metadata["retrieval"]["degrade_reason"] == "token_budget_low"
+    assert ltm.calls == []
+    assert knowledge.calls == []
+
+
 def test_context_assemble_handles_retrieval_exception_gracefully():
     ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")], fail=True)
     knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
