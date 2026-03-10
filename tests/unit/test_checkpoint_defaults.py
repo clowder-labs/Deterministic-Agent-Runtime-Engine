@@ -162,3 +162,37 @@ def test_checkpoint_save_snapshot_deep_copies_nested_message_metadata() -> None:
 
     restored_messages = restored_context.stm_get()
     assert restored_messages[0].metadata == {"trace": {"step": 1}}
+
+
+def test_checkpoint_store_get_returns_deep_copied_payloads() -> None:
+    defaults = importlib.import_module("dare_framework.checkpoint.defaults")
+    store = defaults.MemoryCheckpointStore()
+    saver = defaults.DefaultCheckpointSaveRestore(store, [defaults.StmContributor()])
+
+    source_context = Context(config=Config())
+    source_context.stm_add(
+        Message(
+            role="user",
+            text="hello",
+            metadata={"trace": {"step": 1}},
+        )
+    )
+    scope = type(
+        "Scope",
+        (),
+        {"keys_for_save": lambda self: ["stm"], "keys_for_restore": lambda self: ["stm"]},
+    )()
+    source_ctx = type("Ctx", (), {"context": source_context})()
+
+    checkpoint_id = saver.save(scope, source_ctx)
+
+    restored_context_a = Context(config=Config())
+    restored_ctx_a = type("Ctx", (), {"context": restored_context_a})()
+    saver.restore(checkpoint_id, scope, restored_ctx_a)
+    restored_context_a.stm_get()[0].metadata["trace"]["step"] = 77
+
+    restored_context_b = Context(config=Config())
+    restored_ctx_b = type("Ctx", (), {"context": restored_context_b})()
+    saver.restore(checkpoint_id, scope, restored_ctx_b)
+
+    assert restored_context_b.stm_get()[0].metadata == {"trace": {"step": 1}}

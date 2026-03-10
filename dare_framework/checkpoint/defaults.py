@@ -26,12 +26,12 @@ class MemoryCheckpointStore:
         self._store: dict[str, dict[str, Any]] = {}
 
     def put(self, checkpoint_id: str, payload: dict[str, Any]) -> None:
-        self._store[checkpoint_id] = dict(payload)
+        self._store[checkpoint_id] = _clone_payload(payload)
 
     def get(self, checkpoint_id: str) -> dict[str, Any] | None:
         if checkpoint_id not in self._store:
             return None
-        return dict(self._store[checkpoint_id])
+        return _clone_payload(self._store[checkpoint_id])
 
     def delete(self, checkpoint_id: str) -> bool:
         if checkpoint_id in self._store:
