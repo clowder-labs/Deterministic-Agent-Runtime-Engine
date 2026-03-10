@@ -515,6 +515,16 @@ def test_context_compress_max_messages_uses_backend_compress_only(monkeypatch: p
     assert [message.text for message in ctx.stm_get()] == ["m1", "m2"]
 
 
+def test_context_compress_zero_max_messages_clears_default_stm() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(Message(role="user", text="m0"))
+    ctx.stm_add(Message(role="assistant", text="m1"))
+
+    ctx.compress(max_messages=0)
+
+    assert ctx.stm_get() == []
+
+
 def test_context_compress_advanced_path_preserves_backend_semantics(monkeypatch: pytest.MonkeyPatch) -> None:
     stm = _CompressionRecordingSTM(
         [

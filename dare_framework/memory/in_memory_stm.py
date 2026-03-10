@@ -50,7 +50,13 @@ class InMemorySTM(IShortTermMemory):
         Returns:
             Number of messages removed.
         """
-        if max_messages is None or len(self._messages) <= max_messages:
+        if max_messages is None:
+            return 0
+        if max_messages <= 0:
+            removed_count = len(self._messages)
+            self._messages = []
+            return removed_count
+        if len(self._messages) <= max_messages:
             return 0
 
         removed_count = len(self._messages) - max_messages
