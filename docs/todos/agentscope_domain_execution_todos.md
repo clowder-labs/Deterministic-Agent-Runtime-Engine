@@ -1,6 +1,6 @@
 # AgentScope 迁移 Domain 执行清单（详细设计输入版：依赖/重要度/复杂度拆分）
 
-> 更新日期：2026-03-04  
+> 更新日期：2026-03-10
 > 输入基线：  
 > - `docs/design/archive/agentscope-migration-framework-gaps.md`  
 > - `examples/10-agentscope-compat-single-agent/DESIGN.md`  
@@ -37,9 +37,9 @@
 | CLM-20260309-D2CUT | D2 transport cutover follow-up | lang | done | 2026-03-09 | 2026-03-12 | `archive/2026-03-09-transport-typed-payload-cutover` | `CLM-20260304-AG6` | transport legacy raw payload / `event_type` 兼容已清理完毕，reply typed payload 契约已归档。 |
 | CLM-20260309-D1INPUT | D1/D3 message input boundary cleanup | lang | done | 2026-03-09 | 2026-03-12 | `archive/2026-03-09-message-input-boundary-cleanup` | `CLM-20260304-AG6` | 收口 canonical `Message` 输入边界：agent 直收 `Message`、`Task.input_message`、transport poll 保真、不再把用户输入重新退化成 `Task.description`，并已归档。 |
 
-对账快照（2026-03-04）：
-- 未完成域 `D1/D3/D6/D8` 均已存在 `planned` claim（TODO 级）。
-- 已完成域 `D2/D4/D5/D7` 均已有 `done` claim 并与项目级聚合 claim 对账。
+对账快照（2026-03-10）：
+- 已完成域 `D1/D2/D3/D4/D5/D7` 均已有 `done` claim 并与项目级聚合 claim 对账。
+- 未完成域 `D6/D8` 均已存在 `planned` claim（TODO 级）。
 
 ## 0.2 消息管线重构拆分约束（2026-03-07）
 
@@ -108,10 +108,10 @@
 
 | ID | 任务 | 主要代码改动 | 支持能力 | 依赖 | 状态 | 输出证据 |
 |---|---|---|---|---|---|---|
-| D1-1 | 定义 `EnvelopePayload` 抽象与四类 payload | typed payload + schema 校验 | transport/message 契约统一 | 无 | todo | 单测：合法/非法输入 |
-| D1-2 | 定义 `AttachmentRef` | URI 字段规范 + 校验 | 富媒体入口 | 无 | todo | 单测：URI 错误码稳定 |
-| D1-3 | 升级 canonical `Message` | `text/attachments/data` 结构 | chat/图片/tool 统一表达 | D1-1/2 | todo | assemble 可消费 |
-| D1-4 | 约束与限制策略 | 字段矩阵/空值/超限错误模型 | 稳定输入治理 | D1-1/2/3 | todo | 压测与边界测试 |
+| D1-1 | 定义 `EnvelopePayload` 抽象与四类 payload | typed payload + schema 校验 | transport/message 契约统一 | 无 | done | `dare_framework/transport/types.py`（`EnvelopePayload`/`MessagePayload`/`SelectPayload`/`ActionPayload`/`ControlPayload`）；`tests/unit/test_transport_typed_payloads.py` |
+| D1-2 | 定义 `AttachmentRef` | URI 字段规范 + 校验 | 富媒体入口 | 无 | done | `dare_framework/context/types.py`（`AttachmentRef` + `AttachmentKind`）；`tests/unit/test_context_message_types.py::test_attachment_ref_rejects_invalid_kind` |
+| D1-3 | 升级 canonical `Message` | `text/attachments/data` 结构 | chat/图片/tool 统一表达 | D1-1/2 | done | `dare_framework/context/types.py`（`Message(role/kind/text/attachments/data)`）；`tests/unit/test_context_message_types.py` |
+| D1-4 | 约束与限制策略 | 字段矩阵/空值/超限错误模型 | 稳定输入治理 | D1-1/2/3 | done | `Message.__init__`/`AttachmentRef.__post_init__`/`MessagePayload.__post_init__` 校验；`tests/unit/test_context_message_types.py`（边界测试） |
 
 ---
 
@@ -159,10 +159,10 @@
 
 | ID | 任务 | 主要代码改动 | 支持能力 | 依赖 | 状态 | 输出证据 |
 |---|---|---|---|---|---|---|
-| D3-1 | 接入归一化管线 | assemble 前置 normalize | typed message 统一进入模型 | D1-3 + D2-2 | todo | 输入到模型链路测试 |
-| D3-2 | URI 构建策略 | resolver + policy | 附件/富媒体引用处理 | D1-2 | todo | URI 成功/失败路径测试 |
-| D3-3 | 降级策略 | text-only fallback 规则 | 多模型兼容执行 | D3-2 | todo | 不支持模态时行为稳定 |
-| D3-4 | 组装链路回归 | context 集成测试 | 旧文本流程不回归 | D3-1/2/3 | todo | 回归全绿 |
+| D3-1 | 接入归一化管线 | assemble 前置 normalize | typed message 统一进入模型 | D1-3 + D2-2 | done | `dare_framework/agent/base_agent.py`（`_coerce_transport_prompt`）；`dare_framework/agent/_internal/session_orchestrator.py`；`tests/unit/test_session_orchestrator_message_input.py` |
+| D3-2 | URI 构建策略 | resolver + policy | 附件/富媒体引用处理 | D1-2 | done | `dare_framework/a2a/server/message_adapter.py`（`_build_inline_attachment_uri`）；inline base64 / remote URL / local temp 三策略落地 |
+| D3-3 | 降级策略 | text-only fallback 规则 | 多模型兼容执行 | D3-2 | done | OpenAI/Anthropic/OpenRouter adapter 非 image 抛 `ValueError`；A2A non-image 降级为 text placeholder；`tests/unit/test_openai_model_adapter.py`、`test_anthropic_model_adapter.py`、`test_openrouter_adapter.py` |
+| D3-4 | 组装链路回归 | context 集成测试 | 旧文本流程不回归 | D3-1/2/3 | done | `tests/unit/test_checkpoint_message_schema.py`、`tests/unit/test_transport_typed_payloads.py`、`tests/unit/test_base_agent_transport_contract.py`、`tests/unit/test_context_implementation.py` |
 
 ---
 
@@ -330,8 +330,8 @@
 | Priority | TODO | 依赖声明 | 是否拆分 | 拆分切片 | 状态 | Owner |
 |---|---|---|---|---|---|---|
 | P0 | `D7` | 独立，可并行 | 否 | `D7` | done | lang |
-| P1 | `D1` | 无 | 是 | `D1_a/D1_b/D1_c` | planned |  |
-| P1 | `D3` | `D2 -> D3` | 是 | `D3_a/D3_b/D3_c` | planned |  |
+| P1 | `D1` | 无 | 是 | `D1_a/D1_b/D1_c` | done | lang |
+| P1 | `D3` | `D2 -> D3` | 是 | `D3_a/D3_b/D3_c` | done | lang |
 | P1 | `D6` | `D1 + D2 -> D6` | 是 | `D6_a/D6_b/D6_c` | planned |  |
 | P2 | `D8` | `D6 -> D8` | 是 | `D8_a/D8_b/D8_c` | planned |  |
 
