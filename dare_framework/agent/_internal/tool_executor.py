@@ -117,7 +117,11 @@ async def run_tool_loop(
                     "attempt": attempts,
                     "success": False,
                     "error": policy_error,
-                    "approved": True,
+                    "approved": False,
+                    "policy_decision": (
+                        "hook_ask" if before_tool_dispatch.decision is HookDecision.ASK
+                        else "hook_block"
+                    ),
                     "evidence_collected": False,
                     "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
                     "budget_stats": agent._budget_stats(),
@@ -347,15 +351,13 @@ async def run_tool_loop(
             if hasattr(result, "success") and not result.success:
                 tool_success = False
             evidence_collected = bool(getattr(result, "evidence", []))
-            denied_status = "fail"
             denied_output = getattr(result, "output", {})
-            approved = True
-            if not tool_success:
-                if isinstance(denied_output, dict):
-                    candidate_status = denied_output.get("status")
-                    if isinstance(candidate_status, str) and candidate_status:
-                        denied_status = candidate_status
-                approved = denied_status != "not_allow"
+            # Derive "approved" from the policy decision, not from the tool
+            # output status string.  The policy decision was computed before
+            # tool invocation and is the authoritative source for whether the
+            # tool was allowed to run.  Tool-level failures (infra errors,
+            # business logic failures) do NOT change the policy approval status.
+            approved = policy_decision != PolicyDecision.DENY.value
             await agent._emit_hook(
                 HookPhase.AFTER_TOOL,
                 {
@@ -374,9 +376,14 @@ async def run_tool_loop(
             )
 
             if not tool_success:
+                tool_fail_status = "fail"
+                if isinstance(denied_output, dict):
+                    candidate = denied_output.get("status")
+                    if isinstance(candidate, str) and candidate:
+                        tool_fail_status = candidate
                 return {
                     "success": False,
-                    "status": denied_status,
+                    "status": tool_fail_status,
                     "error": result.error or "tool failed",
                     "output": denied_output,
                     "result": result,
@@ -421,14 +428,13 @@ async def run_tool_loop(
                     "policy_decision": policy_decision,
                 },
             )
-            approved = True
-            try:
-                from dare_framework.tool.exceptions import HumanApprovalRequired
+            # Derive approved from the policy decision made before execution,
+            # not from the exception type.  Infra errors do not revoke approval.
+            approved = policy_decision != PolicyDecision.DENY.value
+            from dare_framework.tool.exceptions import HumanApprovalRequired
 
-                if isinstance(exc, HumanApprovalRequired):
-                    approved = False
-            except Exception:
-                approved = True
+            if isinstance(exc, HumanApprovalRequired):
+                approved = False
             await agent._emit_hook(
                 HookPhase.AFTER_TOOL,
                 {
