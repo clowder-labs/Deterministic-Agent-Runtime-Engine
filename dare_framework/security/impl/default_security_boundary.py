@@ -5,6 +5,9 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Iterable
 
+from dare_framework.security._internal.default_security_boundary import (
+    DefaultSecurityBoundary as LegacyDefaultSecurityBoundary,
+)
 from dare_framework.security.errors import (
     SECURITY_TRUST_DERIVATION_FAILED,
     SecurityBoundaryError,
@@ -259,8 +262,8 @@ class PolicySecurityBoundary(ISecurityBoundary):
         return await _execute_callable(fn)
 
 
-# Backward-compatible alias for legacy references.
-DefaultSecurityBoundary = PolicySecurityBoundary
+# Preserve historical facade behavior where `DefaultSecurityBoundary` is permissive.
+DefaultSecurityBoundary = LegacyDefaultSecurityBoundary
 
 
 __all__ = [

@@ -4,27 +4,27 @@ from dare_framework.transport.interfaces import AgentChannel, ClientChannel, Pol
 from dare_framework.transport.serialization import jsonify_transport_value
 from dare_framework.transport.types import (
     ActionPayload,
+    AttachmentRef,
     ControlPayload,
-    EnvelopePayload,
     EnvelopeKind,
-    MessageRole,
+    EnvelopePayload,
     MessageKind,
     MessagePayload,
-    AttachmentRef,
+    MessageRole,
+    Receiver,
     SelectDomain,
     SelectKind,
     SelectPayload,
+    Sender,
     TransportEnvelope,
     new_envelope_id,
-    Receiver,
-    Sender,
 )
 from dare_framework.transport.interaction import (
-    AgentControl,
     ActionHandlerDispatcher,
+    AgentControl,
     ResourceAction,
 )
-from dare_framework.transport._internal import (
+from dare_framework.transport.adapters import (
     DefaultAgentChannel,
     DirectClientChannel,
     StdioClientChannel,
