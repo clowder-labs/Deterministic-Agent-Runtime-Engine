@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from dare_framework.security import DefaultSecurityBoundary
 from dare_framework.security.errors import SECURITY_TRUST_DERIVATION_FAILED, SecurityBoundaryError
-from dare_framework.security.impl import NoOpSecurityBoundary, PolicySecurityBoundary
+from dare_framework.security.impl import (
+    DefaultSecurityBoundary as ImplDefaultSecurityBoundary,
+    NoOpSecurityBoundary,
+    PolicySecurityBoundary,
+)
 from dare_framework.security.types import PolicyDecision, RiskLevel
 
 
@@ -41,6 +46,51 @@ async def test_policy_security_boundary_requires_approval_for_high_risk() -> Non
         context={"trusted_input": trusted, "capability_id": "run_command"},
     )
 
+    assert decision is PolicyDecision.APPROVE_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_default_security_boundary_remains_permissive_for_high_risk() -> None:
+    boundary = DefaultSecurityBoundary()
+    trusted = await boundary.verify_trust(
+        input={"command": "rm -rf /tmp/foo"},
+        context={
+            "capability_id": "run_command",
+            "risk_level": RiskLevel.NON_IDEMPOTENT_EFFECT.value,
+            "requires_approval": True,
+        },
+    )
+    decision = await boundary.check_policy(
+        action="invoke_tool",
+        resource="run_command",
+        context={"trusted_input": trusted, "capability_id": "run_command", "requires_approval": True},
+    )
+
+    assert decision is PolicyDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_impl_default_security_boundary_from_config_preserves_policy_constructor() -> None:
+    boundary = ImplDefaultSecurityBoundary.from_config(
+        {
+            "approval_required_risk_levels": [RiskLevel.READ_ONLY.value],
+            "default_decision": PolicyDecision.DENY.value,
+        }
+    )
+    trusted = await boundary.verify_trust(
+        input={"path": "README.md"},
+        context={
+            "capability_id": "read_file",
+            "risk_level": RiskLevel.READ_ONLY.value,
+        },
+    )
+    decision = await boundary.check_policy(
+        action="invoke_tool",
+        resource="read_file",
+        context={"trusted_input": trusted, "capability_id": "read_file"},
+    )
+
+    assert isinstance(boundary, PolicySecurityBoundary)
     assert decision is PolicyDecision.APPROVE_REQUIRED
 
 
