@@ -112,6 +112,11 @@ class ReactAgent(BaseAgent):
         tool_gateway: IToolGateway,
         plan_provider: IToolProvider | None = None,
         max_tool_rounds: int = 10,
+        auto_compress: bool = False,
+        compress_trigger_ratio: float = 0.9,
+        compress_target_ratio: float = 0.75,
+        compress_max_messages: int | None = None,
+        compress_strategy: str = "dedup_then_truncate",
         agent_channel: AgentChannel | None = None,
     ) -> None:
         super().__init__(name, agent_channel=agent_channel)
@@ -120,6 +125,19 @@ class ReactAgent(BaseAgent):
         self._context = context
         self._tool_gateway = tool_gateway
         self._plan_provider = plan_provider
+        self._auto_compress = bool(auto_compress)
+        self._compress_trigger_ratio = _clamp_ratio(compress_trigger_ratio, default=0.9)
+        self._compress_target_ratio = _clamp_ratio(compress_target_ratio, default=0.75)
+        self._compress_max_messages = (
+            compress_max_messages
+            if isinstance(compress_max_messages, int) and compress_max_messages > 0
+            else None
+        )
+        self._compress_strategy = (
+            compress_strategy.strip()
+            if isinstance(compress_strategy, str) and compress_strategy.strip()
+            else "dedup_then_truncate"
+        )
         self._context.set_tool_gateway(self._tool_gateway)
 
         # 运行时检测是否可以启用 SmartContext 能力
@@ -136,7 +154,7 @@ class ReactAgent(BaseAgent):
 
     async def execute(
         self,
-        task: Message,
+        task: Message | str,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
@@ -147,12 +165,13 @@ class ReactAgent(BaseAgent):
 
     async def _execute_basic(
         self,
-        task: Message,
+        task: Message | str,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
         """原始基础 ReAct 循环实现。"""
-        self._context.stm_add(task)
+        user_message = task if isinstance(task, Message) else Message(role="user", text=task)
+        self._context.stm_add(user_message)
 
         gateway = self._tool_gateway
 
@@ -164,6 +183,9 @@ class ReactAgent(BaseAgent):
             print(f"[{self.name}] Round {round_idx + 1}/{self._max_tool_rounds}: 调用模型中...", flush=True)
             assembled = await self._context.assemble_for_model()
             messages = self._build_model_messages(assembled)
+            if self._maybe_auto_compress(messages):
+                assembled = await self._context.assemble_for_model()
+                messages = self._build_model_messages(assembled)
 
             model_input = ModelInput(
                 messages=messages,
@@ -329,7 +351,7 @@ class ReactAgent(BaseAgent):
 
     async def _execute_with_smart_context(
         self,
-        task: Message,
+        task: Message | str,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
@@ -344,7 +366,7 @@ class ReactAgent(BaseAgent):
             return await self._execute_basic(task, transport=transport)
 
         _ = transport
-        source_user_message = task
+        source_user_message = task if isinstance(task, Message) else Message(role="user", text=task)
         user_message = Message(
             role=source_user_message.role,
             kind=source_user_message.kind,
@@ -404,6 +426,24 @@ class ReactAgent(BaseAgent):
             if self._next_round_reflection_prompt is not None:
                 messages.append(self._next_round_reflection_prompt)
                 self._next_round_reflection_prompt = None
+
+            if self._maybe_auto_compress(messages):
+                assembled = await self._context.assemble_for_model()
+                messages = list(assembled.messages)
+                prompt_def = getattr(assembled, "sys_prompt", None)
+                sys_prompt_message = (
+                    Message(
+                        role=prompt_def.role,
+                        text=prompt_def.content,
+                        name=prompt_def.name,
+                        metadata=dict(prompt_def.metadata),
+                        mark=MessageMark.IMMUTABLE,
+                        id="sys_prompt",
+                    )
+                    if prompt_def is not None
+                    else None
+                )
+                messages = self._context.order_messages_for_llm(messages, sys_prompt_message)
 
             # Inject critical_block from plan_provider (maintained by plan tools)
             # Disabled: skip injection to observe plan agent behavior without it
@@ -608,6 +648,38 @@ class ReactAgent(BaseAgent):
                 )
         return messages
 
+    def _maybe_auto_compress(self, model_messages: list[Message]) -> bool:
+        """Auto-compress context before model invocation when token estimate is near budget."""
+        if not self._auto_compress:
+            return False
+        max_tokens = self._context.budget.max_tokens
+        if max_tokens is None or max_tokens <= 0:
+            return False
+
+        estimated_tokens = _estimate_messages_tokens(model_messages)
+        trigger_tokens = max(1, int(max_tokens * self._compress_trigger_ratio))
+        if estimated_tokens < trigger_tokens:
+            return False
+
+        stm_messages = self._context.stm_get()
+        if not stm_messages:
+            return False
+
+        max_messages = self._compress_max_messages
+        if max_messages is None:
+            max_messages = max(1, int(len(stm_messages) * self._compress_target_ratio))
+            if max_messages >= len(stm_messages):
+                max_messages = max(1, len(stm_messages) - 1)
+
+        target_tokens = max(1, int(max_tokens * self._compress_target_ratio))
+        self._context.compress(
+            strategy=self._compress_strategy,
+            max_messages=max_messages,
+            target_tokens=target_tokens,
+            tool_pair_safe=True,
+        )
+        return True
+
     async def _emit_terminal_transport_message(
         self,
         *,
@@ -747,6 +819,27 @@ def _tool_calls_signature(tool_calls: list[dict[str, Any]]) -> tuple[str, ...]:
         args_key = json.dumps(args, ensure_ascii=False, sort_keys=True)
         signature.append(f"{name}:{args_key}")
     return tuple(signature)
+
+
+def _estimate_messages_tokens(messages: list[Message]) -> int:
+    total = 0
+    for message in messages:
+        content = (message.text or "").strip()
+        attachment_tokens = len(message.attachments) * 32
+        total += max(1, len(content) // 4) + attachment_tokens + 8
+    return total
+
+
+def _clamp_ratio(value: Any, *, default: float) -> float:
+    try:
+        ratio = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(ratio) or ratio <= 0:
+        return default
+    if ratio > 1:
+        return 1.0
+    return ratio
 
 
 __all__ = ["ReactAgent"]

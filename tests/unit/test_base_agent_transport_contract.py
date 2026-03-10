@@ -431,14 +431,14 @@ async def test_transport_loop_flag_is_task_local_for_concurrent_execute_calls() 
 
     polled_task = asyncio.create_task(
         agent._execute_polled_message(
-            "loop-task",
+            Message(role="user", text="loop-task"),
             channel=channel,
             envelope_id="req_1",
         )
     )
     await agent.loop_execution_started.wait()
 
-    await agent.execute("direct-task", transport=channel)
+    await agent.execute(Message(role="user", text="direct-task"), transport=channel)
     agent.allow_loop_execution_finish.set()
     await polled_task
 

@@ -201,27 +201,133 @@ class Context(IContext):
     def assemble(self) -> AssembledContext:
         return self._assemble_context.assemble(self)
 
-    async def compress(self, **options: Any) -> None:
-        """压缩 STM：仅委托 moving_compressor.prune；无 compressor 时无操作。"""
-        if self._moving_compressor is None:
+    def compress(self, **options: Any) -> None:
+        """Compress context to fit within budget."""
+        from dare_framework.compression.core import compress_context
+
+        # Preserve backend STM semantics (for example SmartSTM mark-based retention)
+        # before applying advanced compression strategies.
+        compress_impl = getattr(self._short_term_memory, "compress", None)
+        has_advanced_options = any(
+            key in options
+            for key in ("target_tokens", "tool_pair_safe", "strategy", "phase")
+        )
+        raw_max_messages = options.get("max_messages")
+        max_messages = (
+            raw_max_messages
+            if isinstance(raw_max_messages, int) and raw_max_messages >= 0
+            else None
+        )
+        if callable(compress_impl) and not has_advanced_options:
+            compress_impl(max_messages=max_messages)
             return
-        # 只把与 token 预算相关的参数传给压缩器；摘要 prompt 与语言策略由压缩器内部自行决定。
-        prune_opts: dict[str, Any] = {}
-        if "max_context_tokens" in options:
-            prune_opts["max_context_tokens"] = options["max_context_tokens"]
-        elif self._context_window_tokens is not None and self._context_window_tokens > 0:
-            prune_opts["max_context_tokens"] = self._context_window_tokens
-        await self._moving_compressor.prune(self, **prune_opts)
+
+        compress_context(self, **options)
+
+        # For advanced compression, run backend max-message retention after strategy
+        # execution so strategy implementations can inspect full pre-trim history.
+        if callable(compress_impl) and has_advanced_options and max_messages is not None:
+            compress_impl(max_messages=max_messages)
 
     async def assemble_for_model(self, **options: Any) -> AssembledContext:
-        """供模型调用的装配入口：在内部静默触发压缩，然后返回 AssembledContext。"""
-        await self.compress(**options)
+        """Model-facing assembly path with optional moving-window compression."""
+        sync_compress_keys = ("max_messages", "target_tokens", "tool_pair_safe", "strategy", "phase")
+        has_sync_compress_options = any(key in options for key in sync_compress_keys)
+
+        # Avoid calling compress({}) on the default assembly path. Some callers
+        # override compress() for observability, and an empty no-op call changes
+        # behavior without providing any trimming value.
+        if has_sync_compress_options:
+            self.compress(**options)
+
+        if self._moving_compressor is not None:
+            prune_opts: dict[str, Any] = {}
+            if "max_context_tokens" in options:
+                prune_opts["max_context_tokens"] = options["max_context_tokens"]
+            elif self._context_window_tokens is not None and self._context_window_tokens > 0:
+                prune_opts["max_context_tokens"] = self._context_window_tokens
+            await self._moving_compressor.prune(self, **prune_opts)
         return self.assemble()
 
 
 class DefaultAssembledContext(IAssembleContext):
     """Default context assembly strategy.
     """
+
+    _DEFAULT_TOP_K = 3
+    _DEFAULT_RESERVE_TOKENS = 256
+    _DEFAULT_SOURCE_RATIO = 0.5
+
+    def _safe_int(self, value: Any, default: int, *, minimum: int | None = None) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError, OverflowError):
+            parsed = default
+        if minimum is not None:
+            parsed = max(minimum, parsed)
+        return parsed
+
+    def _safe_ratio(self, value: Any) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return self._DEFAULT_SOURCE_RATIO
+        if not math.isfinite(parsed) or parsed < 0:
+            return self._DEFAULT_SOURCE_RATIO
+        return parsed
+
+    def _estimate_tokens(self, messages: list[Message]) -> int:
+        """Rough token estimate using character + attachment heuristics."""
+        total = 0
+        for message in messages:
+            content_tokens = max(1, len((message.text or "").strip()) // 4)
+            attachment_tokens = len(message.attachments) * 32
+            total += content_tokens + attachment_tokens + 8
+        return total
+
+    def _take_with_budget(self, messages: list[Message], budget_tokens: float) -> list[Message]:
+        if budget_tokens == float("inf"):
+            return list(messages)
+        if budget_tokens <= 0:
+            return []
+
+        kept: list[Message] = []
+        used = 0
+        for message in messages:
+            message_tokens = self._estimate_tokens([message])
+            if used + message_tokens > budget_tokens:
+                # Skip oversized candidates so smaller later hits can still fit.
+                continue
+            kept.append(message)
+            used += message_tokens
+        return kept
+
+    def _derive_query(self, messages: list[Message]) -> str:
+        for message in reversed(messages):
+            if message.role == "user" and (message.text or "").strip():
+                return (message.text or "").strip()
+        for message in reversed(messages):
+            if (message.text or "").strip():
+                return (message.text or "").strip()
+        return ""
+
+    def _load_source_options(self, config_map: dict[str, Any]) -> tuple[int, float]:
+        top_k = self._safe_int(
+            config_map.get("assemble_top_k"),
+            self._DEFAULT_TOP_K,
+            minimum=0,
+        )
+        ratio = self._safe_ratio(config_map.get("assemble_ratio", self._DEFAULT_SOURCE_RATIO))
+        return top_k, ratio
+
+    def _set_degrade(
+        self,
+        retrieval_metadata: dict[str, Any],
+        *,
+        reason: str,
+    ) -> None:
+        retrieval_metadata["degraded"] = True
+        retrieval_metadata["degrade_reason"] = reason
 
     def assemble(self, context: IContext) -> AssembledContext:
         messages = context.stm_get()
@@ -232,12 +338,120 @@ class DefaultAssembledContext(IAssembleContext):
 
             sys_prompt = enrich_prompt_with_skill(sys_prompt, context.sys_skill)
 
+        query = self._derive_query(messages)
+        ltm_config = context.config.long_term_memory if isinstance(context.config.long_term_memory, dict) else {}
+        knowledge_config = context.config.knowledge if isinstance(context.config.knowledge, dict) else {}
+        ltm_top_k, ltm_ratio = self._load_source_options(ltm_config)
+        knowledge_top_k, knowledge_ratio = self._load_source_options(knowledge_config)
+        ltm_active = context.long_term_memory is not None and ltm_top_k > 0
+        knowledge_active = context.knowledge is not None and knowledge_top_k > 0
+
+        if ltm_active and not knowledge_active:
+            reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+        elif knowledge_active and not ltm_active:
+            reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
+        else:
+            reserve_tokens_raw = ltm_config.get("assemble_reserve_tokens")
+            if reserve_tokens_raw is None:
+                reserve_tokens_raw = knowledge_config.get("assemble_reserve_tokens")
+        reserve_tokens = self._safe_int(
+            reserve_tokens_raw,
+            self._DEFAULT_RESERVE_TOKENS,
+            minimum=0,
+        )
+
+        retrieval_metadata: dict[str, Any] = {
+            "query": query,
+            "stm_count": len(messages),
+            "ltm_requested": ltm_top_k,
+            "knowledge_requested": knowledge_top_k,
+            "ltm_count": 0,
+            "knowledge_count": 0,
+            "degraded": False,
+            "degrade_reason": None,
+        }
+
+        remaining_tokens = context.budget_remaining("tokens")
+        stm_token_estimate = self._estimate_tokens(messages)
+        retrieval_budget: float = float("inf")
+        if remaining_tokens != float("inf"):
+            retrieval_budget = max(0.0, float(remaining_tokens) - float(stm_token_estimate) - float(reserve_tokens))
+
+        ltm_messages: list[Message] = []
+        knowledge_messages: list[Message] = []
+
+        if retrieval_budget <= 0 and (ltm_active or knowledge_active):
+            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+        else:
+            ratio_total = 0.0
+            if ltm_active:
+                ratio_total += ltm_ratio
+            if knowledge_active:
+                ratio_total += knowledge_ratio
+            if ratio_total <= 0:
+                # Fall back only across active retrieval sources.
+                ratio_total = 0.0
+                if ltm_active:
+                    ltm_ratio = self._DEFAULT_SOURCE_RATIO
+                    ratio_total += ltm_ratio
+                if knowledge_active:
+                    knowledge_ratio = self._DEFAULT_SOURCE_RATIO
+                    ratio_total += knowledge_ratio
+
+            normalized_ltm_ratio = (ltm_ratio / ratio_total) if ltm_active and ratio_total > 0 else 0.0
+            normalized_knowledge_ratio = (
+                (knowledge_ratio / ratio_total) if knowledge_active and ratio_total > 0 else 0.0
+            )
+
+            ltm_budget = float("inf")
+            knowledge_budget = float("inf")
+            if retrieval_budget != float("inf"):
+                ltm_budget = retrieval_budget * normalized_ltm_ratio
+                knowledge_budget = retrieval_budget * normalized_knowledge_ratio
+
+            ltm_retrieval_failed = False
+            if ltm_active:
+                if ltm_budget <= 0:
+                    ltm_messages = []
+                else:
+                    try:
+                        ltm_candidates = context.long_term_memory.get(query=query, top_k=ltm_top_k)
+                        ltm_messages = self._take_with_budget(ltm_candidates, ltm_budget)
+                        if len(ltm_messages) < len(ltm_candidates):
+                            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+                    except Exception:
+                        ltm_retrieval_failed = True
+                        self._set_degrade(retrieval_metadata, reason="ltm_retrieval_failed")
+                        ltm_messages = []
+
+            if knowledge_active:
+                try:
+                    effective_knowledge_budget = knowledge_budget
+                    if retrieval_budget != float("inf") and ltm_active and ltm_retrieval_failed:
+                        effective_knowledge_budget = retrieval_budget
+                    if effective_knowledge_budget <= 0:
+                        knowledge_messages = []
+                    else:
+                        knowledge_candidates = context.knowledge.get(query=query, top_k=knowledge_top_k)
+                        knowledge_messages = self._take_with_budget(knowledge_candidates, effective_knowledge_budget)
+                        if len(knowledge_messages) < len(knowledge_candidates):
+                            self._set_degrade(retrieval_metadata, reason="token_budget_low")
+                except Exception:
+                    if not retrieval_metadata["degraded"]:
+                        self._set_degrade(retrieval_metadata, reason="knowledge_retrieval_failed")
+                    knowledge_messages = []
+
+        merged_messages = [*messages, *ltm_messages, *knowledge_messages]
+        retrieval_metadata["ltm_count"] = len(ltm_messages)
+        retrieval_metadata["knowledge_count"] = len(knowledge_messages)
+
         return AssembledContext(
-            messages=list(messages),
+            messages=merged_messages,
             sys_prompt=sys_prompt,
             tools=tools,
             metadata={
                 "context_id": context.id,
+                "retrieval": retrieval_metadata,
             },
         )
 

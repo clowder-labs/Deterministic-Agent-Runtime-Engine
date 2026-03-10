@@ -104,9 +104,9 @@ class IContext(ABC):
 
     def assemble(self) -> AssembledContext: ...
 
-    # Compress (core)：由具体 Context 实现决定何时触发；默认在 assemble_for_model 中静默调用。
+    # Compress (core)：同步高级压缩入口；assemble_for_model 可在内部追加异步 moving compression。
 
-    async def compress(self, **options: Any) -> None: ...
+    def compress(self, **options: Any) -> None: ...
 
     # Assemble for model: 默认直接调用 assemble，由具体实现决定是否在内部触发 compress。
 

@@ -149,6 +149,14 @@ class _CompressionRecordingSTM(_FakeRetrieval):
         return 0
 
 
+class _RecordingMovingCompressor:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def prune(self, context: Context, **options: object) -> None:
+        self.calls.append({"context": context, "options": dict(options)})
+
+
 def test_context_assemble_fuses_ltm_and_knowledge_with_latest_user_query():
     ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
     knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
@@ -464,6 +472,21 @@ def test_context_assemble_handles_overflowing_numeric_ratio_config() -> None:
     contents = [message.text for message in assembled.messages]
     assert contents == ["query", "ltm-hit"]
     assert assembled.metadata["retrieval"]["ltm_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_context_assemble_for_model_runs_moving_compressor_with_context_window_tokens() -> None:
+    ctx = Context(config=Config(), context_window_tokens=256)
+    compressor = _RecordingMovingCompressor()
+    ctx.set_moving_compressor(compressor)
+    ctx.stm_add(Message(role="user", text="query"))
+
+    assembled = await ctx.assemble_for_model()
+
+    assert len(compressor.calls) == 1
+    assert compressor.calls[0]["context"] is ctx
+    assert compressor.calls[0]["options"] == {"max_context_tokens": 256}
+    assert [message.text for message in assembled.messages] == ["query"]
 
 
 def test_context_compress_max_messages_uses_backend_compress_only(monkeypatch: pytest.MonkeyPatch) -> None:
