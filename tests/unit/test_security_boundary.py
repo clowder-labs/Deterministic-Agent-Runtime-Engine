@@ -95,6 +95,29 @@ async def test_impl_default_security_boundary_from_config_preserves_policy_const
 
 
 @pytest.mark.asyncio
+async def test_impl_default_security_boundary_constructor_preserves_policy_semantics() -> None:
+    boundary = ImplDefaultSecurityBoundary(
+        approval_required_risk_levels={RiskLevel.READ_ONLY},
+        default_decision=PolicyDecision.DENY,
+    )
+    trusted = await boundary.verify_trust(
+        input={"path": "README.md"},
+        context={
+            "capability_id": "read_file",
+            "risk_level": RiskLevel.READ_ONLY.value,
+        },
+    )
+    decision = await boundary.check_policy(
+        action="invoke_tool",
+        resource="read_file",
+        context={"trusted_input": trusted, "capability_id": "read_file"},
+    )
+
+    assert isinstance(boundary, PolicySecurityBoundary)
+    assert decision is PolicyDecision.APPROVE_REQUIRED
+
+
+@pytest.mark.asyncio
 async def test_policy_security_boundary_denies_blocked_capability() -> None:
     boundary = PolicySecurityBoundary(deny_capability_ids={"run_command"})
     trusted = await boundary.verify_trust(
