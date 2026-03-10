@@ -6,7 +6,7 @@ import asyncio
 import concurrent.futures
 from typing import Any, Literal
 
-from dare_framework.context import Message
+from dare_framework.context import AttachmentRef, Message, MessageKind, MessageMark, MessageRole
 from dare_framework.embedding import IEmbeddingAdapter
 from dare_framework.infra.component import ComponentType, IComponent
 from dare_framework.memory.kernel import ILongTermMemory
@@ -17,11 +17,31 @@ from dare_framework.knowledge._internal.vector_knowledge.vector_store.interfaces
 
 
 def _message_to_document(message: Message) -> Document:
-    """Serialize Message to Document for vector store. Content must be non-empty."""
-    content = message.content if message.content else " "
+    """Serialize Message to Document for vector store.
+
+    Vector stores need a concrete text field for embedding. Canonical rich-message
+    structure is persisted in document metadata so retrieval can reconstruct the
+    original framework message faithfully.
+    """
+    content = message.text if message.text else " "
     metadata: dict[str, Any] = {
-        "role": message.role,
+        "role": message.role.value,
+        "kind": message.kind.value,
+        "text": message.text,
+        "attachments": [
+            {
+                "kind": attachment.kind.value,
+                "uri": attachment.uri,
+                "mime_type": attachment.mime_type,
+                "filename": attachment.filename,
+                "metadata": dict(attachment.metadata),
+            }
+            for attachment in message.attachments
+        ],
+        "data": dict(message.data or {}),
         "name": message.name,
+        "mark": message.mark.value,
+        "id": message.id,
         **message.metadata,
     }
     return Document(content=content, metadata=metadata)
@@ -30,11 +50,23 @@ def _message_to_document(message: Message) -> Document:
 def _document_to_message(doc: Document) -> Message:
     """Deserialize Document to Message (restore role/name from metadata)."""
     meta = doc.metadata or {}
-    role = meta.get("role", "user")
-    msg = doc.to_message(role=role)
-    if "name" in meta:
-        msg.name = meta.get("name")
-    return msg
+    attachments_raw = meta.get("attachments")
+    data_raw = meta.get("data")
+    return Message(
+        role=meta.get("role", MessageRole.USER),
+        kind=meta.get("kind", MessageKind.CHAT),
+        text=meta.get("text", doc.content),
+        attachments=AttachmentRef.coerce_many(attachments_raw if isinstance(attachments_raw, list) else []),
+        data=dict(data_raw) if isinstance(data_raw, dict) else None,
+        name=meta.get("name"),
+        metadata={
+            k: v
+            for k, v in meta.items()
+            if k not in ("role", "kind", "text", "attachments", "data", "name", "mark", "id")
+        },
+        mark=meta.get("mark", MessageMark.TEMPORARY),
+        id=meta.get("id"),
+    )
 
 
 def _run_async(coro):

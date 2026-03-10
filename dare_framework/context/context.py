@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from dare_framework.skill.types import Skill
 
 from dare_framework.context.kernel import IContext, IRetrievalContext, IAssembleContext
-from dare_framework.context.types import AssembledContext, Budget, Message
+from dare_framework.context.types import AssembledContext, Budget, Message, MessageRole
 
 
 # ============================================================

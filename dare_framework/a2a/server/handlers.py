@@ -18,11 +18,10 @@ from dare_framework.a2a.types import (
     task_state,
 )
 from dare_framework.a2a.server.message_adapter import (
-    message_parts_to_user_input,
-    message_parts_to_user_input_and_attachments,
+    message_parts_to_message,
     run_result_to_artifact_dict,
 )
-from dare_framework.plan.types import Task
+from dare_framework.context import Message
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ TaskStore = dict[str, dict[str, Any]]
 
 async def handle_tasks_send(
     params: dict[str, Any],
-    agent_run: Callable[[str | Task], Any],
+    agent_run: Callable[[Message], Any],
     store: TaskStore,
     workspace_dir: str | None = None,
     base_url: str | None = None,
@@ -50,19 +49,23 @@ async def handle_tasks_send(
         parts = []
     session_id = params.get("sessionId") or str(uuid4())
     metadata = dict(params.get("metadata")) if isinstance(params.get("metadata"), dict) else {}
-
-    if workspace_dir:
-        user_input, attachments = message_parts_to_user_input_and_attachments(parts, workspace_dir)
-        if attachments:
-            metadata["a2a_attachments"] = attachments
-    else:
-        user_input = message_parts_to_user_input(parts)
-    if not user_input:
-        user_input = "(No input)"
-
-    dare_task = Task(description=user_input, task_id=task_id, metadata=metadata)
+    metadata["task_id"] = task_id
+    metadata["a2a_session_id"] = session_id
+    input_message = message_parts_to_message(
+        parts,
+        workspace_dir=workspace_dir,
+        metadata=metadata,
+    )
+    if not input_message.text and not input_message.attachments:
+        input_message = Message(
+            role=input_message.role,
+            kind=input_message.kind,
+            text="(No input)",
+            attachments=input_message.attachments,
+            metadata=dict(input_message.metadata),
+        )
     try:
-        result = await agent_run(dare_task)
+        result = await agent_run(input_message)
     except Exception as e:
         logger.exception("Agent run failed for task %s", task_id)
         state = task_state(
@@ -124,7 +127,7 @@ def handle_tasks_cancel(params: dict[str, Any], store: TaskStore) -> dict[str, A
 
 async def dispatch_request(
     request: JsonRpcRequest,
-    agent_run: Callable[[str | Task], Any],
+    agent_run: Callable[[Message], Any],
     store: TaskStore,
     workspace_dir: str | None = None,
     base_url: str | None = None,
@@ -170,7 +173,7 @@ async def dispatch_request(
 
 async def handle_tasks_send_subscribe_stream(
     params: dict[str, Any],
-    agent_run: Callable[[str | Task], Any],
+    agent_run: Callable[[Message], Any],
     store: TaskStore,
     workspace_dir: str | None = None,
     base_url: str | None = None,

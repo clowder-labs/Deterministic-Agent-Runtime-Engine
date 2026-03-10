@@ -238,63 +238,63 @@ main() {
     exit 0
   fi
 
+  local -a governed_feature_docs=()
+  local doc frontmatter status normalized_status
   if [[ ${#changed_feature_docs[@]} -eq 0 ]]; then
     log "implementation changes detected but PR must update at least one governed feature doc under docs/features/*.md"
     failures=$((failures + 1))
+  else
+    for doc in "${changed_feature_docs[@]}"; do
+      if [[ ! -f "$doc" ]]; then
+        log "changed governed feature doc is missing in workspace: $doc"
+        failures=$((failures + 1))
+        continue
+      fi
+
+      frontmatter="$(extract_frontmatter "$doc")"
+      status="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "status")")"
+      normalized_status="$(normalize_status "$status")"
+      if [[ "$normalized_status" == "active" || "$normalized_status" == "in_review" ]]; then
+        governed_feature_docs+=("$doc")
+      fi
+    done
+
+    if [[ ${#governed_feature_docs[@]} -eq 0 ]]; then
+      log "implementation changes detected but PR must update at least one governed feature doc (status active/in_review)"
+      failures=$((failures + 1))
+    else
+      local intent_pr_url components owner repo pr_number pr_state
+      for doc in "${governed_feature_docs[@]}"; do
+        intent_pr_url="$(extract_intent_pr_url "$doc")"
+        if [[ -z "$intent_pr_url" ]]; then
+          log "missing Intent PR link in $doc"
+          failures=$((failures + 1))
+          continue
+        fi
+
+        if ! components="$(parse_pr_components "$intent_pr_url")"; then
+          log "invalid Intent PR link format in $doc: $intent_pr_url"
+          failures=$((failures + 1))
+          continue
+        fi
+
+        read -r owner repo pr_number <<<"$components"
+        if ! resolve_pr_state "$owner" "$repo" "$pr_number"; then
+          failures=$((failures + 1))
+          continue
+        fi
+        pr_state="$RESOLVED_PR_STATE"
+
+        if [[ "$pr_state" != "merged" ]]; then
+          log "Intent PR $intent_pr_url is not merged (state=$pr_state)"
+          failures=$((failures + 1))
+          continue
+        fi
+
+        log "validated merged Intent PR for $doc: $intent_pr_url"
+      done
+    fi
   fi
-
-  local -a governed_feature_docs=()
-  local doc frontmatter status normalized_status
-  for doc in "${changed_feature_docs[@]}"; do
-    if [[ ! -f "$doc" ]]; then
-      log "changed governed feature doc is missing in workspace: $doc"
-      failures=$((failures + 1))
-      continue
-    fi
-
-    frontmatter="$(extract_frontmatter "$doc")"
-    status="$(trim_quotes "$(frontmatter_scalar "$frontmatter" "status")")"
-    normalized_status="$(normalize_status "$status")"
-    if [[ "$normalized_status" == "active" || "$normalized_status" == "in_review" ]]; then
-      governed_feature_docs+=("$doc")
-    fi
-  done
-
-  if [[ ${#governed_feature_docs[@]} -eq 0 ]]; then
-    log "implementation changes detected but PR must update at least one governed feature doc (status active/in_review)"
-    failures=$((failures + 1))
-  fi
-
-  local intent_pr_url components owner repo pr_number pr_state
-  for doc in "${governed_feature_docs[@]}"; do
-    intent_pr_url="$(extract_intent_pr_url "$doc")"
-    if [[ -z "$intent_pr_url" ]]; then
-      log "missing Intent PR link in $doc"
-      failures=$((failures + 1))
-      continue
-    fi
-
-    if ! components="$(parse_pr_components "$intent_pr_url")"; then
-      log "invalid Intent PR link format in $doc: $intent_pr_url"
-      failures=$((failures + 1))
-      continue
-    fi
-
-    read -r owner repo pr_number <<<"$components"
-    if ! resolve_pr_state "$owner" "$repo" "$pr_number"; then
-      failures=$((failures + 1))
-      continue
-    fi
-    pr_state="$RESOLVED_PR_STATE"
-
-    if [[ "$pr_state" != "merged" ]]; then
-      log "Intent PR $intent_pr_url is not merged (state=$pr_state)"
-      failures=$((failures + 1))
-      continue
-    fi
-
-    log "validated merged Intent PR for $doc: $intent_pr_url"
-  done
 
   if [[ $failures -gt 0 ]]; then
     log "failed with $failures issue(s)"

@@ -10,7 +10,7 @@ from dare_framework.config import Config
 from dare_framework.context import Context
 from dare_framework.model.types import ModelInput, ModelResponse
 from dare_framework.tool.types import ToolResult
-from dare_framework.transport import AgentChannel, TransportEnvelope, TransportEventType
+from dare_framework.transport import AgentChannel, MessagePayload, TransportEnvelope
 
 
 class _Model:
@@ -86,7 +86,9 @@ async def test_dare_agent_does_not_emit_hook_messages_without_transport_hook() -
     hook_payloads = [
         envelope.payload
         for envelope in transport.sent
-        if getattr(envelope, "event_type", None) == TransportEventType.HOOK.value
+        if isinstance(getattr(envelope, "payload", None), MessagePayload)
+        and isinstance(envelope.payload.data, dict)
+        and envelope.payload.data.get("source") == "hook"
     ]
     assert hook_payloads == []
 

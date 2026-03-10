@@ -56,20 +56,26 @@ caching, compression, resume, and dispatch orchestration.
 
 - `openspec validate --spec-dir openspec/specs`
 - `git diff --check`
+- `./.venv/bin/pytest -q tests/integration/test_security_policy_gate_flow.py tests/unit/test_a2a.py tests/unit/test_transport_channel.py tests/unit/test_execution_control.py tests/unit/test_security_boundary.py tests/unit/test_governed_tool_gateway.py tests/unit/test_dare_agent_security_policy_gate.py tests/unit/test_dare_agent_security_boundary.py tests/unit/test_transport_adapters.py tests/unit/test_examples_cli.py tests/unit/test_examples_cli_mcp.py tests/integration/test_p0_conformance_gate.py::test_step_driven_session_executes_validated_steps_in_order tests/integration/test_p0_conformance_gate.py::test_step_driven_session_stops_after_first_failed_step tests/unit/test_dare_agent_step_driven_mode.py tests/integration/test_p0_conformance_gate.py::test_default_event_log_replay_and_hash_chain_hold_for_runtime_session tests/unit/test_event_sqlite_event_log.py tests/unit/test_builder_security_boundary.py::test_default_event_log_replay_returns_ordered_session_window`
+- `GOVERNANCE_INTENT_GATE_CHANGED_FILES=$'client/main.py\ndare_framework/context/types.py\ndocs/features/rich-media-message-pipeline.md' GOVERNANCE_INTENT_GATE_PR_STATE_FIXTURE='zts212653/Deterministic-Agent-Runtime-Engine#206=merged' ./scripts/ci/check_governance_intent_gate.sh`
 
 ### Results
 
 - `openspec validate --spec-dir openspec/specs`: baseline spec tree is valid before the
   implementation PR updates runtime code and evidence.
-- `git diff --check`: docs-only intent branch stays formatting-clean and preserves the governed
-  feature-doc template contract.
+- `git diff --check`: message-schema and transport cutover branch stayed formatting-clean after
+  rebasing onto the merged intent PR baseline.
+- `./.venv/bin/pytest -q tests/integration/test_security_policy_gate_flow.py tests/unit/test_a2a.py tests/unit/test_transport_channel.py tests/unit/test_execution_control.py tests/unit/test_security_boundary.py tests/unit/test_governed_tool_gateway.py tests/unit/test_dare_agent_security_policy_gate.py tests/unit/test_dare_agent_security_boundary.py tests/unit/test_transport_adapters.py tests/unit/test_examples_cli.py tests/unit/test_examples_cli_mcp.py tests/integration/test_p0_conformance_gate.py::test_step_driven_session_executes_validated_steps_in_order tests/integration/test_p0_conformance_gate.py::test_step_driven_session_stops_after_first_failed_step tests/unit/test_dare_agent_step_driven_mode.py tests/integration/test_p0_conformance_gate.py::test_default_event_log_replay_and_hash_chain_hold_for_runtime_session tests/unit/test_event_sqlite_event_log.py tests/unit/test_builder_security_boundary.py::test_default_event_log_replay_returns_ordered_session_window`: passed (`142 passed, 1 warning`) after updating the remaining security-gate integration assertion to read canonical `Message.text` instead of the removed `Message.content`.
+- `GOVERNANCE_INTENT_GATE_CHANGED_FILES=$'client/main.py\ndare_framework/context/types.py\ndocs/features/rich-media-message-pipeline.md' GOVERNANCE_INTENT_GATE_PR_STATE_FIXTURE='zts212653/Deterministic-Agent-Runtime-Engine#206=merged' ./scripts/ci/check_governance_intent_gate.sh`: passed, confirming the implementation PR now carries an active governed feature doc that references a merged intent PR.
 
 ### Behavior Verification
 
-- Happy path: this intent record establishes the active governed feature topic that the later
-  implementation PR will update while landing the message-schema cutover.
-- Error/fallback path: runtime delivery/caching/resume redesign remains explicitly out of scope for
-  this feature topic and must land through a separate follow-up intent/change.
+- Happy path: the implementation PR now lands canonical `Message(text + attachments + data)` flow
+  through transport payloads, agent public inputs, A2A ingestion, and model adapter serialization,
+  so a single user message can carry one text segment plus multiple image attachments.
+- Error/fallback path: the last remaining legacy `Message.content` read in the security-gate flow
+  is removed, so denied-tool regression coverage still records the structured `not_allow` tool
+  result without breaking the `risk-matrix` and `p0-gate` CI bundles.
 
 ### Risks and Rollback
 
@@ -83,3 +89,4 @@ caching, compression, resume, and dispatch orchestration.
 - Intent PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/206`
 - Implementation PR: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/204`
 - Review request: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/206#issuecomment-4023104454`
+- Implementation fix notes: `https://github.com/zts212653/Deterministic-Agent-Runtime-Engine/pull/204#issuecomment-4023016723`

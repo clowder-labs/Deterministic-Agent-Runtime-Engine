@@ -105,8 +105,8 @@ class ISessionStore:
 # ===========================================================================
 # Capability 1: Msg — 消息结构桥接
 # AgentScope: Msg(id, name, role, content: str|list[ContentBlock], metadata, timestamp)
-# DARE:       Message(role, content: str, name, metadata)
-# Gap-M1: 无 tag 字段  Gap-M2: content 仅 str  Gap-M3: 无 id  Gap-M5: 无序列化
+# DARE:       Message(role, kind, text, attachments, data, name, metadata)
+# Gap-M1: 无 tag 字段  Gap-M2: 无原生 ContentBlock 体系  Gap-M3: 无 id  Gap-M5: 无序列化
 # ===========================================================================
 
 
@@ -115,7 +115,7 @@ class TextBlock(TypedDict):
 
     AgentScope 支持 TextBlock/ThinkingBlock/ImageBlock/AudioBlock/VideoBlock/
     ToolUseBlock/ToolResultBlock 联合类型。
-    DARE Message.content 仅为 str，无 ContentBlock 体系 [Gap-M2]。
+    DARE Message.text 为主，无原生 ContentBlock 体系 [Gap-M2]。
     """
 
     type: Literal["text"]
@@ -166,31 +166,53 @@ class CompatMsg:
         msg_id = message.metadata.get("_compat_id", str(uuid.uuid4())[:8])
         # [Gap-M1] Message 无 tag 字段，从 metadata 读取过渡标记
         tag = message.metadata.get("_compat_tag")
+        blocks: list[ContentBlock] = []
+        if message.kind == "thinking" and message.text:
+            blocks.append({"type": "thinking", "thinking": message.text})
+        elif message.text is not None:
+            blocks.append({"type": "text", "text": message.text})
+        # 兼容桥仅实现 TextBlock/ThinkingBlock；附件在此处退化为文本占位。
+        for attachment in message.attachments:
+            blocks.append({"type": "text", "text": f"[{attachment.kind}] {attachment.uri}"})
+        compat_metadata = {
+            k: v for k, v in message.metadata.items()
+            if not k.startswith("_compat_")
+        }
+        if isinstance(message.data, dict):
+            tool_calls = message.data.get("tool_calls")
+            if isinstance(tool_calls, list) and "tool_calls" not in compat_metadata:
+                compat_metadata["tool_calls"] = tool_calls
         return cls(
             id=msg_id,
-            name=message.name or message.role,
-            role=message.role,
-            blocks=[{"type": "text", "text": message.content}],
-            metadata={k: v for k, v in message.metadata.items()
-                      if not k.startswith("_compat_")},
+            name=message.name or str(message.role),
+            role=str(message.role),
+            blocks=blocks or [{"type": "text", "text": ""}],
+            metadata=compat_metadata,
             tag=tag,
         )
 
     def to_framework_message(self) -> Message:
         text_parts = []
+        message_kind = "chat"
         for block in self.blocks:
             if block.get("type") == "text":
                 text_parts.append(block.get("text", ""))
             elif block.get("type") == "thinking":
-                # [Gap-LM1] thinking 内容被扁平化为文本，框架补齐后应分离
-                text_parts.append(f"[thinking] {block.get('thinking', '')}")
+                message_kind = "thinking"
+                text_parts.append(block.get("thinking", ""))
         metadata = dict(self.metadata)
         metadata["_compat_id"] = self.id
         if self.tag:
             metadata["_compat_tag"] = self.tag
+        data: dict[str, Any] | None = None
+        tool_calls = metadata.get("tool_calls")
+        if isinstance(tool_calls, list):
+            data = {"tool_calls": tool_calls}
         return Message(
             role=self.role,
-            content="\n".join(text_parts),
+            kind=message_kind,
+            text="\n".join(text_parts),
+            data=data,
             name=self.name,
             metadata=metadata,
         )
@@ -412,11 +434,27 @@ class CompatFormattedModelAdapter(IModelAdapter):
     def _formatted_to_message(self, item: dict[str, Any]) -> Message:
         blocks = item.get("content", [])
         text = "\n".join(str(block.get("text", "")) for block in blocks if isinstance(block, dict))
+        metadata = dict(item.get("metadata", {}))
+        data: dict[str, Any] | None = None
+        kind = "chat"
+        tool_calls = metadata.get("tool_calls")
+        if isinstance(tool_calls, list):
+            data = {"tool_calls": tool_calls}
+            kind = "tool_call"
+        elif any(isinstance(block, dict) and block.get("type") == "thinking" for block in blocks):
+            kind = "thinking"
+        if str(item.get("role", "user")) == "tool":
+            tool_call_id = item.get("name")
+            if isinstance(tool_call_id, str) and tool_call_id.strip():
+                data = {**(data or {}), "tool_call_id": tool_call_id}
+            kind = "tool_result"
         return Message(
             role=str(item.get("role", "user")),
-            content=text,
+            kind=kind,
+            text=text,
+            data=data,
             name=item.get("name"),
-            metadata=dict(item.get("metadata", {})),
+            metadata=metadata,
         )
 
 
@@ -451,7 +489,10 @@ class CompatMemoryWrapper:
         if "_compat_id" not in message.metadata:
             message = Message(
                 role=message.role,
-                content=message.content,
+                kind=message.kind,
+                text=message.text,
+                attachments=list(message.attachments),
+                data=dict(message.data) if isinstance(message.data, dict) else None,
                 name=message.name,
                 metadata={**message.metadata, "_compat_id": msg_id},
             )
@@ -480,7 +521,8 @@ class CompatMemoryWrapper:
         if prepend_summary and self._compressed_summary:
             summary_msg = Message(
                 role="system",
-                content=f"[Compressed Summary]\n{self._compressed_summary}",
+                kind="summary",
+                text=f"[Compressed Summary]\n{self._compressed_summary}",
                 metadata={"_compat_tag": MessageTag.COMPRESSED},
             )
             messages = [summary_msg] + messages
@@ -505,7 +547,19 @@ class CompatMemoryWrapper:
             "messages": [
                 {
                     "role": m.role,
-                    "content": m.content,
+                    "kind": m.kind,
+                    "text": m.text,
+                    "attachments": [
+                        {
+                            "kind": attachment.kind,
+                            "uri": attachment.uri,
+                            "mime_type": attachment.mime_type,
+                            "filename": attachment.filename,
+                            "metadata": dict(attachment.metadata),
+                        }
+                        for attachment in m.attachments
+                    ],
+                    "data": dict(m.data) if isinstance(m.data, dict) else None,
                     "name": m.name,
                     "metadata": dict(m.metadata),
                 }
@@ -521,7 +575,10 @@ class CompatMemoryWrapper:
         for item in state.get("messages", []):
             self._context.stm_add(Message(
                 role=item.get("role", "user"),
-                content=item.get("content", ""),
+                kind=item.get("kind", "chat"),
+                text=item.get("text"),
+                attachments=item.get("attachments", []),
+                data=item.get("data"),
                 name=item.get("name"),
                 metadata=item.get("metadata", {}),
             ))
@@ -1164,7 +1221,19 @@ class JsonSessionBridge:
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
         return {
             "role": message.role,
-            "content": message.content,
+            "kind": message.kind,
+            "text": message.text,
+            "attachments": [
+                {
+                    "kind": attachment.kind,
+                    "uri": attachment.uri,
+                    "mime_type": attachment.mime_type,
+                    "filename": attachment.filename,
+                    "metadata": dict(attachment.metadata),
+                }
+                for attachment in message.attachments
+            ],
+            "data": dict(message.data) if isinstance(message.data, dict) else None,
             "name": message.name,
             "metadata": dict(message.metadata),
         }
@@ -1172,7 +1241,10 @@ class JsonSessionBridge:
     def _message_from_dict(self, data: dict[str, Any]) -> Message:
         return Message(
             role=str(data.get("role", "user")),
-            content=str(data.get("content", "")),
+            kind=str(data.get("kind", "chat")),
+            text=data.get("text"),
+            attachments=data.get("attachments", []),
+            data=data.get("data"),
             name=data.get("name"),
             metadata=dict(data.get("metadata", {})),
         )

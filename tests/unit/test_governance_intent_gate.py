@@ -103,6 +103,8 @@ class GovernanceIntentGateTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must update at least one governed feature doc", result.stdout)
+        self.assertIn("failed with 1 issue(s)", result.stdout)
+        self.assertEqual(result.stderr, "")
 
     def test_implementation_changes_fail_when_intent_pr_not_merged(self) -> None:
         result = self._run_gate(

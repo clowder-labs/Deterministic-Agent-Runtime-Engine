@@ -73,9 +73,9 @@ def _print_context_list(
     for i, m in enumerate(messages):
         mid = getattr(m, "id", None)
         mmark = getattr(m, "mark", MessageMark.TEMPORARY)
-        content = m.content
+        content = m.text or ""
         if sys_prompt_brief and mid == "sys_prompt":
-            content = f"[sys_prompt 略，首轮已打印完整] ({len(m.content)} chars)"
+            content = f"[sys_prompt 略，首轮已打印完整] ({len(m.text or '')} chars)"
         elif mmark == MessageMark.TEMPORARY and len(content) > _TEMP_MSG_MAX_CHARS:
             content = content[:_TEMP_MSG_MAX_CHARS] + f"\n... [截断，共 {len(content)} chars]"
         lines.append(f"--- Message {i+1} role={m.role} ---")
@@ -87,7 +87,6 @@ def _print_context_list(
 from dare_framework.model import IModelAdapter, ModelInput
 from dare_framework.plan.types import Envelope
 from dare_framework.plan.types import RunResult
-from dare_framework.plan.types import Task
 from dare_framework.tool import IToolGateway, IToolProvider
 from dare_framework.context.manage_context import MANAGE_CONTEXT_TOOL_NAME
 from dare_framework.transport.kernel import AgentChannel
@@ -132,15 +131,19 @@ class ReactAgent(BaseAgent):
 
     async def execute(
         self,
-        task: str | Task,
+        task: Message,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
         _ = transport
-        task_description = task.description if isinstance(task, Task) else task
+        source_user_message = task
         user_message = Message(
-            role="user",
-            content=task_description,
+            role=source_user_message.role,
+            kind=source_user_message.kind,
+            text=source_user_message.text,
+            attachments=list(source_user_message.attachments),
+            data=dict(source_user_message.data) if isinstance(source_user_message.data, dict) else None,
+            metadata=dict(source_user_message.metadata),
             mark=MessageMark.IMMUTABLE,
             id="user_task",  # 用户/上层任务需求，manage_context 判断 task_complete 须对照此消息
         )
@@ -163,7 +166,7 @@ class ReactAgent(BaseAgent):
         if has_manage_context_tool:
             self._next_round_reflection_prompt = Message(
                 role="assistant",
-                content="【提示】请先调用 manage_context 根据任务初始化 context 状态。",
+                text="【提示】请先调用 manage_context 根据任务初始化 context 状态。",
             )
 
         """last_tool_signature: tuple[str, ...] | None = None
@@ -179,7 +182,7 @@ class ReactAgent(BaseAgent):
             sys_prompt_message = (
                 Message(
                     role=prompt_def.role,
-                    content=prompt_def.content,
+                    text=prompt_def.content,
                     name=prompt_def.name,
                     metadata=dict(prompt_def.metadata),
                     mark=MessageMark.IMMUTABLE,
@@ -203,7 +206,7 @@ class ReactAgent(BaseAgent):
                 if critical_block:
                     _colored_print(self.name, "\n--- [Plan State] (injected) ---\n" + critical_block + "\n---\n")
                     n_front = sum(1 for m in messages if getattr(m, "id", None) in ("core", "task_complete"))
-                    messages.insert(n_front, Message(role="system", content=critical_block, name="plan_state"))
+                    messages.insert(n_front, Message(role="system", text=critical_block, name="plan_state"))
 
             _print_context_list(self.name, messages, sys_prompt_brief=(round_idx > 0))
             if round_idx == 0 and assembled.tools:
@@ -235,12 +238,12 @@ class ReactAgent(BaseAgent):
                     if not task_complete:
                         self._next_round_reflection_prompt = Message(
                             role="assistant",
-                            content=final_text+"任务未完成，请先调用 manage_context 仔细审视任务是否完成。",
+                            text=final_text + "任务未完成，请先调用 manage_context 仔细审视任务是否完成。",
                         )
                         continue
 
                 
-                assistant_message = Message(role="assistant", content=final_text)
+                assistant_message = Message(role="assistant", text=final_text)
                 self._context.stm_add(assistant_message)
                 return RunResult(
                     success=True,
@@ -257,7 +260,7 @@ class ReactAgent(BaseAgent):
 
             if repeated_tool_rounds >= 3:
                 loop_guard = "模型连续重复调用相同工具，已停止自动循环。请换一种描述，或明确要求先调用 ask_user 再继续。"
-                self._context.stm_add(Message(role="assistant", content=loop_guard))
+                self._context.stm_add(Message(role="assistant", text=loop_guard))
                 return RunResult(success=True, output=loop_guard, output_text=loop_guard)"""
 
             # 将本轮带有 tool_calls 的 assistant 消息写入 STM，
@@ -299,25 +302,23 @@ class ReactAgent(BaseAgent):
                         manage_context_succeeded = True
                         self._next_round_reflection_prompt = Message(
                             role="assistant",
-                            content="已调用manage_context更新context。可参考context中的CORE状态和USER_TASK继续执行任务。\n",
+                            text="已调用manage_context更新context。可参考context中的CORE状态和USER_TASK继续执行任务。\n",
                         )
                     else:
                         error = getattr(result, "error", "") or ""
                         error += "manage_context执行失败，请重试manage_context。"
-                        self._next_round_reflection_prompt = Message(
-                            role="assistant",
-                            content=error,
-                        )
+                        self._next_round_reflection_prompt = Message(role="assistant", text=error)
             elif has_manage_context_tool and not manage_context_has_run:
                 self._next_round_reflection_prompt = Message(
                             role="assistant",
-                            content="还未调用manage_context来更新context状态，请先调用manage_context去更新context状态...\n",
+                            text="还未调用manage_context来更新context状态，请先调用manage_context去更新context状态...\n",
                         )
             else:
                 assistant_msg = Message(
                     role="assistant",
-                    content=response.content or "",
-                    metadata={"tool_calls": response.tool_calls},
+                    kind="tool_call",
+                    text=response.content or "",
+                    data={"tool_calls": response.tool_calls},
                 )
                 self._context.stm_add(assistant_msg)
 
@@ -343,11 +344,17 @@ class ReactAgent(BaseAgent):
                         else {"success": True, "output": output},
                         ensure_ascii=False,
                     )
-                    tool_msg = Message(role="tool", name=tool_call_id or name, content=tool_content)
+                    tool_msg = Message(
+                        role="tool",
+                        kind="tool_result",
+                        name=tool_call_id or name,
+                        text=tool_content,
+                        data={"tool_call_id": tool_call_id or name},
+                    )
                     self._context.stm_add(tool_msg)
                 self._next_round_reflection_prompt = Message(
                             role="assistant",
-                            content="工具调用结束(或成功或失败)，请调用 manage_context反思当前进展、更新context状态。",
+                            text="工具调用结束(或成功或失败)，请调用 manage_context反思当前进展、更新context状态。",
                         )
             if manage_context_succeeded:
                 manage_context_has_run = True

@@ -9,7 +9,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from dare_framework.plan.types import RunResult, Task
+from dare_framework.context import Message
+from dare_framework.plan.types import RunResult
 
 if TYPE_CHECKING:
     from dare_framework.transport.kernel import AgentChannel
@@ -21,7 +22,7 @@ class IAgentOrchestration(ABC):
     @abstractmethod
     async def execute(
         self,
-        task: str | Task,
+        task: Message,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:

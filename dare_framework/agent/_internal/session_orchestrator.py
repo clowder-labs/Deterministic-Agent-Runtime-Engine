@@ -11,8 +11,9 @@ import time
 from typing import Any, Protocol
 from uuid import uuid4
 
-from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
 from dare_framework.context import Message
+from dare_framework.context.types import MessageKind, MessageRole
+from dare_framework.agent._internal.orchestration import MilestoneState, SessionState
 from dare_framework.plan.types import MilestoneSummary, RunResult, SessionSummary, Task
 
 
@@ -96,7 +97,12 @@ async def run_session_loop(
         "run_id": agent._session_state.run_id,
     })
 
-    user_message = Message(role="user", content=task.description)
+    user_message = task.input_message or Message(
+        role=MessageRole.USER,
+        kind=MessageKind.CHAT,
+        text=task.description,
+        metadata=dict(task.metadata),
+    )
     agent._context.stm_add(user_message)
 
     if task.milestones:

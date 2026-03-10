@@ -29,7 +29,14 @@ class FailingValidator(ConfigurableComponent, IValidator):
     async def validate_plan(self, plan: ProposedPlan, ctx: dict) -> ValidatedPlan:
         return ValidatedPlan(plan_description=plan.plan_description, steps=[], success=False, errors=self._errors)
 
-    async def verify_milestone(self, result: ExecuteResult, ctx: dict) -> VerifyResult:
+    async def verify_milestone(
+        self,
+        result: ExecuteResult,
+        ctx: dict,
+        *,
+        plan: ValidatedPlan | None = None,
+    ) -> VerifyResult:
+        _ = plan
         return VerifyResult(success=False, errors=self._errors, evidence=[])
 
 

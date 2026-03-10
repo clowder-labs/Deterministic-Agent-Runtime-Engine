@@ -57,7 +57,11 @@ class IPlanner(IComponent, ABC):
                 Milestone(
                     milestone_id=f"{task.task_id or uuid4().hex[:8]}_m1",
                     description=task.description,
-                    user_input=task.description,
+                    user_input=(
+                        task.input_message.text
+                        if task.input_message is not None and task.input_message.text
+                        else task.description
+                    ),
                 )
             ],
             reasoning="Default: single milestone from task description",

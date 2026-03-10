@@ -14,10 +14,11 @@ from client.commands.info import build_doctor_report
 from client.commands.mcp import summarize_tools
 from client.parser.command import Command, CommandType, parse_command
 from client.parser.kv import parse_key_value_args
-from client.runtime.action_client import ActionClientError, _parse_action_response
+from client.runtime.action_client import ActionClientError, TransportActionClient, _parse_action_response
 from client.runtime.task_runner import format_run_output
 from dare_framework.config import Config
 from dare_framework.context import Message
+from dare_framework.transport import ActionPayload, ControlPayload, EnvelopeKind, TransportEnvelope
 
 
 def test_parse_command_mode() -> None:
@@ -64,16 +65,95 @@ def test_format_run_output_variants() -> None:
 def test_parse_action_response_error() -> None:
     with pytest.raises(ActionClientError) as excinfo:
         _parse_action_response(
-            {
-                "type": "error",
-                "kind": "action",
-                "target": "approvals:list",
-                "code": "ACTION_HANDLER_FAILED",
-                "reason": "failed",
-            },
+            ActionPayload(
+                id="action-error-1",
+                resource_action="approvals:list",
+                ok=False,
+                code="ACTION_HANDLER_FAILED",
+                reason="failed",
+            ),
             expected_kind="action",
         )
     assert excinfo.value.code == "ACTION_HANDLER_FAILED"
+
+
+def test_parse_action_response_accepts_typed_action_payload() -> None:
+    payload = ActionPayload(
+        id="action-reply-1",
+        resource_action="tools:list",
+        ok=True,
+        result={"items": ["read_file"]},
+    )
+
+    assert _parse_action_response(payload, expected_kind="action") == {"items": ["read_file"]}
+
+
+def test_parse_action_response_accepts_typed_control_payload() -> None:
+    payload = ControlPayload(
+        id="control-reply-1",
+        control_id="interrupt",
+        ok=True,
+        result={"accepted": True},
+    )
+
+    assert _parse_action_response(payload, expected_kind="control") == {"accepted": True}
+
+
+def test_parse_action_response_rejects_legacy_dict_contract() -> None:
+    with pytest.raises(ActionClientError, match="INVALID_RESPONSE"):
+        _parse_action_response(
+            {
+                "type": "result",
+                "kind": "action",
+                "target": "approvals:list",
+                "resp": {"result": {"pending": []}},
+            },
+            expected_kind="action",
+        )
+
+
+@pytest.mark.asyncio
+async def test_transport_action_client_sends_typed_action_and_control_payloads() -> None:
+    sent: list[TransportEnvelope] = []
+
+    class _Channel:
+        async def ask(self, envelope: TransportEnvelope, *, timeout: float | None = None):  # noqa: ANN001
+            _ = timeout
+            sent.append(envelope)
+            if envelope.kind == EnvelopeKind.ACTION:
+                return TransportEnvelope(
+                    id="reply-action",
+                    kind=EnvelopeKind.ACTION,
+                    payload=ActionPayload(
+                        id="reply-action-payload",
+                        resource_action="tools:list",
+                        ok=True,
+                        result={"items": []},
+                    ),
+                )
+            return TransportEnvelope(
+                id="reply-control",
+                kind=EnvelopeKind.CONTROL,
+                payload=ControlPayload(
+                    id="reply-control-payload",
+                    control_id="interrupt",
+                    ok=True,
+                    result={"accepted": True},
+                ),
+            )
+
+    client = TransportActionClient(_Channel())  # type: ignore[arg-type]
+
+    action_result = await client.invoke_action("tools:list", scope="workspace")
+    control_result = await client.invoke_control("interrupt")
+
+    assert action_result == {"items": []}
+    assert control_result == {"accepted": True}
+    assert isinstance(sent[0].payload, ActionPayload)
+    assert sent[0].payload.resource_action == "tools:list"
+    assert sent[0].payload.params == {"scope": "workspace"}
+    assert isinstance(sent[1].payload, ControlPayload)
+    assert sent[1].payload.control_id == "interrupt"
 
 
 def test_summarize_tools_split_mcp_and_local() -> None:
@@ -943,8 +1023,10 @@ async def test_run_chat_interactive_json_mode_reprompts_when_approval_is_pending
             approval_emitted.set()
             maybe_awaitable = self._on_event(
                 {
-                    "type": "approval_pending",
-                    "resp": {
+                    "id": "req-1",
+                    "select_kind": "ask",
+                    "select_domain": "approval",
+                    "metadata": {
                         "request": {"request_id": "req-1"},
                         "capability_id": "run_command",
                         "tool_name": "run_command",
@@ -1023,8 +1105,10 @@ async def test_run_chat_interactive_human_mode_prompts_rich_inline_approval_and_
             approval_emitted.set()
             maybe_awaitable = self._on_event(
                 {
-                    "type": "approval_pending",
-                    "resp": {
+                    "id": "req-1",
+                    "select_kind": "ask",
+                    "select_domain": "approval",
+                    "metadata": {
                         "request": {
                             "request_id": "req-1",
                             "reason": "Tool run_command requires approval",
@@ -1137,8 +1221,10 @@ async def test_run_chat_interactive_human_mode_prompts_inline_approval_and_denie
             approval_emitted.set()
             maybe_awaitable = self._on_event(
                 {
-                    "type": "approval_pending",
-                    "resp": {
+                    "id": "req-1",
+                    "select_kind": "ask",
+                    "select_domain": "approval",
+                    "metadata": {
                         "request": {
                             "request_id": "req-1",
                             "reason": "Tool run_command requires approval",
@@ -1247,8 +1333,10 @@ async def test_run_chat_interactive_human_mode_can_remember_same_command_for_ses
             approval_emitted.set()
             maybe_awaitable = self._on_event(
                 {
-                    "type": "approval_pending",
-                    "resp": {
+                    "id": "req-1",
+                    "select_kind": "ask",
+                    "select_domain": "approval",
+                    "metadata": {
                         "request": {
                             "request_id": "req-1",
                             "reason": "Tool run_command requires approval",
@@ -1434,25 +1522,33 @@ async def test_on_transport_event_headless_maps_tool_hook_events(capsys) -> None
 
     await client_main._on_transport_event_async(
         {
-            "type": "hook",
-            "phase": "before_tool",
-            "payload": {
-                "tool_name": "read_file",
-                "tool_call_id": "call-1",
-                "capability_id": "read_file",
+            "message_kind": "summary",
+            "text": "hook:before_tool",
+            "data": {
+                "source": "hook",
+                "phase": "before_tool",
+                "payload": {
+                    "tool_name": "read_file",
+                    "tool_call_id": "call-1",
+                    "capability_id": "read_file",
+                },
             },
         },
         output=output,
     )
     await client_main._on_transport_event_async(
         {
-            "type": "hook",
-            "phase": "after_tool",
-            "payload": {
-                "tool_name": "read_file",
-                "tool_call_id": "call-1",
-                "capability_id": "read_file",
-                "success": True,
+            "message_kind": "summary",
+            "text": "hook:after_tool",
+            "data": {
+                "source": "hook",
+                "phase": "after_tool",
+                "payload": {
+                    "tool_name": "read_file",
+                    "tool_call_id": "call-1",
+                    "capability_id": "read_file",
+                    "success": True,
+                },
             },
         },
         output=output,
@@ -1935,7 +2031,7 @@ async def test_main_run_rejects_conflicting_resume_and_session_id(monkeypatch, t
         return object(), config
 
     async def _unexpected_bootstrap(_options):  # noqa: ANN001
-        raise AssertionError("bootstrap_runtime should not run for conflicting resume targets")
+        raise AssertionError("bootstrap_runtime should not run when argparse rejects removed flags")
 
     monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
     monkeypatch.setattr(client_main, "bootstrap_runtime", _unexpected_bootstrap)
@@ -1996,8 +2092,8 @@ async def test_dispatch_control_action_session_resume_restores_history(tmp_path)
     session_store.save(
         state=snapshot_state,
         messages=[
-            Message(role="user", content="history-user"),
-            Message(role="assistant", content="history-assistant"),
+            Message(role="user", text="history-user"),
+            Message(role="assistant", text="history-assistant"),
         ],
     )
 
@@ -2014,7 +2110,7 @@ async def test_dispatch_control_action_session_resume_restores_history(tmp_path)
     assert result["restored_messages"] == 2
     assert state.conversation_id == "session-42"
     assert state.mode == client_main.ExecutionMode.PLAN
-    assert [item.content for item in runtime_context_messages] == ["history-user", "history-assistant"]
+    assert [item.text for item in runtime_context_messages] == ["history-user", "history-assistant"]
 
 
 @pytest.mark.asyncio
@@ -2069,7 +2165,7 @@ async def test_run_control_stdin_loop_updates_headless_context_after_session_res
     snapshot_state = client_main.CLISessionState(conversation_id="session-42", mode=client_main.ExecutionMode.PLAN)
     session_store.save(
         state=snapshot_state,
-        messages=[Message(role="user", content="history-user")],
+        messages=[Message(role="user", text="history-user")],
     )
     output = client_main.OutputFacade("headless")
     output.set_protocol_context(session_id="fresh-session", run_id="fresh-session")
@@ -2111,6 +2207,51 @@ async def test_run_control_stdin_loop_updates_headless_context_after_session_res
     assert output._headless._session_id == "session-42"
     assert output._headless._run_id == "session-42"
     assert state.conversation_id == "session-42"
+
+
+def test_client_session_store_persists_canonical_message_schema(tmp_path) -> None:
+    store = importlib.import_module("client.session_store")
+    workspace = tmp_path / "workspace"
+    session_store = store.ClientSessionStore(workspace)
+    client_main = importlib.import_module("client.main")
+
+    state = client_main.CLISessionState(conversation_id="session-rich", mode=client_main.ExecutionMode.EXECUTE)
+    session_store.save(
+        state=state,
+        messages=[
+            Message(
+                role="user",
+                kind="chat",
+                text="look at these",
+                attachments=[
+                    {
+                        "kind": "image",
+                        "uri": "https://example.com/a.png",
+                        "mime_type": "image/png",
+                    }
+                ],
+                data={"album": "demo"},
+                metadata={"source": "test"},
+                id="msg-1",
+            )
+        ],
+    )
+
+    raw = json.loads(session_store.path_for("session-rich").read_text(encoding="utf-8"))
+    message = raw["messages"][0]
+    assert "content" not in message
+    assert message["role"] == "user"
+    assert message["kind"] == "chat"
+    assert message["text"] == "look at these"
+    assert message["attachments"][0]["kind"] == "image"
+    assert message["attachments"][0]["uri"] == "https://example.com/a.png"
+    assert message["data"] == {"album": "demo"}
+
+    restored = session_store.load("session-rich").messages[0]
+    assert restored.kind == "chat"
+    assert restored.text == "look at these"
+    assert restored.attachments[0].uri == "https://example.com/a.png"
+    assert restored.data == {"album": "demo"}
 
 
 def test_client_session_store_rejects_traversal_session_ids(tmp_path) -> None:
@@ -2176,13 +2317,13 @@ async def test_main_sessions_list_returns_sorted_session_summaries(monkeypatch, 
     state_b = client_main.CLISessionState(conversation_id="session-b")
     session_store.save(
         state=state_a,
-        messages=[Message(role="user", content="older")],
+        messages=[Message(role="user", text="older")],
     )
     session_store.save(
         state=state_b,
         messages=[
-            Message(role="user", content="newer"),
-            Message(role="assistant", content="done"),
+            Message(role="user", text="newer"),
+            Message(role="assistant", text="done"),
         ],
     )
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from dare_framework.config import Config
 from dare_framework.context import Context, Message
-from dare_framework.plan import DefaultPlanner, Task
+from dare_framework.plan import DefaultPlanner
 
 
 def format_run_output(output: Any) -> str | None:
@@ -38,7 +38,7 @@ async def preview_plan(
         id="cli-plan-preview",
         config=Config(workspace_dir=workspace_dir, user_dir=user_dir),
     )
-    ctx.stm_add(Message(role="user", content=task_text))
+    ctx.stm_add(Message(role="user", text=task_text))
     planner = DefaultPlanner(model, verbose=False)
     return await planner.plan(ctx)
 
@@ -54,7 +54,7 @@ async def run_task(
     metadata: dict[str, Any] = {}
     if isinstance(conversation_id, str) and conversation_id.strip():
         metadata["conversation_id"] = conversation_id.strip()
-    task = Task(description=task_text, metadata=metadata)
+    task = Message(role="user", text=task_text, metadata=metadata)
     if transport is None:
         return await agent(task)
     return await agent(task, transport=transport)

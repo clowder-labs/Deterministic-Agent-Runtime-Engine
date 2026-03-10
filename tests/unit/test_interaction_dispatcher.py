@@ -1,13 +1,20 @@
 import pytest
 
-from dare_framework.transport import EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport import ActionPayload, EnvelopeKind, TransportEnvelope, new_envelope_id
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
 from dare_framework.transport.interaction.handlers import IActionHandler
 
 
 def _env(*, payload: str) -> TransportEnvelope:
-    return TransportEnvelope(id=new_envelope_id(), kind=EnvelopeKind.ACTION, payload=payload)
+    return TransportEnvelope(
+        id=new_envelope_id(),
+        kind=EnvelopeKind.ACTION,
+        payload=ActionPayload(
+            id=new_envelope_id(),
+            resource_action=payload,
+        ),
+    )
 
 
 class RecordActionHandler(IActionHandler):
@@ -36,8 +43,10 @@ async def test_action_handler_routing_matches_resource_action() -> None:
     assert calls == ["tools:list", "config:get"]
     assert tools_result.ok is True
     assert tools_result.target == "tools:list"
+    assert tools_result.resp == {"ok": True}
     assert config_result.ok is True
     assert config_result.target == "config:get"
+    assert config_result.resp == {"ok": True}
 
 
 @pytest.mark.asyncio
@@ -66,3 +75,36 @@ async def test_actions_list_returns_registered_actions() -> None:
     resp = result.resp
     assert isinstance(resp, dict)
     assert sorted(resp.get("actions", [])) == ["actions:list", "config:get", "tools:list"]
+
+
+@pytest.mark.asyncio
+async def test_action_payload_params_must_be_mapping_with_string_keys() -> None:
+    dispatcher = ActionHandlerDispatcher()
+    malformed_none = TransportEnvelope(
+        id=new_envelope_id(),
+        kind=EnvelopeKind.ACTION,
+        payload=ActionPayload(
+            id=new_envelope_id(),
+            resource_action="tools:list",
+            params=None,  # type: ignore[arg-type]
+        ),
+    )
+    malformed_key = TransportEnvelope(
+        id=new_envelope_id(),
+        kind=EnvelopeKind.ACTION,
+        payload=ActionPayload(
+            id=new_envelope_id(),
+            resource_action="tools:list",
+            params={1: "x"},  # type: ignore[dict-item]
+        ),
+    )
+
+    none_result = await dispatcher.handle_action(malformed_none)
+    key_result = await dispatcher.handle_action(malformed_key)
+
+    assert none_result.ok is False
+    assert none_result.code == "INVALID_ACTION_PAYLOAD"
+    assert isinstance(none_result.reason, str)
+    assert key_result.ok is False
+    assert key_result.code == "INVALID_ACTION_PAYLOAD"
+    assert isinstance(key_result.reason, str)

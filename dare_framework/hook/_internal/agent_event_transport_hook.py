@@ -9,7 +9,7 @@ from dare_framework.hook.kernel import IHook
 from dare_framework.hook.types import HookPhase
 from dare_framework.infra.component import ComponentType
 from dare_framework.transport.kernel import AgentChannel
-from dare_framework.transport.types import TransportEnvelope, TransportEventType, new_envelope_id
+from dare_framework.transport.types import EnvelopeKind, MessageKind, MessagePayload, MessageRole, TransportEnvelope, new_envelope_id
 
 _logger = logging.getLogger("dare.hook")
 
@@ -35,11 +35,18 @@ class AgentEventTransportHook(IHook):
             payload = {}
         envelope = TransportEnvelope(
             id=new_envelope_id(),
-            event_type=TransportEventType.HOOK.value,
-            payload={
-                "phase": phase.value,
-                "payload": payload,
-            },
+            kind=EnvelopeKind.MESSAGE,
+            payload=MessagePayload(
+                id=new_envelope_id(),
+                role=MessageRole.ASSISTANT,
+                message_kind=MessageKind.SUMMARY,
+                text=f"hook:{phase.value}",
+                data={
+                    "source": "hook",
+                    "phase": phase.value,
+                    "payload": payload,
+                },
+            ),
         )
         try:
             await self._transport.send(envelope)

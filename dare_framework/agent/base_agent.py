@@ -10,16 +10,17 @@ from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING, Any
 
+from dare_framework.agent._internal.input_normalizer import coerce_user_message, preview_text
 from dare_framework.agent._internal.output_normalizer import normalize_run_output
 from dare_framework.agent.interfaces import IAgentOrchestration
 from dare_framework.agent.kernel import IAgent
 from dare_framework.agent.status import AgentStatus
-from dare_framework.plan.types import RunResult, Task
-from dare_framework.transport.interaction.payloads import build_error_payload, build_success_payload
+from dare_framework.context import Message, MessageKind, MessageRole
+from dare_framework.plan.types import RunResult
 from dare_framework.transport.types import (
     EnvelopeKind,
+    MessagePayload,
     TransportEnvelope,
-    TransportEventType,
     new_envelope_id,
 )
 
@@ -61,7 +62,7 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
 
     async def __call__(
         self,
-        message: str | Task,
+        message: str | Message,
         deps: Any | None = None,
         *,
         transport: AgentChannel | None = None,
@@ -69,7 +70,8 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         """Invoke the agent directly."""
         _ = deps
         resolved_transport = transport if transport is not None else _NO_OP_AGENT_CHANNEL
-        result = await self.execute(message, transport=resolved_transport)
+        canonical_message = coerce_user_message(message)
+        result = await self.execute(canonical_message, transport=resolved_transport)
         return self._with_normalized_output_text(result)
 
     async def start(self) -> None:
@@ -178,13 +180,14 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
                             reason=f"unsupported envelope kind for agent queue: {envelope.kind.value!r}",
                         )
                         continue
-                    if not isinstance(envelope.payload, str):
+                    task = _coerce_transport_prompt(envelope.payload)
+                    if task is None:
                         await _send_transport_error(
                             channel=channel,
                             envelope_id=envelope.id,
                             target="prompt",
                             code="INVALID_MESSAGE_PAYLOAD",
-                            reason="invalid message payload (expected string)",
+                            reason="invalid message payload (expected MessagePayload)",
                         )
                         continue
                     if self._in_flight_task is not None and not self._in_flight_task.done():
@@ -199,7 +202,7 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
 
                     self._in_flight_task = asyncio.create_task(
                         self._execute_polled_message(
-                            envelope.payload,
+                            task,
                             channel=channel,
                             envelope_id=envelope.id,
                         ),
@@ -232,7 +235,7 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
 
     async def _execute_polled_message(
         self,
-        task: str,
+        task: Message,
         *,
         channel: AgentChannel,
         envelope_id: str | None,
@@ -246,7 +249,12 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         finally:
             _TRANSPORT_LOOP_EXECUTION_CTX.reset(transport_loop_token)
         result = self._with_normalized_output_text(result)
-        await self._send_transport_result(result, task=task, transport=channel, reply_to=envelope_id)
+        await self._send_transport_result(
+            result,
+            task=preview_text(task),
+            transport=channel,
+            reply_to=envelope_id,
+        )
 
     def _is_transport_loop_execution(self, *, transport: AgentChannel | None) -> bool:
         """Return whether execute() is currently running under the transport loop."""
@@ -261,7 +269,7 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
     @abstractmethod
     async def execute(
         self,
-        task: str | Task,
+        task: Message,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
@@ -290,23 +298,19 @@ class BaseAgent(IAgent, IAgentOrchestration, ABC):
         envelope = TransportEnvelope(
             id=new_envelope_id(),
             reply_to=reply_to,
-            event_type=TransportEventType.RESULT.value,
-            payload={
-                **build_success_payload(
-                    kind="message",
-                    target="prompt",
-                    resp={
-                        "output": result.output,
-                        "success": result.success,
-                        "errors": list(result.errors),
-                        "task": task,
-                    },
-                ),
-                "output": result.output,
-                "success": result.success,
-                "errors": list(result.errors),
-                "task": task,
-            },
+            kind=EnvelopeKind.MESSAGE,
+            payload=MessagePayload(
+                id=new_envelope_id(),
+                role="assistant",
+                message_kind="chat",
+                text=result.output_text or "",
+                data={
+                    "success": result.success,
+                    "output": result.output,
+                    "errors": list(result.errors),
+                    "task": task,
+                },
+            ),
         )
         try:
             await channel.send(envelope)
@@ -382,6 +386,25 @@ def _coerce_polled_envelopes(polled: Any) -> list[TransportEnvelope]:
     raise TypeError(f"invalid poll return type: {type(polled).__name__}")
 
 
+def _coerce_transport_prompt(payload: Any) -> Message | None:
+    """Normalize transport message payloads into canonical Message input."""
+    if isinstance(payload, MessagePayload):
+        if payload.message_kind is not MessageKind.CHAT:
+            return None
+        if payload.role is not MessageRole.USER:
+            return None
+        return Message(
+            id=payload.id,
+            role=MessageRole.USER,
+            kind=MessageKind.CHAT,
+            text=payload.text,
+            attachments=list(payload.attachments),
+            data=dict(payload.data) if isinstance(payload.data, dict) else None,
+            metadata=dict(payload.metadata),
+        )
+    return None
+
+
 async def _send_transport_error(
     *,
     channel: AgentChannel,
@@ -396,12 +419,17 @@ async def _send_transport_error(
                 id=new_envelope_id(),
                 kind=EnvelopeKind.MESSAGE,
                 reply_to=envelope_id,
-                event_type=TransportEventType.ERROR.value,
-                payload=build_error_payload(
-                    kind="message",
-                    target=target,
-                    code=code,
-                    reason=reason,
+                payload=MessagePayload(
+                    id=new_envelope_id(),
+                    role="assistant",
+                    message_kind="summary",
+                    text=reason,
+                    data={
+                        "success": False,
+                        "target": target,
+                        "code": code,
+                        "reason": reason,
+                    },
                 ),
             )
         )

@@ -6,16 +6,22 @@ import asyncio
 import json
 from typing import Any, Callable
 
+from dare_framework.context.types import MessageKind, MessageRole
 from dare_framework.transport.interaction.controls import AgentControl
 from dare_framework.transport.interaction.resource_action import ResourceAction
 from dare_framework.transport.kernel import ClientChannel, PollableClientChannel
+from dare_framework.transport.serialization import jsonify_transport_value
 from dare_framework.transport.types import (
-    canonicalize_transport_event_type,
+    ActionPayload,
+    ControlPayload,
     EnvelopeKind,
+    MessagePayload,
     Receiver,
     Sender,
+    SelectDomain,
+    SelectKind,
+    SelectPayload,
     TransportEnvelope,
-    TransportEventType,
     new_envelope_id,
 )
 
@@ -39,31 +45,15 @@ class StdioClientChannel(ClientChannel):
 
     def agent_envelope_receiver(self) -> Receiver:
         async def recv(msg: TransportEnvelope) -> None:
-            event_type = _resolve_transport_event_type(msg)
             payload = msg.payload
-            if isinstance(payload, dict):
-                if event_type == TransportEventType.MESSAGE.value:
-                    kind = payload.get("kind")
-                    resp = payload.get("resp")
-                    if kind == "message":
-                        if isinstance(resp, dict) and "output" in resp:
-                            output = resp.get("output")
-                        else:
-                            output = payload.get("output")
-                    else:
-                        output = resp if resp is not None else payload
-                elif event_type == TransportEventType.ERROR.value:
-                    output = payload.get("reason") or payload.get("error")
-                elif event_type == TransportEventType.THINKING.value:
-                    resp = payload.get("resp")
-                    if isinstance(resp, dict):
-                        output = resp.get("output") or resp.get("thinking") or resp
-                    else:
-                        output = resp if resp is not None else payload
-                elif event_type == TransportEventType.STATUS.value:
-                    output = _render_status_output(payload)
-                else:
-                    output = payload
+            if isinstance(payload, SelectPayload):
+                output = _render_select_output(payload)
+            elif isinstance(payload, MessagePayload):
+                output = _render_message_output(payload)
+            elif isinstance(payload, ActionPayload):
+                output = _render_action_output(payload)
+            elif isinstance(payload, ControlPayload):
+                output = _render_control_output(payload)
             else:
                 output = payload
             print(f"\nAssistant: {output}\n", flush=True)
@@ -85,21 +75,38 @@ class StdioClientChannel(ClientChannel):
                 self._stopped = True
                 return
             kind = EnvelopeKind.MESSAGE
-            payload: Any = line
+            payload: Any = MessagePayload(
+                id=new_envelope_id(),
+                role=MessageRole.USER,
+                message_kind=MessageKind.CHAT,
+                text=line,
+            )
             meta: dict[str, Any] = {}
             if line.startswith("/"):
                 token = line.lstrip("/").strip()
                 if not token:
-                    payload = ResourceAction.ACTIONS_LIST.value
+                    payload = ActionPayload(
+                        id=new_envelope_id(),
+                        resource_action=ResourceAction.ACTIONS_LIST.value,
+                    )
                     kind = EnvelopeKind.ACTION
                 else:
                     control = AgentControl.value_of(token)
                     if control is not None:
                         kind = EnvelopeKind.CONTROL
-                        payload = control.value
+                        payload = ControlPayload(
+                            id=new_envelope_id(),
+                            control_id=control.value,
+                        )
                     else:
-                        payload, meta = _normalize_slash_action(token)
+                        resource_action, meta = _normalize_slash_action(token)
+                        payload = ActionPayload(
+                            id=new_envelope_id(),
+                            resource_action=resource_action,
+                            params=meta,
+                        )
                         kind = EnvelopeKind.ACTION
+                        meta = {}
             await self._sender(
                 TransportEnvelope(
                     id=new_envelope_id(),
@@ -174,7 +181,6 @@ class DirectClientChannel(PollableClientChannel):
                 id=new_envelope_id(),
                 reply_to=req.reply_to,
                 kind=req.kind,
-                event_type=req.event_type,
                 payload=req.payload,
                 meta=req.meta,
                 stream_id=req.stream_id,
@@ -215,7 +221,8 @@ def _normalize_slash_action(token: str) -> tuple[str, dict[str, Any]]:
         if action is not None:
             return action.value, _extract_action_params(action, parts[2:])
 
-    # Unknown slash command: preserve previous behavior for compatibility.
+    # Unknown slash command: keep it as an explicit action id so the transport
+    # contract stays open for custom action handlers.
     return token, {}
 
 
@@ -254,9 +261,8 @@ def _default_serialize(msg: TransportEnvelope) -> str:
     data = {
         "id": msg.id,
         "reply_to": msg.reply_to,
-        "kind": msg.kind,
-        "event_type": msg.event_type,
-        "payload": msg.payload,
+        "kind": msg.kind.value if isinstance(msg.kind, EnvelopeKind) else msg.kind,
+        "payload": jsonify_transport_value(msg.payload),
         "meta": msg.meta,
         "stream_id": msg.stream_id,
         "seq": msg.seq,
@@ -279,48 +285,161 @@ def _default_deserialize(raw: Any) -> TransportEnvelope:
         id=str(data.get("id") or new_envelope_id()),
         reply_to=data.get("reply_to"),
         kind=data.get("kind"),
-        event_type=data.get("event_type"),
-        payload=data.get("payload"),
+        payload=_deserialize_payload(kind=data.get("kind"), payload=data.get("payload")),
         meta=data.get("meta") or {},
         stream_id=data.get("stream_id"),
         seq=data.get("seq"),
     )
 
 
-def _resolve_transport_event_type(msg: TransportEnvelope) -> str | None:
-    """Resolve event_type for receiver routing."""
-    if isinstance(msg.event_type, str):
-        return canonicalize_transport_event_type(msg.event_type)
-    return None
+def _render_select_output(payload: SelectPayload) -> str:
+    """Render typed select payloads into concise stdio text."""
+    if payload.select_domain == SelectDomain.APPROVAL:
+        if payload.select_kind == SelectKind.ASK:
+            request = payload.metadata.get("request")
+            if isinstance(request, dict):
+                request_id = request.get("request_id")
+                if request_id:
+                    return f"approval pending: request_id={request_id}"
+            if payload.id:
+                return f"approval pending: request_id={payload.id}"
+            return "approval pending"
+        if payload.select_kind == SelectKind.ANSWERED:
+            selected = payload.selected
+            if isinstance(selected, dict):
+                request_id = selected.get("request_id") or payload.id
+                decision = selected.get("decision")
+                if request_id and decision is not None:
+                    return f"approval resolved: request_id={request_id} decision={decision}"
+            if payload.id:
+                return f"approval resolved: request_id={payload.id}"
+            return "approval resolved"
+    if payload.prompt:
+        return payload.prompt
+    return payload.select_kind
 
 
-def _render_status_output(payload: dict[str, Any]) -> Any:
-    """Render canonical status payload into a concise stdio output."""
-    resp = payload.get("resp")
-    if isinstance(resp, dict):
-        if "phase" in resp:
-            return resp.get("phase")
-        request_id = resp.get("request_id")
-        decision = resp.get("decision")
-        if isinstance(resp.get("request"), dict):
-            request_id = resp["request"].get("request_id")
-        if request_id and decision is not None:
-            return f"approval resolved: request_id={request_id} decision={decision}"
-        if request_id:
-            return f"approval pending: request_id={request_id}"
-        if any(key in resp for key in ("request", "request_id", "decision")):
-            return "approval update"
-        if "phase" in resp:
-            return resp.get("phase")
-        if "event" in resp:
-            return resp.get("event")
-        return resp
+def _render_message_output(payload: MessagePayload) -> Any:
+    if payload.message_kind == MessageKind.THINKING:
+        return payload.text or ""
+    if isinstance(payload.data, dict):
+        result = payload.data.get("result")
+        if isinstance(result, dict):
+            output = result.get("output")
+            if output is not None and payload.text in (None, ""):
+                return output
+        reason = payload.data.get("reason")
+        if payload.data.get("success") is False and reason:
+            return reason
+    return payload.text or ""
 
-    if "phase" in payload:
-        return payload.get("phase")
-    if "event" in payload:
-        return payload.get("event")
+
+def _render_action_output(payload: ActionPayload) -> Any:
+    if payload.ok is False:
+        return payload.reason or payload.code or payload.resource_action
+    if payload.result is not None:
+        return payload.result
+    return payload.resource_action
+
+
+def _render_control_output(payload: ControlPayload) -> Any:
+    if payload.ok is False:
+        return payload.reason or payload.code or payload.control_id
+    if payload.result is not None:
+        return payload.result
+    return payload.control_id
+
+
+def _deserialize_payload(*, kind: Any, payload: Any) -> Any:
+    if not isinstance(kind, str) or not isinstance(payload, dict):
+        return payload
+    try:
+        envelope_kind = EnvelopeKind(kind)
+    except ValueError:
+        return payload
+    if envelope_kind == EnvelopeKind.MESSAGE:
+        return MessagePayload(
+            id=str(payload.get("id") or new_envelope_id()),
+            metadata=_dict(payload.get("metadata")),
+            role=payload.get("role", MessageRole.USER),
+            message_kind=payload.get("message_kind", MessageKind.CHAT),
+            text=_opt_str(payload.get("text")),
+            attachments=_list(payload.get("attachments")),
+            data=_dict_or_none(payload.get("data")),
+        )
+    if envelope_kind == EnvelopeKind.SELECT:
+        return SelectPayload(
+            id=str(payload.get("id") or new_envelope_id()),
+            metadata=_dict(payload.get("metadata")),
+            select_kind=payload.get("select_kind", SelectKind.ASK),
+            select_domain=payload.get("select_domain", SelectDomain.CHOICE),
+            prompt=_opt_str(payload.get("prompt")),
+            options=_list_of_dicts(payload.get("options")),
+            selected=payload.get("selected"),
+        )
+    if envelope_kind == EnvelopeKind.ACTION:
+        return ActionPayload(
+            id=str(payload.get("id") or new_envelope_id()),
+            metadata=_dict(payload.get("metadata")),
+            resource_action=str(payload.get("resource_action") or ""),
+            params=_dict(payload.get("params")),
+            ok=_opt_bool(payload.get("ok")),
+            result=payload.get("result"),
+            code=_opt_str(payload.get("code")),
+            reason=_opt_str(payload.get("reason")),
+        )
+    if envelope_kind == EnvelopeKind.CONTROL:
+        return ControlPayload(
+            id=str(payload.get("id") or new_envelope_id()),
+            metadata=_dict(payload.get("metadata")),
+            control_id=str(payload.get("control_id") or ""),
+            params=_dict(payload.get("params")),
+            ok=_opt_bool(payload.get("ok")),
+            result=payload.get("result"),
+            code=_opt_str(payload.get("code")),
+            reason=_opt_str(payload.get("reason")),
+        )
     return payload
+
+
+def _dict(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): value for key, value in raw.items()}
+
+
+def _dict_or_none(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    return _dict(raw)
+
+
+def _list_of_dicts(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            items.append({str(key): value for key, value in item.items()})
+    return items
+
+
+def _list(raw: Any) -> list[Any]:
+    if not isinstance(raw, list):
+        return []
+    return list(raw)
+
+
+def _opt_str(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    return str(raw)
+
+
+def _opt_bool(raw: Any) -> bool | None:
+    if isinstance(raw, bool):
+        return raw
+    return None
 
 
 __all__ = ["StdioClientChannel", "WebSocketClientChannel", "DirectClientChannel"]

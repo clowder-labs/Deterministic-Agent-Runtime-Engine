@@ -17,11 +17,13 @@ from dare_framework.a2a.types import (
     text_part,
 )
 from dare_framework.a2a.server.message_adapter import (
+    message_parts_to_message,
     message_parts_to_user_input,
     message_parts_to_user_input_and_attachments,
     run_result_to_artifact_parts,
     run_result_to_artifact_dict,
 )
+from dare_framework.context.types import AttachmentKind, MessageKind, MessageRole
 from dare_framework.plan.types import RunResult
 
 
@@ -102,6 +104,135 @@ def test_message_parts_to_user_input_and_attachments_inline() -> None:
         assert Path(attachments[0]["path"]).read_text() == "content"
 
 
+def test_message_parts_to_message_promotes_image_file_to_attachment() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        parts = [
+            {"type": "text", "text": "Look at this"},
+            {
+                "type": "file",
+                "filename": "photo.png",
+                "mimeType": "image/png",
+                "inlineData": {"data": base64.b64encode(b"pngdata").decode()},
+            },
+        ]
+        message = message_parts_to_message(parts, workspace_dir=tmp, metadata={"conversation_id": "c1"})
+        assert message.role == MessageRole.USER
+        assert message.kind == MessageKind.CHAT
+        assert message.text == "Look at this"
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
+        assert message.attachments[0].filename == "photo.png"
+        assert message.metadata["conversation_id"] == "c1"
+        assert "a2a_attachments" in message.metadata
+
+
+def test_message_parts_to_message_infers_inline_image_mime_from_filename() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        parts = [
+            {
+                "type": "file",
+                "filename": "photo.png",
+                "inlineData": {"data": base64.b64encode(b"pngdata").decode()},
+            },
+        ]
+        message = message_parts_to_message(parts, workspace_dir=tmp)
+        assert len(message.attachments) == 1
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
+
+
+def test_message_parts_to_message_uses_inline_data_mime_for_image_classification() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        parts = [
+            {
+                "type": "file",
+                "filename": "upload",  # no extension; classification must rely on MIME.
+                "inlineData": {
+                    "mimeType": "image/png",
+                    "data": base64.b64encode(b"pngdata").decode(),
+                },
+            },
+        ]
+        message = message_parts_to_message(parts, workspace_dir=tmp)
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
+
+
+def test_message_parts_to_message_preserves_remote_image_uri_for_model_delivery() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        message = message_parts_to_message(
+            [
+                {"type": "file", "uri": "https://example.com/photo.png", "mimeType": "image/png"},
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert len(message.attachments) == 1
+        assert message.attachments[0].uri == "https://example.com/photo.png"
+        assert message.metadata["a2a_attachments"][0]["uri"] == "https://example.com/photo.png"
+        assert not (Path(tmp) / ".a2a_attachments").exists()
+
+
+def test_message_parts_to_message_does_not_fetch_or_attach_unsafe_uri() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        message = message_parts_to_message(
+            [
+                {"type": "file", "uri": "file:///etc/passwd", "mimeType": "image/png"},
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert message.attachments == []
+        assert message.text == "[Attachment: file:///etc/passwd]"
+        assert "a2a_attachments" not in message.metadata
+        assert not (Path(tmp) / ".a2a_attachments").exists()
+
+
+def test_message_parts_to_message_text_only_does_not_create_attachment_dir() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        message = message_parts_to_message(
+            [{"type": "text", "text": "plain text only"}],
+            workspace_dir=tmp,
+        )
+
+        assert message.text == "plain text only"
+        assert message.attachments == []
+        assert not (root / ".a2a_attachments").exists()
+
+
+def test_message_parts_to_message_handles_non_string_uri_mime_without_crashing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        message = message_parts_to_message(
+            [
+                {"type": "file", "uri": "https://example.com/photo.png", "mimeType": {"bad": "mime"}},
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri == "https://example.com/photo.png"
+
+
+def test_message_parts_to_message_parses_data_uri_mime_for_image_classification() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        message = message_parts_to_message(
+            [
+                {
+                    "type": "file",
+                    "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+                },
+            ],
+            workspace_dir=tmp,
+        )
+
+        assert len(message.attachments) == 1
+        assert message.attachments[0].kind == AttachmentKind.IMAGE
+        assert message.attachments[0].uri.startswith("data:image/png;base64,")
+
+
 def test_run_result_to_artifact_parts_text_only() -> None:
     result = RunResult(success=True, output="done")
     parts = run_result_to_artifact_parts(result)
@@ -158,8 +289,13 @@ def test_run_result_to_artifact_dict() -> None:
 def test_dispatch_request_tasks_send() -> None:
     import asyncio
     from dare_framework.a2a.server.handlers import dispatch_request
+    from dare_framework.context import Message
 
-    async def mock_run(task: object) -> RunResult:
+    async def mock_run(task: Message) -> RunResult:
+        assert isinstance(task, Message)
+        assert task.role == MessageRole.USER
+        assert task.kind == MessageKind.CHAT
+        assert task.text == "Hi"
         return RunResult(success=True, output="hello")
 
     async def run() -> None:

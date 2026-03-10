@@ -41,7 +41,7 @@ async def test_default_remediator_uses_model_input() -> None:
     model = DummyModelAdapter()
     remediator = DefaultRemediator(model)
     ctx = Context(id="remediator-test", config=Config())
-    ctx.stm_add(Message(role="user", content="do something"))
+    ctx.stm_add(Message(role="user", text="do something"))
 
     verify_result = VerifyResult(success=False, errors=["bad"])
     _ = await remediator.remediate(verify_result, ctx)

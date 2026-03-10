@@ -2,75 +2,89 @@ from __future__ import annotations
 
 import pytest
 
-from dare_framework.transport import canonicalize_transport_event_type, normalize_transport_event_type
-from dare_framework.transport.types import EnvelopeKind, TransportEnvelope, TransportEventType
+from dare_framework.context.types import AttachmentKind
+from dare_framework.transport.types import (
+    ActionPayload,
+    EnvelopeKind,
+    MessageKind,
+    MessagePayload,
+    SelectDomain,
+    SelectKind,
+    SelectPayload,
+    TransportEnvelope,
+)
 
 
-def test_transport_envelope_does_not_derive_event_type_from_payload_type() -> None:
+def test_transport_envelope_accepts_matching_typed_payload_family() -> None:
     envelope = TransportEnvelope(
-        id="evt-no-derive",
+        id="evt-message",
         kind=EnvelopeKind.MESSAGE,
-        payload={"type": "result"},
+        payload=MessagePayload(
+            id="msg-1",
+            role="assistant",
+            message_kind=MessageKind.THINKING,
+            text="need tool data",
+        ),
     )
-    assert envelope.event_type is None
+
+    assert envelope.kind is EnvelopeKind.MESSAGE
+    assert envelope.payload.message_kind is MessageKind.THINKING
 
 
-def test_transport_envelope_normalizes_legacy_event_type() -> None:
-    envelope = TransportEnvelope(
-        id="evt-legacy",
-        kind="message",
-        event_type="approval_pending",
-        payload={"type": "approval_pending"},
-    )
-    assert envelope.kind == EnvelopeKind.MESSAGE
-    assert envelope.event_type == TransportEventType.APPROVAL_PENDING.value
-
-
-def test_transport_envelope_accepts_select_kind() -> None:
+def test_transport_envelope_accepts_select_payload_with_strong_enums() -> None:
     envelope = TransportEnvelope(
         id="evt-select",
-        kind="select",
-        event_type=TransportEventType.APPROVAL_PENDING.value,
-        payload={"kind": "approval"},
+        kind=EnvelopeKind.SELECT,
+        payload=SelectPayload(
+            id="sel-1",
+            select_kind=SelectKind.ASK,
+            select_domain=SelectDomain.APPROVAL,
+            prompt="approve?",
+        ),
     )
-    assert envelope.kind == EnvelopeKind.SELECT
+
+    assert envelope.payload.select_kind is SelectKind.ASK
+    assert envelope.payload.select_domain is SelectDomain.APPROVAL
 
 
-def test_transport_envelope_rejects_empty_event_type() -> None:
-    with pytest.raises(ValueError, match="event_type must not be empty"):
+def test_transport_envelope_rejects_mismatched_typed_payload_family() -> None:
+    with pytest.raises(TypeError, match="invalid payload type for envelope kind"):
         TransportEnvelope(
-            id="evt-empty",
+            id="evt-mismatch",
             kind=EnvelopeKind.MESSAGE,
-            event_type="   ",
-            payload={"type": "result"},
+            payload=ActionPayload(
+                id="act-1",
+                resource_action="tools:list",
+            ),
         )
 
 
-def test_transport_facade_re_exports_event_type_normalizer() -> None:
-    assert normalize_transport_event_type("approval_pending") == TransportEventType.APPROVAL_PENDING.value
+def test_message_payload_rejects_attachments_for_thinking_kind() -> None:
+    with pytest.raises(ValueError, match="attachments are not supported"):
+        MessagePayload(
+            id="msg-thinking-attachments",
+            role="assistant",
+            message_kind=MessageKind.THINKING,
+            text="hidden reasoning",
+            attachments=[{"kind": AttachmentKind.IMAGE, "uri": "https://example.com/a.png"}],
+        )
 
 
-def test_transport_event_type_includes_canonical_categories() -> None:
-    assert TransportEventType.MESSAGE.value == "message"
-    assert TransportEventType.TOOL_CALL.value == "tool_call"
-    assert TransportEventType.TOOL_RESULT.value == "tool_result"
-    assert TransportEventType.THINKING.value == "thinking"
-    assert TransportEventType.ERROR.value == "error"
-    assert TransportEventType.STATUS.value == "status"
+def test_message_payload_rejects_non_dict_data() -> None:
+    with pytest.raises(TypeError, match="invalid data type"):
+        MessagePayload(
+            id="msg-bad-data",
+            role="assistant",
+            message_kind=MessageKind.TOOL_CALL,
+            text="call tool",
+            data="not-a-dict",
+        )
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("result", "message"),
-        ("tool.result", "tool_result"),
-        ("tool.call", "tool_call"),
-        ("hook", "status"),
-        ("approval.pending", "status"),
-        ("approval_pending", "status"),
-        ("approval.resolved", "status"),
-        ("approval_resolved", "status"),
-    ],
-)
-def test_canonicalize_transport_event_type_maps_legacy_aliases(raw: str, expected: str) -> None:
-    assert canonicalize_transport_event_type(raw) == expected
+def test_transport_envelope_rejects_raw_message_payload() -> None:
+    with pytest.raises(TypeError, match="expected MessagePayload"):
+        TransportEnvelope(
+            id="evt-raw",
+            kind=EnvelopeKind.MESSAGE,
+            payload="hello",
+        )

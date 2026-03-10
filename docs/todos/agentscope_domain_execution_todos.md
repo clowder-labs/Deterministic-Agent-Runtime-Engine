@@ -62,6 +62,9 @@
   - 删除上述 legacy compatibility
   - 把 transport request/reply 统一收敛到 typed payload families
   - 同步更新 client/example/test 契约
+- 后续仍需单独补一刀 `client/headless` 输入边界 typed 反序列化：
+  - 当前 `client/main.py` 处理宿主/事件流时仍消费 JSON-safe `dict` payload，并在边界上对 `message_kind/select_kind/select_domain` 做字符串分派。
+  - 需要新增 client boundary deserializer，把 `message/select/action/control` 重新水化为 typed payload，再进入内部处理，避免后续在 host-side 代码里散落原始字符串判断。
 
 ## 1. 能力/GAP 覆盖总览（用于确认“每个 TODO 支持什么能力”）
 
@@ -261,6 +264,14 @@
 | D7-2 | finish/revise 工具 | 新 plan tools + schema | P2/P3 | D7-1 | done | `tests/unit/test_plan_v2_tools.py::test_planner_exposes_revise_and_finish_plan_tools`，`tests/unit/test_plan_v2_tools.py::test_revise_current_plan_preserves_done_steps_by_step_id` |
 | D7-3 | 状态提示联动 | critical_block 规则更新 | 执行引导一致性 | D7-1/2 | done | `tests/unit/test_plan_v2_tools.py::test_critical_block_requires_finish_when_all_steps_done` |
 | D7-4 | 回归测试 | plan 全流程测试 | Plan 能力稳定 | D7-1/2/3 | done | `pytest -q tests/unit/test_plan_v2_tools.py tests/unit/test_react_agent_gateway_injection.py tests/unit/test_dare_agent_step_driven_mode.py`（31 passed）+ `pytest -q`（518 passed, 12 skipped, 1 warning） |
+
+后续 follow-up：
+- validator/runtime contract cleanup 需要单独切片：
+  - 当前运行时仍保留 `verify_milestone(..., plan=...)` 的反射式 fallback，避免 message/schema PR 顺手打破未完成收口的 validator 实现。
+  - 后续应在 D7/validator contract 自己的 change 中统一完成：
+    - 所有 validator 实现显式支持 `plan`
+    - 删除 `DareAgent._verify_milestone()` 中的 signature fallback
+    - 补齐对应 contract test / integration test
 
 ---
 

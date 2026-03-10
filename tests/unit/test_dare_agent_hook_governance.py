@@ -10,7 +10,7 @@ from dare_framework.context import Context, Message
 from dare_framework.hook.types import HookDecision, HookPhase, HookResult
 from dare_framework.infra.component import ComponentType
 from dare_framework.model.types import ModelInput, ModelResponse
-from dare_framework.plan.types import Task, ToolLoopRequest
+from dare_framework.plan.types import ToolLoopRequest
 from dare_framework.tool.types import ToolResult
 
 
@@ -94,7 +94,7 @@ async def test_before_tool_block_prevents_invoke() -> None:
 
 @pytest.mark.asyncio
 async def test_before_model_patch_replaces_model_input() -> None:
-    patched_input = ModelInput(messages=[Message(role="user", content="patched-by-hook")], tools=[], metadata={})
+    patched_input = ModelInput(messages=[Message(role="user", text="patched-by-hook")], tools=[], metadata={})
 
     def resolver(phase: HookPhase, _payload: dict[str, Any]) -> HookResult:
         if phase is HookPhase.BEFORE_MODEL:
@@ -112,7 +112,7 @@ async def test_before_model_patch_replaces_model_input() -> None:
 
     assert result["success"] is True
     assert model.inputs
-    assert model.inputs[0].messages[0].content == "patched-by-hook"
+    assert model.inputs[0].messages[0].text == "patched-by-hook"
 
 
 @pytest.mark.asyncio
@@ -179,7 +179,7 @@ async def test_model_hook_payload_contains_conversation_id_from_task_metadata() 
     tool_gateway = _RecordingToolGateway()
     agent = _build_agent(model=model, tool_gateway=tool_gateway, hook=_PolicyHook(resolver))
 
-    await agent(Task(description="hello", metadata={"conversation_id": "session-42"}))
+    await agent(Message(role="user", text="hello", metadata={"conversation_id": "session-42"}))
 
     assert observed_payloads
     assert observed_payloads[0].get("conversation_id") == "session-42"

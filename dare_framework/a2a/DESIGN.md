@@ -69,7 +69,7 @@ A2A 是**智能体间通信与协作**的开放标准（Google 与 50+ 伙伴共
 
 - **规范要求**：Message 有 role、parts、可选 metadata；Part 有 TextPart、FilePart（inline 或 uri）、DataPart 等。
 - **DARE 实现**：
-  - **入参**：A2A 请求中的 message.parts → 转为 DARE 任务描述与附件。当 `create_a2a_app(..., workspace_dir=...)` 传入 workspace_dir 时，FilePart（inline base64 或 URI）会被解码/拉取并落盘到 `workspace_dir/.a2a_attachments/<uuid>/`，路径列表写入 `task.metadata["a2a_attachments"]`（每项为 `{path, filename, mimeType}`），agent 可按需读取。
+  - **入参**：A2A 请求中的 message.parts → 转为 DARE 任务描述与附件。当 `create_a2a_app(..., workspace_dir=...)` 传入 workspace_dir 时，inline FilePart 会被解码并落盘到 `workspace_dir/.a2a_attachments/<uuid>/`；provider-safe URI FilePart 不会被服务端主动拉取，而是以 `{uri, filename, mimeType}` 的形式保留在 `task.metadata["a2a_attachments"]`。图片文件会进入 canonical `Message.attachments`，agent 可按需读取元数据中的本地路径或远端 URI。
   - **出参**：DARE 的回复 → TextPart；若 `RunResult.metadata["a2a_output_files"]` 为路径或 `{path, filename?, mimeType?}` 列表，则每个文件以 FilePart inline（base64）加入 Artifact，单文件超过 `max_inline_bytes`（默认 1MB）的跳过。
 
 ### 3.4 Artifact
@@ -91,7 +91,7 @@ A2A 是**智能体间通信与协作**的开放标准（Google 与 50+ 伙伴共
 ## 5. 文件传输（严格按协议）
 
 - **服务端产出为文件时**：小文件用 **inline base64** 放入 Artifact 的 FilePart（服务端实现传输）；大文件用 **URI** 时，由 DARE 提供可 GET 的 URL，**客户端**负责按 URI 拉取。
-- **客户端传入文件时**：若请求中为 FilePart inline，服务端解码使用；若为 URI，协议上由请求方确保可访问，DARE 若需内容可自行 GET（或要求调用方改为 inline）。
+- **客户端传入文件时**：若请求中为 FilePart inline，服务端可解码使用；若为 URI，DARE 不主动发起服务端下载，而是在 URI 方案属于 provider-safe（`http`/`https`/`data`）时直接透传给模型可见附件，其余 URI 退化为文本占位或要求调用方改为 inline。
 - 在类型定义中明确区分 FilePart 的 inline 与 uri 两种形态，在 message_adapter 与 artifact 构建处统一处理。
 
 ---
@@ -150,8 +150,8 @@ dare_framework/a2a/
 
 - **config**：提供 agent 名称、描述、技能路径等。`Config.a2a` 为可选 dict（`config.json` 中 `"a2a": {"name", "description", "provider", "capabilities", "auth"}`），`build_agent_card(config, base_url)` 会优先用其覆盖默认的 name/description/provider/capabilities/auth。
 - **skill**：只读 skill 元数据用于 AgentCard 与 AgentSkill；执行仍由现有 skill + tool 链完成。
-- **agent**：A2A server 将「协议入参」转为 DARE 输入，调用现有执行入口（如 `IAgentOrchestration.execute`），再将「DARE 结果」转为 Task 状态与 Artifact。
-- **context**：A2A Message 的 parts 注入为 task.description（文本 + `[Attachment: path]`）及 `task.metadata["a2a_attachments"]`；Artifact 从 run 结果收集。
+- **agent**：A2A server 将「协议入参」转为 canonical `Message`，调用现有执行入口（如 `IAgentOrchestration.execute`），再将「DARE 结果」转为 Task 状态与 Artifact。
+- **context**：A2A Message 的 text/file parts 注入为 canonical `Message.text + attachments`；解析后的附件描述列表（inline 为本地 `path`，remote 为原始 `uri`）仍写入 `message.metadata["a2a_attachments"]` 供 agent/tool 按需读取；Artifact 从 run 结果收集。
 - **mcp**：不改动；Agent 内部继续用 MCP 调用工具；A2A 仅负责智能体对外的协议与传输。
 
 ### 8.1 与执行层的必要约定（A2A 入参/出参）
@@ -160,7 +160,7 @@ dare_framework/a2a/
 
 | 约定 | 说明 | 谁负责 |
 |------|------|--------|
-| **a2a_attachments 的消费** | 用户通过 A2A 上传的文件会落盘到 `workspace_dir/.a2a_attachments/<uuid>/`，路径列表在 `task.metadata["a2a_attachments"]`（每项 `{path, filename, mimeType}`）。task.description 中会有 `[Attachment: path]`。 | Agent 或 prompt 若需「看到」附件内容，应读取 `task.metadata["a2a_attachments"]` 并用 read_file 等工具按 path 读取；或由上层在构建 context 时把附件路径/摘要注入 system 或 user 消息。 |
+| **a2a_attachments 的消费** | 用户通过 A2A 上传的 inline 文件会落盘到 `workspace_dir/.a2a_attachments/<uuid>/`，remote URI 文件不会被服务端主动下载。`message.metadata["a2a_attachments"]` 中每项为 `{path|uri, filename, mimeType}`；图片文件同时会进入 canonical `Message.attachments`。 | Agent 或 prompt 若需读取原始 inline 附件文件，可读取 `message.metadata["a2a_attachments"]` 并按 `path` 访问；若是 remote URI，则由业务决定是否显式读取/抓取。模型可见的图片输入优先通过 `Message.attachments` 进入上下文。 |
 | **a2a_output_files 的产出** | A2A 将 `RunResult.metadata["a2a_output_files"]` 视为「本次任务产出的文件」并加入 Artifact（inline 或 URI）。 | 执行层在返回 `RunResult` 前，若有需要作为 A2A 产出返回的文件，应写入 `result.metadata["a2a_output_files"]`（路径字符串列表或 `[{path, filename?, mimeType?}]`）。当前框架未自动收集 write_file 等工具的写入路径，可由业务在 run 后根据执行结果组装，或后续在 tool/agent 层增加统一收集逻辑。 |
 
 ---

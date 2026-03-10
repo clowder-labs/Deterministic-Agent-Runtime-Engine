@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, ClassVar
 from uuid import uuid4
 
-
+from dare_framework.context.types import (
+    AttachmentRef,
+    MessageKind,
+    MessageRole,
+    _validate_message_components,
+    _validate_message_payload_requirements,
+)
 class EnvelopeKind(StrEnum):
     """Strong envelope categories for transport dispatch."""
 
@@ -17,55 +23,101 @@ class EnvelopeKind(StrEnum):
     CONTROL = "control"
 
 
-class TransportEventType(StrEnum):
-    """Canonical event categories carried by message envelopes."""
+class SelectKind(StrEnum):
+    """Deterministic select lifecycle phases."""
 
-    MESSAGE = "message"
-    TOOL_CALL = "tool_call"
-    TOOL_RESULT = "tool_result"
-    THINKING = "thinking"
-    ERROR = "error"
-    STATUS = "status"
-
-    # Legacy aliases kept for backward compatibility with existing emitters/consumers.
-    RESULT = "result"
-    HOOK = "hook"
-    APPROVAL_PENDING = "approval.pending"
-    APPROVAL_RESOLVED = "approval.resolved"
+    ASK = "ask"
+    ANSWERED = "answered"
 
 
-_LEGACY_PAYLOAD_EVENT_TYPE_MAP: dict[str, str] = {
-    # Only legacy aliases that differ from canonical event_type values.
-    "approval_pending": TransportEventType.APPROVAL_PENDING.value,
-    "approval_resolved": TransportEventType.APPROVAL_RESOLVED.value,
-    "tool.result": TransportEventType.TOOL_RESULT.value,
-    "tool.call": TransportEventType.TOOL_CALL.value,
+class SelectDomain(StrEnum):
+    """Deterministic select interaction domains."""
+
+    APPROVAL = "approval"
+    CHOICE = "choice"
+    FORM = "form"
+
+@dataclass(frozen=True)
+class EnvelopePayload:
+    """Base typed payload carried by transport envelopes."""
+
+    id: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MessagePayload(EnvelopePayload):
+    """Typed payload for message envelopes."""
+
+    role: MessageRole = MessageRole.USER
+    message_kind: MessageKind = MessageKind.CHAT
+    text: str | None = None
+    attachments: list[AttachmentRef] = field(default_factory=list)
+    data: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "role", _coerce_enum_member(self.role, MessageRole, "role"))
+        object.__setattr__(self, "message_kind", _coerce_enum_member(self.message_kind, MessageKind, "message_kind"))
+        object.__setattr__(self, "attachments", AttachmentRef.coerce_many(self.attachments))
+        if self.data is not None and not isinstance(self.data, dict):
+            raise TypeError(f"invalid data type: {type(self.data).__name__}")
+        _validate_message_components(self.message_kind, self.attachments)
+        _validate_message_payload_requirements(self.message_kind, self.data)
+
+
+@dataclass(frozen=True)
+class SelectPayload(EnvelopePayload):
+    """Typed payload for select envelopes."""
+
+    select_kind: SelectKind = SelectKind.ASK
+    select_domain: SelectDomain = SelectDomain.CHOICE
+    prompt: str | None = None
+    options: list[dict[str, Any]] = field(default_factory=list)
+    selected: Any = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "select_kind", _coerce_enum_member(self.select_kind, SelectKind, "select_kind"))
+        object.__setattr__(self, "select_domain", _coerce_enum_member(self.select_domain, SelectDomain, "select_domain"))
+
+
+@dataclass(frozen=True)
+class ActionPayload(EnvelopePayload):
+    """Typed payload for action envelopes."""
+
+    resource_action: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
+    ok: bool | None = None
+    result: Any = None
+    code: str | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ControlPayload(EnvelopePayload):
+    """Typed payload for control envelopes."""
+
+    control_id: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
+    ok: bool | None = None
+    result: Any = None
+    code: str | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.control_id, str):
+            raise TypeError(f"invalid control_id type: {type(self.control_id).__name__}")
+        normalized = self.control_id.strip()
+        if not normalized:
+            raise ValueError("control_id must not be empty")
+        object.__setattr__(self, "control_id", normalized)
+
+
+_PAYLOAD_TYPES_BY_KIND: dict[EnvelopeKind, tuple[type[Any], ...]] = {
+    EnvelopeKind.MESSAGE: (MessagePayload,),
+    EnvelopeKind.SELECT: (SelectPayload,),
+    EnvelopeKind.ACTION: (ActionPayload,),
+    EnvelopeKind.CONTROL: (ControlPayload,),
 }
-
-_LEGACY_TO_CANONICAL_EVENT_TYPE_MAP: dict[str, str] = {
-    TransportEventType.RESULT.value: TransportEventType.MESSAGE.value,
-    TransportEventType.HOOK.value: TransportEventType.STATUS.value,
-    TransportEventType.APPROVAL_PENDING.value: TransportEventType.STATUS.value,
-    TransportEventType.APPROVAL_RESOLVED.value: TransportEventType.STATUS.value,
-}
-
-
-def normalize_transport_event_type(raw: str | None) -> str | None:
-    """Normalize legacy/new event_type strings into canonical values."""
-    if raw is None:
-        return None
-    normalized = raw.strip()
-    if not normalized:
-        return None
-    return _LEGACY_PAYLOAD_EVENT_TYPE_MAP.get(normalized, normalized)
-
-
-def canonicalize_transport_event_type(raw: str | None) -> str | None:
-    """Canonicalize legacy event aliases into the stable transport taxonomy."""
-    normalized = normalize_transport_event_type(raw)
-    if normalized is None:
-        return None
-    return _LEGACY_TO_CANONICAL_EVENT_TYPE_MAP.get(normalized, normalized)
 
 
 @dataclass(frozen=True)
@@ -75,8 +127,7 @@ class TransportEnvelope:
     id: str
     reply_to: str | None = None
     kind: EnvelopeKind = EnvelopeKind.MESSAGE
-    event_type: str | None = None
-    payload: Any = None
+    payload: EnvelopePayload | None = None
     meta: dict[str, Any] = field(default_factory=dict)
     stream_id: str | None = None
     seq: int | None = None
@@ -92,18 +143,16 @@ class TransportEnvelope:
         if not isinstance(kind, EnvelopeKind):
             raise TypeError(f"invalid envelope kind type: {type(kind).__name__}")
 
-        event_type = self.event_type
-        if isinstance(event_type, TransportEventType):
-            object.__setattr__(self, "event_type", event_type.value)
-            return
-        if event_type is None:
-            return
-        if not isinstance(event_type, str):
-            raise TypeError(f"invalid event_type type: {type(event_type).__name__}")
-        normalized = normalize_transport_event_type(event_type)
-        if normalized is None:
-            raise ValueError("event_type must not be empty")
-        object.__setattr__(self, "event_type", normalized)
+        payload = self.payload
+        expected_payload_types = _PAYLOAD_TYPES_BY_KIND.get(kind)
+        if payload is not None and expected_payload_types is not None:
+            if not isinstance(payload, expected_payload_types):
+                expected_names = ", ".join(tp.__name__ for tp in expected_payload_types)
+                raise TypeError(
+                    "invalid payload type for envelope kind "
+                    f"{kind.value!r}: expected {expected_names}, "
+                    f"got {type(payload).__name__}"
+                )
 
 
 def new_envelope_id() -> str:
@@ -112,14 +161,36 @@ def new_envelope_id() -> str:
     return uuid4().hex
 
 
+def _coerce_enum_member(raw: Any, enum_cls: type[StrEnum], field_name: str) -> StrEnum:
+    """Normalize enum-backed payload fields from strings or enum members."""
+    if isinstance(raw, enum_cls):
+        return raw
+    if not isinstance(raw, str):
+        raise TypeError(f"invalid {field_name} type: {type(raw).__name__}")
+    normalized = raw.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be empty")
+    try:
+        return enum_cls(normalized)
+    except ValueError as exc:
+        raise ValueError(f"invalid {field_name}: {raw!r}") from exc
+
+
 Sender = Callable[[TransportEnvelope], Awaitable[None]]
 Receiver = Callable[[TransportEnvelope], Awaitable[None]]
 
 __all__ = [
+    "AttachmentRef",
     "EnvelopeKind",
-    "TransportEventType",
-    "normalize_transport_event_type",
-    "canonicalize_transport_event_type",
+    "EnvelopePayload",
+    "MessageRole",
+    "MessageKind",
+    "MessagePayload",
+    "SelectKind",
+    "SelectDomain",
+    "SelectPayload",
+    "ActionPayload",
+    "ControlPayload",
     "TransportEnvelope",
     "new_envelope_id",
     "Sender",

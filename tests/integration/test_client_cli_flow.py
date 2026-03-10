@@ -358,8 +358,10 @@ async def test_main_run_headless_control_stdin_status_get_reports_pending_approv
     client_main = importlib.import_module("client.main")
     config = _config_for_tests(tmp_path)
     pending_event = {
-        "type": "approval_pending",
-        "resp": {
+        "id": "req-status-pending-1",
+        "select_kind": "ask",
+        "select_domain": "approval",
+        "metadata": {
             "request": {"request_id": "req-status-pending-1"},
             "capability_id": "run_command",
         },
@@ -387,7 +389,7 @@ async def test_main_run_headless_control_stdin_status_get_reports_pending_approv
 
     async def _observed_on_transport_event(payload, *, output, **kwargs):  # noqa: ANN001
         await original_on_transport_event(payload, output=output, **kwargs)
-        if payload.get("type") == "approval_pending":
+        if payload.get("select_kind") == "ask" and payload.get("select_domain") == "approval":
             approval_seen.set()
 
     control_sent = False
@@ -1387,8 +1389,10 @@ async def test_main_run_times_out_when_approval_pending(
     client_main = importlib.import_module("client.main")
     config = _config_for_tests(tmp_path)
     pending_event = {
-        "type": "approval_pending",
-        "resp": {
+        "id": "req-timeout-1",
+        "select_kind": "ask",
+        "select_domain": "approval",
+        "metadata": {
             "request": {"request_id": "req-timeout-1"},
             "capability_id": "run_command",
         },
@@ -1439,8 +1443,10 @@ async def test_main_run_headless_times_out_with_structured_failure(
     client_main = importlib.import_module("client.main")
     config = _config_for_tests(tmp_path)
     pending_event = {
-        "type": "approval_pending",
-        "resp": {
+        "id": "req-timeout-headless-1",
+        "select_kind": "ask",
+        "select_domain": "approval",
+        "metadata": {
             "request": {"request_id": "req-timeout-headless-1"},
             "capability_id": "run_command",
         },
@@ -1497,8 +1503,10 @@ async def test_main_script_headless_times_out_with_structured_failure(
     client_main = importlib.import_module("client.main")
     config = _config_for_tests(tmp_path)
     pending_event = {
-        "type": "approval_pending",
-        "resp": {
+        "id": "req-script-headless-timeout-1",
+        "select_kind": "ask",
+        "select_domain": "approval",
+        "metadata": {
             "request": {"request_id": "req-script-headless-timeout-1"},
             "capability_id": "run_command",
         },
@@ -1558,8 +1566,10 @@ async def test_main_script_headless_resets_timeout_watch_between_tasks(
     client_main = importlib.import_module("client.main")
     config = _config_for_tests(tmp_path)
     pending_event = {
-        "type": "approval_pending",
-        "resp": {
+        "id": "req-script-headless-reset-1",
+        "select_kind": "ask",
+        "select_domain": "approval",
+        "metadata": {
             "request": {"request_id": "req-script-headless-reset-1"},
             "capability_id": "run_command",
         },
@@ -1629,8 +1639,10 @@ async def test_main_run_auto_approves_configured_tool(
     client_main = importlib.import_module("client.main")
     config = _config_for_tests(tmp_path)
     pending_event = {
-        "type": "approval_pending",
-        "resp": {
+        "id": "req-auto-1",
+        "select_kind": "ask",
+        "select_domain": "approval",
+        "metadata": {
             "request": {"request_id": "req-auto-1"},
             "capability_id": "run_command",
             "tool_name": "run_command",
@@ -1716,10 +1728,10 @@ async def test_main_run_resume_latest_restores_history_and_session_id(
 
     async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
         _ = transport
-        seen_histories.append([message.content for message in agent.context.stm_get()])
+        seen_histories.append([message.text or "" for message in agent.context.stm_get()])
         seen_session_ids.append(conversation_id)
-        agent.context.stm_add(Message(role="user", content=task_text))
-        agent.context.stm_add(Message(role="assistant", content=f"done:{task_text}"))
+        agent.context.stm_add(Message(role="user", text=task_text))
+        agent.context.stm_add(Message(role="assistant", text=f"done:{task_text}"))
         return _OkResult()
 
     monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
@@ -1794,10 +1806,10 @@ async def test_main_run_resume_specific_session_restores_history(
 
     async def _fake_run_task(*, agent, task_text, conversation_id=None, transport=None):  # noqa: ANN001
         _ = transport
-        seen_histories.append([message.content for message in agent.context.stm_get()])
+        seen_histories.append([message.text or "" for message in agent.context.stm_get()])
         seen_session_ids.append(conversation_id)
-        agent.context.stm_add(Message(role="user", content=task_text))
-        agent.context.stm_add(Message(role="assistant", content=f"done:{task_text}"))
+        agent.context.stm_add(Message(role="user", text=task_text))
+        agent.context.stm_add(Message(role="assistant", text=f"done:{task_text}"))
         return _OkResult()
 
     monkeypatch.setattr(client_main, "load_effective_config", _fake_load_effective_config)
@@ -1856,8 +1868,8 @@ async def test_run_chat_script_sessions_list_emits_saved_sessions(
     store = session_store_module.ClientSessionStore(config.workspace_dir)
     older_state = client_main.CLISessionState(conversation_id="session-older")
     newer_state = client_main.CLISessionState(conversation_id="session-newer")
-    store.save(state=older_state, messages=[Message(role="user", content="older")])
-    store.save(state=newer_state, messages=[Message(role="user", content="newer")])
+    store.save(state=older_state, messages=[Message(role="user", text="older")])
+    store.save(state=newer_state, messages=[Message(role="user", text="newer")])
 
     rc = await client_main._run_chat(
         runtime=runtime,

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from dare_framework.transport import DirectClientChannel
+from dare_framework.transport.serialization import jsonify_transport_value
 
 EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 
@@ -23,7 +24,7 @@ async def drain_events(
         envelope = await client_channel.poll(timeout=0.0)
         if envelope is None:
             break
-        payload = envelope.payload
+        payload = jsonify_transport_value(envelope.payload)
         if isinstance(payload, dict):
             maybe_awaitable = on_event(payload)
             if maybe_awaitable is not None:
@@ -68,7 +69,7 @@ class EventPump:
                 continue
             if envelope is None:
                 continue
-            payload = envelope.payload
+            payload = jsonify_transport_value(envelope.payload)
             if not isinstance(payload, dict):
                 continue
             maybe_awaitable = self.on_event(payload)

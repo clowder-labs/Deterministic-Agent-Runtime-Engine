@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dare_framework.context.types import Message
+from dare_framework.context.types import AttachmentKind, AttachmentRef, Message
 from dare_framework.model.adapters.anthropic_adapter import (
     AnthropicModelAdapter,
     _extract_response_text,
@@ -34,12 +34,12 @@ def test_resolve_model_name_requires_model_source() -> None:
 def test_serialize_system_and_messages_preserves_tool_history() -> None:
     system_prompt, payload_messages = _serialize_system_and_messages(
         [
-            Message(role="system", content="You are a helpful assistant."),
-            Message(role="user", content="Need a filename"),
+            Message(role="system", text="You are a helpful assistant."),
+            Message(role="user", text="Need a filename"),
             Message(
                 role="assistant",
-                content="I need your confirmation first.",
-                metadata={
+                text="I need your confirmation first.",
+                data={
                     "tool_calls": [
                         {
                             "id": "call_1",
@@ -52,7 +52,7 @@ def test_serialize_system_and_messages_preserves_tool_history() -> None:
             Message(
                 role="tool",
                 name="call_1",
-                content="a.txt",
+                text="a.txt",
             ),
         ]
     )
@@ -71,6 +71,99 @@ def test_serialize_system_and_messages_preserves_tool_history() -> None:
         "role": "user",
         "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "a.txt"}],
     }
+
+
+def test_serialize_system_and_messages_supports_chat_text_with_image_attachments() -> None:
+    system_prompt, payload_messages = _serialize_system_and_messages(
+        [
+            Message(
+                role="user",
+                text="describe image",
+                attachments=[
+                    AttachmentRef(
+                        kind=AttachmentKind.IMAGE,
+                        uri="https://example.com/a.png",
+                        mime_type="image/png",
+                    ),
+                    AttachmentRef(
+                        kind=AttachmentKind.IMAGE,
+                        uri="https://example.com/b.png",
+                        mime_type="image/png",
+                    ),
+                ],
+            )
+        ]
+    )
+
+    assert system_prompt is None
+    assert payload_messages == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe image"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": "https://example.com/a.png",
+                    },
+                },
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": "https://example.com/b.png",
+                    },
+                },
+            ],
+        }
+    ]
+
+
+def test_serialize_system_and_messages_supports_inline_data_uri_images() -> None:
+    system_prompt, payload_messages = _serialize_system_and_messages(
+        [
+            Message(
+                role="user",
+                text="describe inline image",
+                attachments=[
+                    AttachmentRef(
+                        kind=AttachmentKind.IMAGE,
+                        uri="data:image/png;base64,cG5nZGF0YQ==",
+                        mime_type="image/png",
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert system_prompt is None
+    assert payload_messages == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe inline image"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "cG5nZGF0YQ==",
+                    },
+                },
+            ],
+        }
+    ]
+
+
+def test_tool_call_messages_require_data_instead_of_metadata_fallback() -> None:
+    with pytest.raises(ValueError, match="data is required"):
+        Message(
+            role="assistant",
+            kind="tool_call",
+            text="legacy metadata only",
+            metadata={"tool_calls": [{"id": "call_1", "name": "search", "arguments": {"q": "docs"}}]},
+        )
 
 
 def test_extract_response_fields_from_content_blocks() -> None:
@@ -122,7 +215,7 @@ async def test_generate_builds_anthropic_payload_and_parses_response() -> None:
 
     result = await adapter.generate(
         ModelInput(
-            messages=[Message(role="system", content="You are careful."), Message(role="user", content="hello")],
+            messages=[Message(role="system", text="You are careful."), Message(role="user", text="hello")],
             tools=[
                 CapabilityDescriptor(
                     id="search-docs",
@@ -174,7 +267,7 @@ async def test_generate_keeps_normalized_max_tokens_when_extra_value_is_none() -
     adapter = AnthropicModelAdapter(api_key="test-key", model="claude-sonnet-4-5", extra={"max_tokens": None})
     adapter._client = _FakeClient()  # type: ignore[assignment]
 
-    await adapter.generate(ModelInput(messages=[Message(role="user", content="hello")]))
+    await adapter.generate(ModelInput(messages=[Message(role="user", text="hello")]))
 
     assert calls
     assert calls[0]["max_tokens"] == 2048
@@ -196,7 +289,7 @@ async def test_generate_normalizes_string_max_tokens_from_extra() -> None:
     adapter = AnthropicModelAdapter(api_key="test-key", model="claude-opus-4-1", extra={"max_tokens": "256"})
     adapter._client = _FakeClient()  # type: ignore[assignment]
 
-    await adapter.generate(ModelInput(messages=[Message(role="user", content="hello")]))
+    await adapter.generate(ModelInput(messages=[Message(role="user", text="hello")]))
 
     assert calls
     assert calls[0]["max_tokens"] == 256

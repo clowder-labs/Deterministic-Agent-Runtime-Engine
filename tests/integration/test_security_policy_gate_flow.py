@@ -152,7 +152,7 @@ async def test_denied_capability_blocks_tool_before_invocation(tmp_path: Path) -
 
     tool_messages = [msg for msg in agent._context.stm_get() if msg.role == "tool"]  # noqa: SLF001
     assert tool_messages
-    tool_payload = json.loads(tool_messages[-1].content)
+    tool_payload = json.loads(tool_messages[-1].text or "")
     assert tool_payload.get("status") == "not_allow"
     assert tool_payload.get("success") is False
     assert gateway.invoke_calls == []

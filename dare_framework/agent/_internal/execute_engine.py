@@ -178,7 +178,7 @@ async def run_execute_loop(
         })
 
         if not response.tool_calls:
-            assistant_message = Message(role="assistant", content=response.content)
+            assistant_message = Message(role="assistant", text=response.content)
             agent._context.stm_add(assistant_message)
 
             outputs.append({"content": response.content})
@@ -192,8 +192,9 @@ async def run_execute_loop(
 
         assistant_msg = Message(
             role="assistant",
-            content=response.content or "",
-            metadata={"tool_calls": response.tool_calls} if response.tool_calls else {},
+            kind="tool_call" if response.tool_calls else "chat",
+            text=response.content or "",
+            data={"tool_calls": response.tool_calls} if response.tool_calls else None,
         )
         agent._context.stm_add(assistant_msg)
 
@@ -258,8 +259,17 @@ async def run_execute_loop(
             )
             tool_msg = Message(
                 role="tool",
+                kind="tool_result",
                 name=tool_call_id or capability_id,
-                content=tool_result_content,
+                text=tool_result_content,
+                data={
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "success": result_success,
+                    "status": result_status,
+                    "output": result_output,
+                    "error": None if result_success else result_error,
+                },
             )
             agent._context.stm_add(tool_msg)
 

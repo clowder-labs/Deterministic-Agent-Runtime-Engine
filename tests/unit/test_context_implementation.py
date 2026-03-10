@@ -2,7 +2,7 @@
 import pytest
 from dare_framework.config import Config
 from dare_framework.context.context import Context
-from dare_framework.context.types import Message, Budget
+from dare_framework.context.types import AttachmentKind, AttachmentRef, Budget, Message
 from dare_framework.model import Prompt
 from dare_framework.tool._internal.tools.noop_tool import NoopTool
 from dare_framework.tool.tool_manager import ToolManager
@@ -20,12 +20,12 @@ def test_context_initialization():
 
 def test_context_stm_methods():
     ctx = Context(config=Config())
-    msg = Message(role="user", content="hello")
+    msg = Message(role="user", text="hello")
     ctx.stm_add(msg)
     
     messages = ctx.stm_get()
     assert len(messages) == 1
-    assert messages[0].content == "hello"
+    assert messages[0].text == "hello"
     
     ctx.stm_clear()
     assert len(ctx.stm_get()) == 0
@@ -51,14 +51,38 @@ def test_context_assemble():
         order=0,
     )
     ctx = Context(config=Config(), sys_prompt=prompt)
-    ctx.stm_add(Message(role="user", content="hi"))
+    ctx.stm_add(Message(role="user", text="hi"))
     
     assembled = ctx.assemble()
     assert assembled.sys_prompt is not None
     assert assembled.sys_prompt.content == "You are a helpful assistant"
     assert len(assembled.messages) == 1
-    assert assembled.messages[0].content == "hi"
+    assert assembled.messages[0].text == "hi"
     assert assembled.metadata["context_id"] == ctx.id
+
+
+def test_context_assemble_preserves_chat_attachments() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(
+        Message(
+            role="user",
+            text="see image",
+            attachments=[
+                AttachmentRef(
+                    kind=AttachmentKind.IMAGE,
+                    uri="https://example.com/a.png",
+                    mime_type="image/png",
+                )
+            ],
+        )
+    )
+
+    assembled = ctx.assemble()
+
+    assert len(assembled.messages) == 1
+    assert assembled.messages[0].text == "see image"
+    assert len(assembled.messages[0].attachments) == 1
+    assert assembled.messages[0].attachments[0].uri == "https://example.com/a.png"
 
 
 def test_context_requires_non_null_config():
@@ -126,20 +150,20 @@ class _CompressionRecordingSTM(_FakeRetrieval):
 
 
 def test_context_assemble_fuses_ltm_and_knowledge_with_latest_user_query():
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
-    knowledge = _FakeRetrieval([Message(role="assistant", content="knowledge-hit")])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
+    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
     ctx = Context(
         config=Config(),
         long_term_memory=ltm,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="old request"))
-    ctx.stm_add(Message(role="assistant", content="ack"))
-    ctx.stm_add(Message(role="user", content="latest request"))
+    ctx.stm_add(Message(role="user", text="old request"))
+    ctx.stm_add(Message(role="assistant", text="ack"))
+    ctx.stm_add(Message(role="user", text="latest request"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["old request", "ack", "latest request", "ltm-hit", "knowledge-hit"]
     assert ltm.calls and ltm.calls[0][0] == "latest request"
     assert knowledge.calls and knowledge.calls[0][0] == "latest request"
@@ -149,8 +173,8 @@ def test_context_assemble_fuses_ltm_and_knowledge_with_latest_user_query():
 
 
 def test_context_assemble_degrades_when_token_budget_low():
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
-    knowledge = _FakeRetrieval([Message(role="assistant", content="knowledge-hit")])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
+    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
     # Force a low remaining token budget so retrieval should be skipped.
     budget = Budget(max_tokens=32)
     ctx = Context(
@@ -159,36 +183,36 @@ def test_context_assemble_degrades_when_token_budget_low():
         long_term_memory=ltm,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="x" * 160))
+    ctx.stm_add(Message(role="user", text="x" * 160))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["x" * 160]
     assert assembled.metadata["retrieval"]["degraded"] is True
     assert assembled.metadata["retrieval"]["degrade_reason"] == "token_budget_low"
 
 
 def test_context_assemble_handles_retrieval_exception_gracefully():
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")], fail=True)
-    knowledge = _FakeRetrieval([Message(role="assistant", content="knowledge-hit")])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")], fail=True)
+    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
     ctx = Context(
         config=Config(),
         long_term_memory=ltm,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="query"))
+    ctx.stm_add(Message(role="user", text="query"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["query", "knowledge-hit"]
     assert assembled.metadata["retrieval"]["degraded"] is True
     assert assembled.metadata["retrieval"]["degrade_reason"] == "ltm_retrieval_failed"
 
 
 def test_context_assemble_single_source_uses_full_retrieval_budget():
-    ltm = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    ltm = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
     config = Config(
         long_term_memory={
             "assemble_top_k": 1,
@@ -207,11 +231,11 @@ def test_context_assemble_single_source_uses_full_retrieval_budget():
         long_term_memory=ltm,
         knowledge=None,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q", "x" * 64]
     assert assembled.metadata["retrieval"]["ltm_count"] == 1
     assert assembled.metadata["retrieval"]["degraded"] is False
@@ -220,8 +244,8 @@ def test_context_assemble_single_source_uses_full_retrieval_budget():
 def test_context_assemble_skips_oversized_retrieval_hits_and_keeps_later_candidates():
     ltm = _FakeRetrieval(
         [
-            Message(role="assistant", content="x" * 220),
-            Message(role="assistant", content="small-hit"),
+            Message(role="assistant", text="x" * 220),
+            Message(role="assistant", text="small-hit"),
         ]
     )
     config = Config(
@@ -241,18 +265,18 @@ def test_context_assemble_skips_oversized_retrieval_hits_and_keeps_later_candida
         long_term_memory=ltm,
         knowledge=None,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q", "small-hit"]
     assert assembled.metadata["retrieval"]["ltm_count"] == 1
     assert assembled.metadata["retrieval"]["degraded"] is True
 
 
 def test_context_assemble_reserve_tokens_respects_knowledge_only_config():
-    knowledge = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    knowledge = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
     config = Config(
         long_term_memory={"assemble_top_k": 0},
         knowledge={
@@ -267,18 +291,18 @@ def test_context_assemble_reserve_tokens_respects_knowledge_only_config():
         long_term_memory=None,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q", "x" * 64]
     assert assembled.metadata["retrieval"]["knowledge_count"] == 1
     assert assembled.metadata["retrieval"]["degraded"] is False
 
 
 def test_context_assemble_ignores_inactive_ltm_reserve_tokens_for_knowledge_only_retrieval():
-    knowledge = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    knowledge = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
     config = Config(
         long_term_memory={
             "assemble_top_k": 0,
@@ -296,19 +320,19 @@ def test_context_assemble_ignores_inactive_ltm_reserve_tokens_for_knowledge_only
         long_term_memory=None,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q", "x" * 64]
     assert assembled.metadata["retrieval"]["knowledge_count"] == 1
     assert assembled.metadata["retrieval"]["degraded"] is False
 
 
 def test_context_assemble_rebalances_budget_when_ltm_retrieval_fails():
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")], fail=True)
-    knowledge = _FakeRetrieval([Message(role="assistant", content="x" * 64)])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")], fail=True)
+    knowledge = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
     config = Config(
         long_term_memory={
             "assemble_top_k": 1,
@@ -327,11 +351,11 @@ def test_context_assemble_rebalances_budget_when_ltm_retrieval_fails():
         long_term_memory=ltm,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q", "x" * 64]
     assert assembled.metadata["retrieval"]["ltm_count"] == 0
     assert assembled.metadata["retrieval"]["knowledge_count"] == 1
@@ -340,8 +364,8 @@ def test_context_assemble_rebalances_budget_when_ltm_retrieval_fails():
 
 
 def test_context_assemble_skips_zero_budget_source_retrieval_call() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
-    knowledge = _FakeRetrieval([Message(role="assistant", content="knowledge-hit")])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
+    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
     config = Config(
         long_term_memory={
             "assemble_top_k": 1,
@@ -360,11 +384,11 @@ def test_context_assemble_skips_zero_budget_source_retrieval_call() -> None:
         long_term_memory=ltm,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q", "knowledge-hit"]
     assert ltm.calls == []
     assert len(knowledge.calls) == 1
@@ -372,7 +396,7 @@ def test_context_assemble_skips_zero_budget_source_retrieval_call() -> None:
 
 
 def test_context_assemble_handles_overflowing_numeric_retrieval_config() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
     config = Config(
         long_term_memory={
             "assemble_top_k": float("inf"),
@@ -385,7 +409,7 @@ def test_context_assemble_handles_overflowing_numeric_retrieval_config() -> None
         long_term_memory=ltm,
         knowledge=None,
     )
-    ctx.stm_add(Message(role="user", content="query"))
+    ctx.stm_add(Message(role="user", text="query"))
 
     assembled = ctx.assemble()
 
@@ -393,7 +417,7 @@ def test_context_assemble_handles_overflowing_numeric_retrieval_config() -> None
 
 
 def test_context_assemble_rejects_infinite_ratio_and_keeps_budget_guardrails() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", content="x" * 220)])
+    ltm = _FakeRetrieval([Message(role="assistant", text="x" * 220)])
     config = Config(
         long_term_memory={
             "assemble_top_k": 1,
@@ -408,18 +432,18 @@ def test_context_assemble_rejects_infinite_ratio_and_keeps_budget_guardrails() -
         long_term_memory=ltm,
         knowledge=None,
     )
-    ctx.stm_add(Message(role="user", content="q"))
+    ctx.stm_add(Message(role="user", text="q"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["q"]
     assert assembled.metadata["retrieval"]["ltm_count"] == 0
     assert assembled.metadata["retrieval"]["degraded"] is True
 
 
 def test_context_assemble_handles_overflowing_numeric_ratio_config() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", content="ltm-hit")])
+    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
     config = Config(
         long_term_memory={
             "assemble_top_k": 1,
@@ -433,11 +457,11 @@ def test_context_assemble_handles_overflowing_numeric_ratio_config() -> None:
         long_term_memory=ltm,
         knowledge=None,
     )
-    ctx.stm_add(Message(role="user", content="query"))
+    ctx.stm_add(Message(role="user", text="query"))
 
     assembled = ctx.assemble()
 
-    contents = [message.content for message in assembled.messages]
+    contents = [message.text for message in assembled.messages]
     assert contents == ["query", "ltm-hit"]
     assert assembled.metadata["retrieval"]["ltm_count"] == 1
 
@@ -445,9 +469,9 @@ def test_context_assemble_handles_overflowing_numeric_ratio_config() -> None:
 def test_context_compress_max_messages_uses_backend_compress_only(monkeypatch: pytest.MonkeyPatch) -> None:
     stm = _CompressionRecordingSTM(
         [
-            Message(role="user", content="m0"),
-            Message(role="assistant", content="m1"),
-            Message(role="user", content="m2"),
+            Message(role="user", text="m0"),
+            Message(role="assistant", text="m1"),
+            Message(role="user", text="m2"),
         ]
     )
     ctx = Context(config=Config(), short_term_memory=stm)
@@ -465,15 +489,15 @@ def test_context_compress_max_messages_uses_backend_compress_only(monkeypatch: p
 
     assert len(stm.compress_calls) == 1
     assert stm.compress_calls[0].get("max_messages") == 2
-    assert [message.content for message in ctx.stm_get()] == ["m1", "m2"]
+    assert [message.text for message in ctx.stm_get()] == ["m1", "m2"]
 
 
 def test_context_compress_advanced_path_preserves_backend_semantics(monkeypatch: pytest.MonkeyPatch) -> None:
     stm = _CompressionRecordingSTM(
         [
-            Message(role="user", content="m0"),
-            Message(role="assistant", content="m1"),
-            Message(role="user", content="m2"),
+            Message(role="user", text="m0"),
+            Message(role="assistant", text="m1"),
+            Message(role="user", text="m2"),
         ]
     )
     ctx = Context(config=Config(), short_term_memory=stm)
@@ -495,4 +519,4 @@ def test_context_compress_advanced_path_preserves_backend_semantics(monkeypatch:
     assert stm.compress_calls[0].get("max_messages") == 2
     assert calls and calls[0].get("max_messages") == 2
     assert stm_sizes_seen_by_strategy == [3]
-    assert [message.content for message in ctx.stm_get()] == ["m1", "m2"]
+    assert [message.text for message in ctx.stm_get()] == ["m1", "m2"]

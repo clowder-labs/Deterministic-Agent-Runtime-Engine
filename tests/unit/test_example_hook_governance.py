@@ -54,7 +54,7 @@ async def test_examples_08_hook_governance_hook_blocks_model_with_keyword() -> N
     )
     hook = module.GovernancePolicyHook()
     model_input = ModelInput(
-        messages=[Message(role="user", content="#hook_block_model please stop")],
+        messages=[Message(role="user", text="#hook_block_model please stop")],
         tools=[],
         metadata={},
     )
@@ -73,7 +73,7 @@ async def test_examples_08_hook_governance_hook_patches_user_message() -> None:
     )
     hook = module.GovernancePolicyHook()
     model_input = ModelInput(
-        messages=[Message(role="user", content="hello world")],
+        messages=[Message(role="user", text="hello world")],
         tools=[],
         metadata={},
     )
@@ -85,7 +85,7 @@ async def test_examples_08_hook_governance_hook_patches_user_message() -> None:
     assert isinstance(result.patch, dict)
     patched_input = result.patch["model_input"]
     assert isinstance(patched_input, ModelInput)
-    assert patched_input.messages[0].content.startswith("[hook patched]")
+    assert (patched_input.messages[0].text or "").startswith("[hook patched]")
 
 
 @pytest.mark.asyncio

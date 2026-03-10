@@ -104,9 +104,22 @@ class LLMIOCaptureHook(IHook):
             "request": {
                 "messages": [
                     {
-                        "role": message.role,
+                        "id": message.id,
+                        "role": str(message.role),
+                        "kind": str(getattr(message, "kind", "")),
                         "name": message.name,
-                        "content": message.content,
+                        "text": getattr(message, "text", None),
+                        "attachments": [
+                            {
+                                "kind": str(attachment.kind),
+                                "uri": attachment.uri,
+                                "mime_type": attachment.mime_type,
+                                "filename": attachment.filename,
+                                "metadata": dict(attachment.metadata),
+                            }
+                            for attachment in getattr(message, "attachments", [])
+                        ],
+                        "data": dict(message.data) if isinstance(getattr(message, "data", None), dict) else None,
                         "metadata": dict(message.metadata),
                     }
                     for message in model_input.messages

@@ -156,7 +156,7 @@ def _serialize_system_and_messages(messages: list[Any]) -> tuple[str | None, lis
 
     for msg in messages:
         role = str(getattr(msg, "role", "user"))
-        content = str(getattr(msg, "content", ""))
+        content = _message_text(msg)
         if role == "system":
             text = content.strip()
             if text:
@@ -167,7 +167,8 @@ def _serialize_system_and_messages(messages: list[Any]) -> tuple[str | None, lis
             message_content: list[dict[str, Any]] = []
             if content:
                 message_content.append({"type": "text", "text": content})
-            tool_calls = _normalize_tool_calls(getattr(msg, "metadata", {}).get("tool_calls", []))
+            message_content.extend(_serialize_image_attachments(msg))
+            tool_calls = _normalize_tool_calls(_extract_message_tool_calls(msg))
             message_content.extend(tool_calls)
             if not message_content:
                 message_content.append({"type": "text", "text": ""})
@@ -175,7 +176,7 @@ def _serialize_system_and_messages(messages: list[Any]) -> tuple[str | None, lis
             continue
 
         if role == "tool":
-            tool_call_id = getattr(msg, "name", None) or "tool_call"
+            tool_call_id = _extract_message_tool_call_id(msg) or "tool_call"
             payload.append(
                 {
                     "role": "user",
@@ -190,7 +191,16 @@ def _serialize_system_and_messages(messages: list[Any]) -> tuple[str | None, lis
             )
             continue
 
-        payload.append({"role": "user", "content": content})
+        user_attachments = _serialize_image_attachments(msg)
+        if not user_attachments:
+            payload.append({"role": "user", "content": content})
+            continue
+
+        user_content: list[dict[str, Any]] = []
+        if content:
+            user_content.append({"type": "text", "text": content})
+        user_content.extend(user_attachments)
+        payload.append({"role": "user", "content": user_content})
 
     system_prompt = "\n\n".join(system_parts) if system_parts else None
     return system_prompt, payload
@@ -225,6 +235,73 @@ def _normalize_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
             }
         )
     return normalized
+
+
+def _serialize_image_attachments(message: Any) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for attachment in list(getattr(message, "attachments", []) or []):
+        if str(getattr(attachment, "kind", "")).strip().lower() != "image":
+            raise ValueError("unsupported attachment kind for Anthropic serialization")
+        inline_block = _serialize_inline_image_attachment(attachment)
+        if inline_block is not None:
+            blocks.append(inline_block)
+            continue
+        blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": attachment.uri,
+                },
+            }
+        )
+    return blocks
+
+
+def _serialize_inline_image_attachment(attachment: Any) -> dict[str, Any] | None:
+    uri = getattr(attachment, "uri", None)
+    if not isinstance(uri, str) or not uri.startswith("data:"):
+        return None
+    header, _, encoded = uri.partition(",")
+    if not header or not encoded or ";base64" not in header:
+        raise ValueError("unsupported data URI image for Anthropic serialization")
+    media_type = header[5:].split(";", 1)[0].strip()
+    if not media_type:
+        media_type = str(getattr(attachment, "mime_type", "") or "").strip() or "application/octet-stream"
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": encoded,
+        },
+    }
+
+
+def _message_text(message: Any) -> str:
+    text = getattr(message, "text", None)
+    if isinstance(text, str):
+        return text
+    return ""
+
+
+def _extract_message_tool_calls(message: Any) -> Any:
+    data = getattr(message, "data", None)
+    if isinstance(data, dict) and isinstance(data.get("tool_calls"), list):
+        return data["tool_calls"]
+    return []
+
+
+def _extract_message_tool_call_id(message: Any) -> str | None:
+    data = getattr(message, "data", None)
+    if isinstance(data, dict):
+        tool_call_id = data.get("tool_call_id")
+        if isinstance(tool_call_id, str) and tool_call_id.strip():
+            return tool_call_id
+    name = getattr(message, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name
+    return None
 
 
 def _extract_response_text(content_blocks: list[Any]) -> str:

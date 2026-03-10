@@ -44,7 +44,7 @@ class Document:
 
         return Message(
             role=role,
-            content=self.content,
+            text=self.content,
             name=self.metadata.get("source") or self.id,
             metadata={
                 **self.metadata,

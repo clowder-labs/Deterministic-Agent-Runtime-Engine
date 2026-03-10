@@ -27,9 +27,16 @@ from dare_framework.context import Context, Message
 from dare_framework.event.kernel import IEventLog
 from dare_framework.event.types import Event, RuntimeSnapshot
 from dare_framework.model import OpenRouterModelAdapter
-from dare_framework.plan import DefaultPlanner, DefaultRemediator, Task
+from dare_framework.plan import DefaultPlanner, DefaultRemediator
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
-from dare_framework.transport import AgentChannel, DirectClientChannel, EnvelopeKind, TransportEnvelope, new_envelope_id
+from dare_framework.transport import (
+    ActionPayload,
+    AgentChannel,
+    DirectClientChannel,
+    EnvelopeKind,
+    TransportEnvelope,
+    new_envelope_id,
+)
 from dare_framework.transport.interaction.resource_action import ResourceAction
 
 from validators.file_validator import FileExistsValidator
@@ -330,7 +337,7 @@ async def preview_plan(task_text: str, model: OpenRouterModelAdapter, display: C
         id="plan-preview",
         config=Config(workspace_dir=str(PROJECT_ROOT), user_dir=str(Path.home())),
     )
-    ctx.stm_add(Message(role="user", content=task_text))
+    ctx.stm_add(Message(role="user", text=task_text))
     planner = DefaultPlanner(model, verbose=False)
     plan = await planner.plan(ctx)
     display.show_plan(plan)
@@ -372,7 +379,7 @@ def _network_error_hint(exc: Exception) -> str | None:
 async def run_task(agent: Any, task_text: str, display: CLIDisplay) -> None:
     display.header("EXECUTION")
     try:
-        result = await agent(Task(description=task_text))
+        result = await agent(Message(role="user", text=task_text))
     except Exception as exc:
         display.error(f"execution error: {exc}")
         hint = _network_error_hint(exc)
@@ -544,7 +551,10 @@ async def _invoke_approval_action(
     request = TransportEnvelope(
         id=new_envelope_id(),
         kind=EnvelopeKind.ACTION,
-        payload=action.value,
+        payload=ActionPayload(
+            id=new_envelope_id(),
+            resource_action=action.value,
+        ),
         meta=meta,
     )
     response = await approval_client.ask(
@@ -552,25 +562,13 @@ async def _invoke_approval_action(
         timeout=_approval_action_timeout_seconds(action, meta),
     )
     payload = response.payload
-    if not isinstance(payload, dict):
+    if not isinstance(payload, ActionPayload):
         raise RuntimeError(f"unexpected action response payload: {payload!r}")
-
-    event_type = response.event_type
-    if not isinstance(event_type, str) or not event_type:
-        raise RuntimeError("invalid action response: missing event_type")
-    if event_type != "result":
-        if event_type == "error":
-            raise RuntimeError(str(payload.get("reason") or payload.get("error") or "action failed"))
-        raise RuntimeError(f"invalid action response event_type: {event_type}")
-
-    resp = payload.get("resp")
-    if not isinstance(resp, dict):
-        raise RuntimeError(f"unexpected action response shape: {payload!r}")
-
-    result = resp.get("result")
-    if not isinstance(result, dict):
+    if payload.ok is False:
+        raise RuntimeError(str(payload.reason or payload.code or "action failed"))
+    if not isinstance(payload.result, dict):
         raise RuntimeError(f"unexpected action result shape: {payload!r}")
-    return result
+    return payload.result
 
 
 def _approval_action_timeout_seconds(action: ResourceAction, params: dict[str, Any]) -> float:

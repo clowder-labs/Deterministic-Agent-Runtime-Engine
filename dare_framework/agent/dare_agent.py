@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from dare_framework.agent._internal.input_normalizer import build_task_from_message
 from dare_framework.agent._internal.output_normalizer import build_output_envelope
 from dare_framework.agent._internal.execute_engine import run_execute_loop
 from dare_framework.agent._internal.milestone_orchestrator import run_milestone_loop
@@ -82,7 +83,6 @@ from dare_framework.transport.interaction.payloads import (
 from dare_framework.transport.types import (
     EnvelopeKind,
     TransportEnvelope,
-    TransportEventType,
     new_envelope_id,
 )
 
@@ -333,19 +333,13 @@ class DareAgent(BaseAgent):
 
     async def execute(
         self,
-        task: str | Task,
+        task: Message,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
         """Execute a task with automatic mode selection."""
         previous_conversation_id = self._conversation_id
-        if isinstance(task, Task):
-            task_obj = task
-        else:
-            task_obj = Task(
-                description=task,
-                task_id=uuid4().hex[:8],
-            )
+        task_obj = build_task_from_message(task)
         self._conversation_id = self._extract_conversation_id(task_obj)
         start_time = time.perf_counter()
         if task_obj.task_id is None:
@@ -1167,20 +1161,9 @@ class DareAgent(BaseAgent):
             tool_name=tool_name,
             tool_call_id=tool_call_id,
         )
-        # Approval pending is an explicit user-choice interaction shape.
-        resp = payload.get("resp")
-        if isinstance(resp, dict):
-            resp.setdefault(
-                "options",
-                [
-                    {"label": "allow", "description": "Approve this tool invocation."},
-                    {"label": "deny", "description": "Deny this tool invocation."},
-                ],
-            )
         envelope = TransportEnvelope(
             id=new_envelope_id(),
             kind=EnvelopeKind.SELECT,
-            event_type=TransportEventType.APPROVAL_PENDING.value,
             payload=payload,
         )
         try:
@@ -1209,8 +1192,7 @@ class DareAgent(BaseAgent):
         )
         envelope = TransportEnvelope(
             id=new_envelope_id(),
-            kind=EnvelopeKind.MESSAGE,
-            event_type=TransportEventType.APPROVAL_RESOLVED.value,
+            kind=EnvelopeKind.SELECT,
             payload=payload,
         )
         try:
@@ -1268,17 +1250,16 @@ class DareAgent(BaseAgent):
             errors=execute_result.get("errors", []),
         )
 
-        # Call verify_milestone with plan if supported, otherwise without
         import inspect
-        sig = inspect.signature(self._validator.verify_milestone)
-        if 'plan' in sig.parameters:
+
+        verify_signature = inspect.signature(self._validator.verify_milestone)
+        if "plan" in verify_signature.parameters:
             verify_result = await self._validator.verify_milestone(
                 run_result,
                 self._context,
                 plan=validated_plan,
             )
         else:
-            # Backward compatibility: validator doesn't support plan parameter
             verify_result = await self._validator.verify_milestone(
                 run_result,
                 self._context,
@@ -1593,7 +1574,7 @@ class DareAgent(BaseAgent):
         return [
             Message(
                 role=prompt_def.role,
-                content=prompt_def.content,
+                text=prompt_def.content,
                 name=prompt_def.name,
                 metadata=dict(prompt_def.metadata),
             ),
@@ -1603,7 +1584,7 @@ class DareAgent(BaseAgent):
     def _context_stats(self, messages: list[Message], tools_count: int) -> dict[str, int]:
         total_length = 0
         for message in messages:
-            total_length += len(message.content or "")
+            total_length += len(message.text or "")
         return {
             "context_length": total_length,
             "context_messages_count": len(messages),
@@ -1659,7 +1640,7 @@ class DareAgent(BaseAgent):
                 stage,
                 idx,
                 message.role,
-                message.content,
+                message.text,
             )
 
     async def _emit_hook(self, phase: HookPhase, payload: dict[str, Any]) -> HookResult:
@@ -1799,13 +1780,16 @@ class DareAgent(BaseAgent):
                 ) from exc
 
     def _extract_conversation_id(self, task: Task) -> str | None:
-        metadata = task.metadata if isinstance(task.metadata, dict) else {}
-        for key in ("conversation_id", "session_id"):
-            candidate = metadata.get(key)
-            if isinstance(candidate, str):
-                normalized = candidate.strip()
-                if normalized:
-                    return normalized
+        metadata_sources = [task.metadata if isinstance(task.metadata, dict) else {}]
+        if task.input_message is not None and isinstance(task.input_message.metadata, dict):
+            metadata_sources.append(task.input_message.metadata)
+        for metadata in metadata_sources:
+            for key in ("conversation_id", "session_id"):
+                candidate = metadata.get(key)
+                if isinstance(candidate, str):
+                    normalized = candidate.strip()
+                    if normalized:
+                        return normalized
         return None
 
 

@@ -156,7 +156,8 @@ async def test_examples_04_cli_run_task_includes_conversation_metadata() -> None
         conversation_id="session-42",
     )
     task = captured_task["task"]
-    assert isinstance(task, module.Task)
+    assert isinstance(task, module.Message)
+    assert task.text == "hello"
     assert task.metadata.get("conversation_id") == "session-42"
 
 

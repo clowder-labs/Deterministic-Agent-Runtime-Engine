@@ -10,7 +10,7 @@ from dare_framework.agent._internal.output_normalizer import build_output_envelo
 from dare_framework.agent.base_agent import BaseAgent
 from dare_framework.context import Context, Message
 from dare_framework.model import IModelAdapter, ModelInput
-from dare_framework.plan.types import RunResult, Task
+from dare_framework.plan.types import RunResult
 from dare_framework.tool import IToolGateway
 
 from dare_framework.transport.kernel import AgentChannel
@@ -63,7 +63,7 @@ class SimpleChatAgent(BaseAgent):
 
     async def execute(
         self,
-        task: str | Task,
+        task: Message,
         *,
         transport: AgentChannel | None = None,
     ) -> RunResult:
@@ -83,10 +83,7 @@ class SimpleChatAgent(BaseAgent):
             Normalized run result.
         """
         _ = transport
-        task_description = task.description if isinstance(task, Task) else task
-        # 1. Add user message to short-term memory
-        user_message = Message(role="user", content=task_description)
-        self._context.stm_add(user_message)
+        self._context.stm_add(task)
 
         # 2. Assemble context for LLM call
         assembled = self._context.assemble()
@@ -97,7 +94,7 @@ class SimpleChatAgent(BaseAgent):
             messages = [
                 Message(
                     role=prompt_def.role,
-                    content=prompt_def.content,
+                    text=prompt_def.content,
                     name=prompt_def.name,
                     metadata=dict(prompt_def.metadata),
                 ),
@@ -115,7 +112,7 @@ class SimpleChatAgent(BaseAgent):
         response = await self._model.generate(model_input)
 
         # 5. Add assistant response to short-term memory
-        assistant_message = Message(role="assistant", content=response.content)
+        assistant_message = Message(role="assistant", text=response.content)
         self._context.stm_add(assistant_message)
 
         # 6. Record token usage if available

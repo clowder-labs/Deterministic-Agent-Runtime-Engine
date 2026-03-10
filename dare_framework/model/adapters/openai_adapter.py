@@ -149,21 +149,60 @@ class OpenAIModelAdapter(IModelAdapter):
         """Convert framework messages to LangChain message format."""
         mapped = []
         for msg in messages:
-            if msg.role == "system":
-                mapped.append(SystemMessage(content=msg.content))
-            elif msg.role == "user":
-                mapped.append(HumanMessage(content=msg.content))
-            elif msg.role == "assistant":
-                # Extract tool_calls from metadata if present
-                tool_calls = msg.metadata.get("tool_calls", []) if hasattr(msg, "metadata") else []
+            role = str(getattr(msg, "role", "user"))
+            content = self._serialize_langchain_content(msg)
+            if role == "system":
+                mapped.append(SystemMessage(content=content))
+            elif role == "user":
+                mapped.append(HumanMessage(content=content))
+            elif role == "assistant":
+                tool_calls = self._extract_message_tool_calls(msg)
                 tool_calls = self._normalize_tool_calls_for_langchain(tool_calls)
-                mapped.append(AIMessage(content=msg.content, tool_calls=tool_calls))
-            elif msg.role == "tool":
-                tool_call_id = msg.name or "tool_call"
-                mapped.append(ToolMessage(content=msg.content, tool_call_id=tool_call_id))
+                mapped.append(AIMessage(content=content, tool_calls=tool_calls))
+            elif role == "tool":
+                tool_call_id = self._extract_message_tool_call_id(msg) or "tool_call"
+                mapped.append(ToolMessage(content=content, tool_call_id=tool_call_id))
             else:
-                mapped.append(HumanMessage(content=msg.content))
+                mapped.append(HumanMessage(content=content))
         return mapped
+
+    def _serialize_langchain_content(self, message: Any) -> Any:
+        text = self._message_text(message)
+        attachments = list(getattr(message, "attachments", []) or [])
+        if not attachments:
+            return text
+
+        content: list[dict[str, Any]] = []
+        if text:
+            content.append({"type": "text", "text": text})
+        for attachment in attachments:
+            if str(getattr(attachment, "kind", "")).strip().lower() != "image":
+                raise ValueError("unsupported attachment kind for OpenAI serialization")
+            content.append({"type": "image_url", "image_url": {"url": attachment.uri}})
+        return content
+
+    def _message_text(self, message: Any) -> str:
+        text = getattr(message, "text", None)
+        if isinstance(text, str):
+            return text
+        return ""
+
+    def _extract_message_tool_calls(self, message: Any) -> Any:
+        data = getattr(message, "data", None)
+        if isinstance(data, dict) and isinstance(data.get("tool_calls"), list):
+            return data["tool_calls"]
+        return []
+
+    def _extract_message_tool_call_id(self, message: Any) -> str | None:
+        data = getattr(message, "data", None)
+        if isinstance(data, dict):
+            tool_call_id = data.get("tool_call_id")
+            if isinstance(tool_call_id, str) and tool_call_id.strip():
+                return tool_call_id
+        name = getattr(message, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name
+        return None
 
     def _apply_options(self, client: Any, options: GenerateOptions | None) -> Any:
         """Apply generation options to the client."""

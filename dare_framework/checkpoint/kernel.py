@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 from uuid import uuid4
 
-from dare_framework.context.types import Message
+from dare_framework.context.types import AttachmentRef, Message, MessageKind, MessageMark, MessageRole
 
 if TYPE_CHECKING:
     from dare_framework.context.kernel import IContext
@@ -230,10 +230,24 @@ class AgentStateCheckpointManager:
         return {
             "stm": [
                 {
-                    "role": m.role,
-                    "content": m.content,
+                    "role": m.role.value if isinstance(m.role, MessageRole) else str(m.role),
+                    "kind": m.kind.value if isinstance(m.kind, MessageKind) else str(m.kind),
+                    "text": m.text,
+                    "attachments": [
+                        {
+                            "kind": attachment.kind.value,
+                            "uri": attachment.uri,
+                            "mime_type": attachment.mime_type,
+                            "filename": attachment.filename,
+                            "metadata": dict(attachment.metadata),
+                        }
+                        for attachment in m.attachments
+                    ],
+                    "data": dict(m.data) if isinstance(m.data, dict) else None,
                     "name": m.name,
                     "metadata": dict(getattr(m, "metadata", {}) or {}),
+                    "mark": m.mark.value if isinstance(m.mark, MessageMark) else str(m.mark),
+                    "id": m.id,
                 }
                 for m in state.stm
             ],
@@ -250,9 +264,14 @@ class AgentStateCheckpointManager:
                 continue
             msg = Message(
                 role=item.get("role", "user"),
-                content=item.get("content", ""),
+                kind=item.get("kind", MessageKind.CHAT.value),
+                text=item.get("text", item.get("content", "")),
+                attachments=AttachmentRef.coerce_many(item.get("attachments")),
+                data=dict(item.get("data")) if isinstance(item.get("data"), dict) else None,
                 name=item.get("name"),
                 metadata=dict(item.get("metadata") or {}),
+                mark=item.get("mark", MessageMark.TEMPORARY.value),
+                id=item.get("id"),
             )
             messages.append(msg)
         return AgentState(stm=messages)
@@ -298,13 +317,18 @@ def _summarize_state(state: AgentState) -> str:
     # 优先最近 user 消息
     for m in reversed(messages):
         role = getattr(m, "role", "")
-        content = getattr(m, "content", "") or ""
+        content = getattr(m, "text", None)
+        if not isinstance(content, str):
+            content = getattr(m, "content", "") or ""
         if role == "user" and content.strip():
             summary = content.strip()
             break
     # 退而求其次：最后一条消息
     if not summary and messages:
-        summary = (messages[-1].content or "").strip()
+        last_text = getattr(messages[-1], "text", None)
+        if not isinstance(last_text, str):
+            last_text = getattr(messages[-1], "content", "") or ""
+        summary = last_text.strip()
     if not summary:
         summary = "(无对话内容)"
     if len(summary) > 60:
