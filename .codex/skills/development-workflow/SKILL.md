@@ -99,6 +99,7 @@ Reference contract: `docs/guides/Evidence_Truth_Implementation_Strategy.md`.
 - if master TODO still has pending slices, keep initiative active and start next slice workflow
 - ensure archived entries stay discoverable via index/evidence links
 - if the human explicitly asks for lessons learned or workflow hardening after completion, hand off to `.codex/skills/retrospective-process-hardening/SKILL.md` instead of embedding ad-hoc retrospective rules here
+- when handing off, expect the retrospective result to classify deferred-but-required work and write it into the appropriate TODO artifact before the loop is considered closed
 
 ## Output expectations
 For each workflow run, report:

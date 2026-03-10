@@ -1,6 +1,6 @@
 ---
 name: retrospective-process-hardening
-description: Use when a completed feature, bugfix, or refactor needs lessons learned distilled into reusable workflow rules, SOP updates, or skill changes.
+description: Use when a completed feature, bugfix, or refactor needs lessons learned distilled into reusable workflow rules, SOP updates, skill changes, or deferred TODO follow-ups.
 ---
 
 # Retrospective Process Hardening
@@ -35,7 +35,8 @@ Every candidate lesson must end in exactly one bucket:
 1. `update-sop`
 2. `update-existing-skill`
 3. `create-new-skill`
-4. `do-not-codify`
+4. `todo-later`
+5. `do-not-codify`
 
 If a lesson cannot survive that classification, it is not ready to become process guidance.
 
@@ -82,6 +83,11 @@ For each candidate lesson, ask:
 
 If the answer is no, move it to `do-not-codify`.
 
+Separately ask:
+- Is this work item out of scope for the just-finished slice, but still necessary later?
+
+If yes, classify it as `todo-later` instead of losing it in prose.
+
 ## Classification rules
 
 ### `update-sop`
@@ -126,9 +132,23 @@ Use when the lesson is:
 - already implied by an existing rule
 - better enforced by code or CI than by prose
 
+### `todo-later`
+
+Use when the retrospective surfaces work that:
+- should not be done in the just-finished slice or PR
+- is still necessary and should not rely on memory
+- belongs in a future change, TODO scope, or execution board
+
+Typical examples:
+- boundary cleanup that is outside the current feature slice
+- follow-up contract tightening that needs its own change
+- deferred cleanup explicitly marked `out of scope` during scope freeze
+
+`todo-later` is not a prose-only bucket. It must result in a concrete TODO update.
+
 ## Output contract
 
-Produce four sections in order:
+Produce five sections in order:
 
 1. `Evidence`
 - concise list of the specific completed work and review signals used
@@ -141,11 +161,19 @@ Produce four sections in order:
   - `update-sop`
   - `update-existing-skill`
   - `create-new-skill`
+  - `todo-later`
   - `do-not-codify`
 
 4. `Codified Changes`
 - the actual file updates required
 - keep only the highest-value general rules
+
+5. `Deferred TODO Updates`
+- every `todo-later` item must list:
+  - target TODO file
+  - target scope/domain/change if known
+  - short action statement
+  - why it was deferred
 
 ## Codification guardrails
 
@@ -154,6 +182,7 @@ Produce four sections in order:
 - do not duplicate the same detailed workflow in both places
 - if the detailed reasoning belongs in a skill, keep the SOP reference short
 - prefer changing an existing skill before creating a new one
+- do not leave deferred-but-required work only in retrospective prose; record it in TODOs before finishing the retrospective
 
 ## Common mistakes
 
@@ -165,6 +194,10 @@ If the lesson names a current module, payload, adapter, or schema, it is probabl
 
 A good retrospective is selective. Most observations should never become process rules.
 
+### Confusing deferred work with process rules
+
+If something should not become SOP or skill text but still needs follow-up, it belongs in `todo-later`, not `do-not-codify`.
+
 ### Using the skill without explicit human request
 
 This skill is opt-in. It should not run automatically after every change.
@@ -172,3 +205,7 @@ This skill is opt-in. It should not run automatically after every change.
 ### Updating SOP first and figuring out the method later
 
 If the lesson needs a decision workflow, create or update the skill first, then reference it from SOP.
+
+### Leaving deferred work undocumented
+
+If the retrospective says “should be handled later,” update the relevant TODO artifact in the same turn. Do not rely on memory or a closing paragraph.

@@ -105,6 +105,7 @@
 - 必须执行并通过：`./scripts/ci/check_governance_evidence_truth.sh`。
 - 对实现路径变更 PR，必须执行并通过：`./scripts/ci/check_governance_intent_gate.sh`。
 - 对结构性改造，Step 6 结束前必须执行一次全局回扫：确认代码、测试、examples、active docs、规范文档、归档索引中不存在旧接口/旧协议/旧术语残留。
+- 若用户在完成后明确要求“总结经验/刷新流程”，必须调用 `.codex/skills/retrospective-process-hardening/SKILL.md`；其中识别出的“当前不应继续做，但后续必须做”的事项，必须在同一轮回写到对应 TODO 文档，不得只保留在总结文本中。
 
 ### Step 7: 归档
 - 总体 TODO 全部切片完成后：
@@ -197,7 +198,8 @@ SOP 关键阶段必须有可调用技能承载，并保持 checkpoint 与 skill 
 
 经验沉淀技能的职责边界：
 - 抽取已完成工作的 lessons learned
-- 将候选经验分类为 `update-sop` / `update-existing-skill` / `create-new-skill` / `do-not-codify`
+- 将候选经验分类为 `update-sop` / `update-existing-skill` / `create-new-skill` / `todo-later` / `do-not-codify`
+- 将“当前不应继续做、但后续必须做”的事项分类为 deferred TODO，并回写到对应 TODO 文档
 - 仅将经过分类筛选的高价值通用规则回写到 SOP/skill
 - 不得把 domain-specific 设计结论直接写成通用流程规则
 

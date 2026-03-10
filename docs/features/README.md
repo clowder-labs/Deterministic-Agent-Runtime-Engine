@@ -39,6 +39,7 @@
 
 - `docs/features/enhance-doc-governance-traceability.md`
 - `docs/features/p0-conformance-gate.md`
+- `docs/features/retrospective-todo-hardening.md`
 - `docs/features/rich-media-message-pipeline.md`
 
 ## Archive Index
