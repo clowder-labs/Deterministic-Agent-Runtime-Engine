@@ -1,6 +1,6 @@
 """Security domain facade."""
 
-from dare_framework.security._internal.default_security_boundary import DefaultSecurityBoundary
+from dare_framework.security._internal import DefaultSecurityBoundary
 from dare_framework.security.errors import (
     SECURITY_APPROVAL_MANAGER_MISSING,
     SECURITY_POLICY_CHECK_FAILED,

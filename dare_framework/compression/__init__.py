@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from .moving_compression import MovingCompressor
+from dare_framework.compression.moving_compression import MovingCompressor
 
 __all__ = ["MovingCompressor"]
 
