@@ -48,7 +48,7 @@ PlanNoteBook / SubTask / TruncatedFormatterBase / Knowledge / HttpStatefulClient
 - Memory: `dare_framework/memory/in_memory_stm.py`
 - Knowledge: `dare_framework/knowledge/kernel.py`
 - Plan: `dare_framework/plan_v2/types.py`, `dare_framework/plan_v2/tools.py`
-- Compression: `dare_framework/compression/core.py`
+- Compression: `dare_framework/compression/moving_compression.py`
 - MCP: `dare_framework/mcp/client.py`, `dare_framework/mcp/transports/http.py`
 
 ## 4. 能力差异矩阵（详细版）
@@ -60,7 +60,7 @@ PlanNoteBook / SubTask / TruncatedFormatterBase / Knowledge / HttpStatefulClient
 | 循环结构 | `_reasoning() → _acting() → repeat` | `assemble() → generate() → tool calls → repeat` | 等价 |
 | 最大迭代 | `max_iterations=20` | `max_tool_rounds=10` | 等价（值不同） |
 | 并行 tool 执行 | `parallel_tool_calls=True` → `asyncio.gather` | 仅串行 | **Gap-R1** |
-| 自动内存压缩 | `_compress_memory_if_needed()` 每轮触发 | 无自动压缩 | **Gap-R5** |
+| 自动内存压缩 | `_compress_memory_if_needed()` 每轮触发 | 仅有 moving compression，未接入 ReAct 自动触发 | **Gap-R5** |
 | 超时 fallback | 超 max_iterations 做 summarization | 返回"未收敛"文本 | Gap-R2 |
 | Plan 注入 | `plan_to_hint()` 生成 `<system-hint>` | `critical_block` 注入 | 接近等价 |
 | Hook 粒度 | pre/post_reasoning, pre/post_acting | session/milestone/plan/tool 级 | Gap-R4 |
@@ -162,8 +162,8 @@ PlanNoteBook / SubTask / TruncatedFormatterBase / Knowledge / HttpStatefulClient
 | 维度 | AgentScope | DARE | 差距 |
 |------|-----------|------|------|
 | 截断单位 | Token 数 | 消息条数 | **Gap-F2** |
-| Tool pair 安全 | 成对删除 | 无保护 | **Gap-F1** |
-| 自动触发 | 每次 `_reasoning()` 前 | 手动调用 | **Gap-F4** |
+| Tool pair 安全 | 成对删除 | framework 无 formatter 级保护，由 Example 兼容层补齐 | **Gap-F1** |
+| 自动触发 | 每次 `_reasoning()` 前 | moving compression 需显式接线，无 formatter 自动触发 | **Gap-F4** |
 | Provider 格式化 | OpenAI/Anthropic/Gemini/... formatter 子类 | 无 | Gap-F3 |
 | 标签感知 | 跳过 important 消息 | 无标签概念 | 依赖 Gap-M1 |
 
@@ -218,7 +218,7 @@ PlanNoteBook / SubTask / TruncatedFormatterBase / Knowledge / HttpStatefulClient
 ### P1（高优先）
 - **Gap-M1**: Message 无 tag/mark
 - **Gap-Mem1/2/5**: InMemorySTM 无 mark/summary/tool-pair-safe compress
-- **Gap-F1/F4**: compress_context 无 tool pair 安全/无自动触发
+- **Gap-F1/F4**: framework 仅提供 moving compression；无 formatter 级 tool pair 安全/无自动触发
 - **Gap-R5**: ReactAgent 无自动内存压缩
 - **Gap-LM4**: Usage 不规范化 reasoning_tokens
 - **Gap-S1/S2**: 无 StateModule/ISessionStore

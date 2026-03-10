@@ -14,7 +14,7 @@
 | 6 | `ChatModelBase` | `CompatFormattedModelAdapter` | E0/E2 | **Gap-LM1(P0)**(thinking), Gap-LM2(stream) |
 | 7 | `PlanNoteBook` | `CompatPlanNotebook` + 6 tools | E1 | Gap-P1(status), Gap-P5(序列化) |
 | 8 | `SubTask` | `CompatSubTask` | E1 | 合并于 Gap-P1 |
-| 9 | `TruncatedFormatterBase` | `CompatTruncatedFormatter` | E1 | **Gap-F1**(tool pair safe), Gap-F2(token) |
+| 9 | `TruncatedFormatterBase` | `CompatTruncatedFormatter` | E1 | **Gap-F1**(example 层补齐 tool pair safe), Gap-F2(token) |
 | 10 | `Knowledge` | `create_knowledge(rawdata)` | E0 | Gap-K1(embedding adapter) |
 | 11 | `HttpStatefulClient` | `HttpStatefulClientShim` | E1 | Gap-H3(缓存) |
 | 12 | `Session` | `JsonSessionBridge` | E2 | **Gap-S1**(StateModule), **Gap-S2**(ISessionStore) |

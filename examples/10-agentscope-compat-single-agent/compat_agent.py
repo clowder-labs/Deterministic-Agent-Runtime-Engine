@@ -221,7 +221,7 @@ class CompatMsg:
 # ===========================================================================
 # Capability 9: TruncatedFormatterBase — 截断格式化器
 # AgentScope: token 级截断 + tool pair 安全 + provider-specific 格式化
-# DARE:       compress_context() 按消息条数截断，无 tool pair 安全 [Gap-F1]
+# DARE:       仅提供 moving compression；formatter 级 tool pair 安全需 Example 补齐 [Gap-F1]
 # ===========================================================================
 
 
@@ -290,9 +290,10 @@ class CompatTruncatedFormatter:
     ) -> int:
         """删除消息时保护 tool call/result 配对完整性。
 
-        这是 Gap-F1 的 Example 层补齐：框架的 compress_context() 不具备此能力。
-        当框架补齐 Gap-F1 (compress_context(tool_pair_safe=True)) 后，
-        此方法应迁移到框架层。
+        这是 Gap-F1 的 Example 层补齐：当前框架只有 moving compression，
+        并没有 formatter 级 tool pair 安全截断入口。
+        如果后续框架在公开 formatter/compression API 中补齐这层能力，
+        此方法再考虑下沉到框架层。
         """
         removed_count = 0
         removed_tool_ids: set[str] = set()

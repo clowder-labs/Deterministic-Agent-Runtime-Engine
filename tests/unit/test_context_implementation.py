@@ -1,5 +1,7 @@
+from __future__ import annotations
 
 import pytest
+
 from dare_framework.config import Config
 from dare_framework.context.context import Context
 from dare_framework.context.types import AttachmentKind, AttachmentRef, Budget, Message
@@ -7,9 +9,11 @@ from dare_framework.model import Prompt
 from dare_framework.tool._internal.tools.noop_tool import NoopTool
 from dare_framework.tool.tool_manager import ToolManager
 
-def test_context_initialization():
+
+def test_context_initialization() -> None:
     config = Config()
     ctx = Context(id="test-id", config=config)
+
     assert ctx.id == "test-id"
     assert isinstance(ctx.budget, Budget)
     assert ctx.short_term_memory is not None
@@ -18,31 +22,35 @@ def test_context_initialization():
     assert ctx.config is config
     assert ctx.sys_prompt is None
 
-def test_context_stm_methods():
+
+def test_context_stm_methods() -> None:
     ctx = Context(config=Config())
     msg = Message(role="user", text="hello")
     ctx.stm_add(msg)
-    
+
     messages = ctx.stm_get()
     assert len(messages) == 1
     assert messages[0].text == "hello"
-    
+
     ctx.stm_clear()
     assert len(ctx.stm_get()) == 0
 
-def test_context_budget_methods():
+
+def test_context_budget_methods() -> None:
     ctx = Context(config=Config(), budget=Budget(max_tokens=100))
     ctx.budget_use("tokens", 50)
+
     assert ctx.budget.used_tokens == 50
     assert ctx.budget_remaining("tokens") == 50
-    
-    ctx.budget_check() # Should not raise
-    
+
+    ctx.budget_check()
+
     ctx.budget_use("tokens", 60)
     with pytest.raises(RuntimeError, match="Token budget exceeded"):
         ctx.budget_check()
 
-def test_context_assemble():
+
+def test_context_assemble() -> None:
     prompt = Prompt(
         prompt_id="test.system",
         role="system",
@@ -52,8 +60,9 @@ def test_context_assemble():
     )
     ctx = Context(config=Config(), sys_prompt=prompt)
     ctx.stm_add(Message(role="user", text="hi"))
-    
+
     assembled = ctx.assemble()
+
     assert assembled.sys_prompt is not None
     assert assembled.sys_prompt.content == "You are a helpful assistant"
     assert len(assembled.messages) == 1
@@ -85,12 +94,12 @@ def test_context_assemble_preserves_chat_attachments() -> None:
     assert assembled.messages[0].attachments[0].uri == "https://example.com/a.png"
 
 
-def test_context_requires_non_null_config():
+def test_context_requires_non_null_config() -> None:
     with pytest.raises(ValueError, match="non-null Config"):
         Context(id="missing-config", config=None)  # type: ignore[arg-type]
 
 
-def test_context_list_tools_returns_capability_descriptors_from_tool_manager():
+def test_context_list_tools_returns_capability_descriptors_from_tool_manager() -> None:
     manager = ToolManager(load_entrypoints=False)
     manager.register_tool(NoopTool())
     ctx = Context(config=Config(), tool_gateway=manager)
@@ -102,7 +111,7 @@ def test_context_list_tools_returns_capability_descriptors_from_tool_manager():
     assert tools[0].name == "noop"
 
 
-def test_context_exposes_public_tool_gateway_accessor_and_setter():
+def test_context_exposes_public_tool_gateway_accessor_and_setter() -> None:
     manager = ToolManager(load_entrypoints=False)
     ctx = Context(config=Config())
 
@@ -113,15 +122,12 @@ def test_context_exposes_public_tool_gateway_accessor_and_setter():
 
 
 class _FakeRetrieval:
-    def __init__(self, messages: list[Message], *, fail: bool = False) -> None:
+    def __init__(self, messages: list[Message]) -> None:
         self._messages = list(messages)
-        self._fail = fail
         self.calls: list[tuple[str, dict[str, object]]] = []
 
     def get(self, query: str = "", **kwargs: object) -> list[Message]:
         self.calls.append((query, dict(kwargs)))
-        if self._fail:
-            raise RuntimeError("retrieval failed")
         return list(self._messages)
 
     def add(self, message: Message) -> None:
@@ -135,21 +141,7 @@ class _FakeRetrieval:
         return 0
 
 
-class _CompressionRecordingSTM(_FakeRetrieval):
-    def __init__(self, messages: list[Message]) -> None:
-        super().__init__(messages)
-        self.compress_calls: list[dict[str, object]] = []
-
-    def compress(self, **kwargs: object) -> int:
-        self.compress_calls.append(dict(kwargs))
-        raw_limit = kwargs.get("max_messages")
-        limit = raw_limit if isinstance(raw_limit, int) and raw_limit >= 0 else None
-        if limit is not None and len(self._messages) > limit:
-            self._messages = self._messages[-limit:]
-        return 0
-
-
-def test_context_assemble_fuses_ltm_and_knowledge_with_latest_user_query():
+def test_context_assemble_ignores_optional_retrieval_sources_in_default_strategy() -> None:
     ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
     knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
     ctx = Context(
@@ -157,366 +149,69 @@ def test_context_assemble_fuses_ltm_and_knowledge_with_latest_user_query():
         long_term_memory=ltm,
         knowledge=knowledge,
     )
-    ctx.stm_add(Message(role="user", text="old request"))
-    ctx.stm_add(Message(role="assistant", text="ack"))
     ctx.stm_add(Message(role="user", text="latest request"))
 
     assembled = ctx.assemble()
 
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["old request", "ack", "latest request", "ltm-hit", "knowledge-hit"]
-    assert ltm.calls and ltm.calls[0][0] == "latest request"
-    assert knowledge.calls and knowledge.calls[0][0] == "latest request"
-    assert assembled.metadata["retrieval"]["ltm_count"] == 1
-    assert assembled.metadata["retrieval"]["knowledge_count"] == 1
-    assert assembled.metadata["retrieval"]["degraded"] is False
-
-
-def test_context_assemble_degrades_when_token_budget_low():
-    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
-    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
-    # Force a low remaining token budget so retrieval should be skipped.
-    budget = Budget(max_tokens=32)
-    ctx = Context(
-        config=Config(),
-        budget=budget,
-        long_term_memory=ltm,
-        knowledge=knowledge,
-    )
-    ctx.stm_add(Message(role="user", text="x" * 160))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["x" * 160]
-    assert assembled.metadata["retrieval"]["degraded"] is True
-    assert assembled.metadata["retrieval"]["degrade_reason"] == "token_budget_low"
-
-
-def test_context_assemble_handles_retrieval_exception_gracefully():
-    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")], fail=True)
-    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
-    ctx = Context(
-        config=Config(),
-        long_term_memory=ltm,
-        knowledge=knowledge,
-    )
-    ctx.stm_add(Message(role="user", text="query"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["query", "knowledge-hit"]
-    assert assembled.metadata["retrieval"]["degraded"] is True
-    assert assembled.metadata["retrieval"]["degrade_reason"] == "ltm_retrieval_failed"
-
-
-def test_context_assemble_single_source_uses_full_retrieval_budget():
-    ltm = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 1,
-            "assemble_reserve_tokens": 0,
-            "assemble_ratio": 0.5,
-        },
-        knowledge={
-            "assemble_top_k": 1,
-            "assemble_ratio": 0.5,
-        },
-    )
-    # Remaining retrieval budget ~= 40 tokens after STM estimate.
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=49),
-        long_term_memory=ltm,
-        knowledge=None,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q", "x" * 64]
-    assert assembled.metadata["retrieval"]["ltm_count"] == 1
-    assert assembled.metadata["retrieval"]["degraded"] is False
-
-
-def test_context_assemble_skips_oversized_retrieval_hits_and_keeps_later_candidates():
-    ltm = _FakeRetrieval(
-        [
-            Message(role="assistant", text="x" * 220),
-            Message(role="assistant", text="small-hit"),
-        ]
-    )
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 2,
-            "assemble_reserve_tokens": 0,
-            "assemble_ratio": 1.0,
-        },
-        knowledge={
-            "assemble_top_k": 0,
-            "assemble_ratio": 0.0,
-        },
-    )
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=35),
-        long_term_memory=ltm,
-        knowledge=None,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q", "small-hit"]
-    assert assembled.metadata["retrieval"]["ltm_count"] == 1
-    assert assembled.metadata["retrieval"]["degraded"] is True
-
-
-def test_context_assemble_reserve_tokens_respects_knowledge_only_config():
-    knowledge = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
-    config = Config(
-        long_term_memory={"assemble_top_k": 0},
-        knowledge={
-            "assemble_top_k": 1,
-            "assemble_ratio": 1.0,
-            "assemble_reserve_tokens": 0,
-        },
-    )
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=40),
-        long_term_memory=None,
-        knowledge=knowledge,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q", "x" * 64]
-    assert assembled.metadata["retrieval"]["knowledge_count"] == 1
-    assert assembled.metadata["retrieval"]["degraded"] is False
-
-
-def test_context_assemble_ignores_inactive_ltm_reserve_tokens_for_knowledge_only_retrieval():
-    knowledge = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 0,
-            "assemble_reserve_tokens": 10_000,
-        },
-        knowledge={
-            "assemble_top_k": 1,
-            "assemble_ratio": 1.0,
-            "assemble_reserve_tokens": 0,
-        },
-    )
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=40),
-        long_term_memory=None,
-        knowledge=knowledge,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q", "x" * 64]
-    assert assembled.metadata["retrieval"]["knowledge_count"] == 1
-    assert assembled.metadata["retrieval"]["degraded"] is False
-
-
-def test_context_assemble_rebalances_budget_when_ltm_retrieval_fails():
-    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")], fail=True)
-    knowledge = _FakeRetrieval([Message(role="assistant", text="x" * 64)])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 1,
-            "assemble_ratio": 0.5,
-            "assemble_reserve_tokens": 0,
-        },
-        knowledge={
-            "assemble_top_k": 1,
-            "assemble_ratio": 0.5,
-            "assemble_reserve_tokens": 0,
-        },
-    )
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=34),
-        long_term_memory=ltm,
-        knowledge=knowledge,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q", "x" * 64]
-    assert assembled.metadata["retrieval"]["ltm_count"] == 0
-    assert assembled.metadata["retrieval"]["knowledge_count"] == 1
-    assert assembled.metadata["retrieval"]["degraded"] is True
-    assert assembled.metadata["retrieval"]["degrade_reason"] == "ltm_retrieval_failed"
-
-
-def test_context_assemble_skips_zero_budget_source_retrieval_call() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
-    knowledge = _FakeRetrieval([Message(role="assistant", text="knowledge-hit")])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 1,
-            "assemble_ratio": 0.0,
-            "assemble_reserve_tokens": 0,
-        },
-        knowledge={
-            "assemble_top_k": 1,
-            "assemble_ratio": 1.0,
-            "assemble_reserve_tokens": 0,
-        },
-    )
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=60),
-        long_term_memory=ltm,
-        knowledge=knowledge,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q", "knowledge-hit"]
+    assert [message.text for message in assembled.messages] == ["latest request"]
     assert ltm.calls == []
-    assert len(knowledge.calls) == 1
-    assert assembled.metadata["retrieval"]["degraded"] is False
+    assert knowledge.calls == []
+    assert assembled.metadata == {"context_id": ctx.id}
 
 
-def test_context_assemble_handles_overflowing_numeric_retrieval_config() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": float("inf"),
-            "assemble_reserve_tokens": float("inf"),
-        },
-        knowledge={"assemble_top_k": 0},
-    )
-    ctx = Context(
-        config=config,
-        long_term_memory=ltm,
-        knowledge=None,
-    )
+class _RecordingMovingCompressor:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def prune(self, context: Context, **options: object) -> None:
+        self.calls.append({"context": context, "options": dict(options)})
+
+
+@pytest.mark.asyncio
+async def test_context_compress_without_moving_compressor_is_noop() -> None:
+    ctx = Context(config=Config())
+    ctx.stm_add(Message(role="user", text="hello"))
+
+    await ctx.compress(max_context_tokens=128)
+
+    assert [message.text for message in ctx.stm_get()] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_context_compress_uses_context_window_tokens_when_present() -> None:
+    ctx = Context(config=Config(), context_window_tokens=256)
+    compressor = _RecordingMovingCompressor()
+    ctx.set_moving_compressor(compressor)
+
+    await ctx.compress()
+
+    assert len(compressor.calls) == 1
+    assert compressor.calls[0]["context"] is ctx
+    assert compressor.calls[0]["options"] == {"max_context_tokens": 256}
+
+
+@pytest.mark.asyncio
+async def test_context_compress_prefers_explicit_max_context_tokens() -> None:
+    ctx = Context(config=Config(), context_window_tokens=256)
+    compressor = _RecordingMovingCompressor()
+    ctx.set_moving_compressor(compressor)
+
+    await ctx.compress(max_context_tokens=64)
+
+    assert len(compressor.calls) == 1
+    assert compressor.calls[0]["options"] == {"max_context_tokens": 64}
+
+
+@pytest.mark.asyncio
+async def test_context_assemble_for_model_runs_moving_compressor_with_context_window_tokens() -> None:
+    ctx = Context(config=Config(), context_window_tokens=256)
+    compressor = _RecordingMovingCompressor()
+    ctx.set_moving_compressor(compressor)
     ctx.stm_add(Message(role="user", text="query"))
 
-    assembled = ctx.assemble()
+    assembled = await ctx.assemble_for_model()
 
-    assert assembled.metadata["retrieval"]["ltm_requested"] == 3
-
-
-def test_context_assemble_rejects_infinite_ratio_and_keeps_budget_guardrails() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", text="x" * 220)])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 1,
-            "assemble_ratio": float("inf"),
-            "assemble_reserve_tokens": 0,
-        },
-        knowledge={"assemble_top_k": 0},
-    )
-    ctx = Context(
-        config=config,
-        budget=Budget(max_tokens=40),
-        long_term_memory=ltm,
-        knowledge=None,
-    )
-    ctx.stm_add(Message(role="user", text="q"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["q"]
-    assert assembled.metadata["retrieval"]["ltm_count"] == 0
-    assert assembled.metadata["retrieval"]["degraded"] is True
-
-
-def test_context_assemble_handles_overflowing_numeric_ratio_config() -> None:
-    ltm = _FakeRetrieval([Message(role="assistant", text="ltm-hit")])
-    config = Config(
-        long_term_memory={
-            "assemble_top_k": 1,
-            "assemble_ratio": 10**10000,
-            "assemble_reserve_tokens": 0,
-        },
-        knowledge={"assemble_top_k": 0},
-    )
-    ctx = Context(
-        config=config,
-        long_term_memory=ltm,
-        knowledge=None,
-    )
-    ctx.stm_add(Message(role="user", text="query"))
-
-    assembled = ctx.assemble()
-
-    contents = [message.text for message in assembled.messages]
-    assert contents == ["query", "ltm-hit"]
-    assert assembled.metadata["retrieval"]["ltm_count"] == 1
-
-
-def test_context_compress_max_messages_uses_backend_compress_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    stm = _CompressionRecordingSTM(
-        [
-            Message(role="user", text="m0"),
-            Message(role="assistant", text="m1"),
-            Message(role="user", text="m2"),
-        ]
-    )
-    ctx = Context(config=Config(), short_term_memory=stm)
-
-    def _unexpected_compress_context(*args: object, **kwargs: object) -> None:
-        _ = (args, kwargs)
-        raise AssertionError("compress_context should not be called for basic max_messages compression")
-
-    monkeypatch.setattr(
-        "dare_framework.compression.core.compress_context",
-        _unexpected_compress_context,
-    )
-
-    ctx.compress(max_messages=2)
-
-    assert len(stm.compress_calls) == 1
-    assert stm.compress_calls[0].get("max_messages") == 2
-    assert [message.text for message in ctx.stm_get()] == ["m1", "m2"]
-
-
-def test_context_compress_advanced_path_preserves_backend_semantics(monkeypatch: pytest.MonkeyPatch) -> None:
-    stm = _CompressionRecordingSTM(
-        [
-            Message(role="user", text="m0"),
-            Message(role="assistant", text="m1"),
-            Message(role="user", text="m2"),
-        ]
-    )
-    ctx = Context(config=Config(), short_term_memory=stm)
-    calls: list[dict[str, object]] = []
-    stm_sizes_seen_by_strategy: list[int] = []
-
-    def _record_compress_context(context: Context, **kwargs: object) -> None:
-        stm_sizes_seen_by_strategy.append(len(context.stm_get()))
-        calls.append(dict(kwargs))
-
-    monkeypatch.setattr(
-        "dare_framework.compression.core.compress_context",
-        _record_compress_context,
-    )
-
-    ctx.compress(max_messages=2, target_tokens=100, strategy="truncate", tool_pair_safe=True)
-
-    assert len(stm.compress_calls) == 1
-    assert stm.compress_calls[0].get("max_messages") == 2
-    assert calls and calls[0].get("max_messages") == 2
-    assert stm_sizes_seen_by_strategy == [3]
-    assert [message.text for message in ctx.stm_get()] == ["m1", "m2"]
+    assert len(compressor.calls) == 1
+    assert compressor.calls[0]["context"] is ctx
+    assert compressor.calls[0]["options"] == {"max_context_tokens": 256}
+    assert [message.text for message in assembled.messages] == ["query"]

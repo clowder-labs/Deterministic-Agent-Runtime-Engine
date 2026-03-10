@@ -263,6 +263,8 @@ def test_truncated_formatter_truncates_and_preserves_tool_pairs() -> None:
     assert tool_result_names.issubset(tool_call_ids)
 
 
+
+
 def test_json_session_bridge_roundtrip(tmp_path: Path) -> None:
     module = _load_example_module()
     notebook = module.CompatPlanNotebook()
