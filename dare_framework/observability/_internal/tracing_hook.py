@@ -371,6 +371,7 @@ class ObservabilityHook(IHook):
         success = bool(payload.get("success", False))
         error = payload.get("error")
         approved = payload.get("approved", True)
+        policy_decision = payload.get("policy_decision")
         evidence_collected = payload.get("evidence_collected", False)
 
         span = self._end_span(
@@ -382,6 +383,8 @@ class ObservabilityHook(IHook):
                 span.set_attribute("success", success)
                 span.set_attribute(DAREAttributes.TOOL_APPROVED, approved)
                 span.set_attribute(DAREAttributes.TOOL_EVIDENCE_COLLECTED, evidence_collected)
+                if policy_decision is not None:
+                    span.set_attribute("dare.tool.policy_decision", policy_decision)
                 if error:
                     span.set_attribute(GenAIAttributes.ERROR_TYPE, type(error).__name__)
                     span.set_attribute(GenAIAttributes.ERROR_MESSAGE, str(error))
