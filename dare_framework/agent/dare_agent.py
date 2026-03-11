@@ -715,6 +715,7 @@ class DareAgent(BaseAgent):
             error: str | None,
             approved: bool,
             evidence_collected: bool,
+            policy_decision: str | None = None,
         ) -> None:
             await self._emit_hook(
                 HookPhase.AFTER_TOOL,
@@ -726,6 +727,7 @@ class DareAgent(BaseAgent):
                     "success": success,
                     "error": error,
                     "approved": approved,
+                    "policy_decision": policy_decision,
                     "evidence_collected": evidence_collected,
                     "duration_ms": (time.perf_counter() - tool_start) * 1000.0,
                     "budget_stats": self._budget_stats(),
@@ -807,8 +809,12 @@ class DareAgent(BaseAgent):
             await _emit_after_tool(
                 success=False,
                 error=policy_error,
-                approved=True,
+                approved=False,
                 evidence_collected=False,
+                policy_decision=(
+                    "hook_ask" if before_tool_dispatch.decision is HookDecision.ASK
+                    else "hook_block"
+                ),
             )
             return StepResult(
                 step_id=step.step_id,
@@ -868,6 +874,7 @@ class DareAgent(BaseAgent):
                 error=error_text,
                 approved=True,
                 evidence_collected=False,
+                policy_decision="allow",
             )
             return StepResult(
                 step_id=step.step_id,
@@ -885,6 +892,7 @@ class DareAgent(BaseAgent):
                 error=result_error,
                 approved=True,
                 evidence_collected=bool(result.evidence),
+                policy_decision="allow",
             )
             return result
 
@@ -894,6 +902,7 @@ class DareAgent(BaseAgent):
             error=invalid_error,
             approved=True,
             evidence_collected=False,
+            policy_decision="allow",
         )
         return StepResult(
             step_id=step.step_id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 
@@ -42,7 +43,7 @@ def test_internal_import_detection_covers_relative_syntax() -> None:
 
 def test_package_initializers_follow_facade_pattern() -> None:
     """Asserts that all dare_framework initializers use the facade pattern.
-    
+
     Rules:
     1. Must have a docstring.
     2. No class or function definitions.
@@ -61,11 +62,11 @@ def test_package_initializers_follow_facade_pattern() -> None:
         source = path.read_text(encoding="utf-8")
         is_public_facade = "_internal" not in path.parts
         if not source.strip():
-             # Empty files are okay if they are just placeholders, 
-             # but the user wanted docstrings.
-             violations.append(f"{path.relative_to(repo_root)}: Missing docstring")
-             continue
-             
+            # Empty files are okay if they are just placeholders,
+            # but the user wanted docstrings.
+            violations.append(f"{path.relative_to(repo_root)}: Missing docstring")
+            continue
+
         module = ast.parse(source, filename=str(path))
         body = module.body
 
@@ -79,12 +80,15 @@ def test_package_initializers_follow_facade_pattern() -> None:
             violations.append(f"{path.relative_to(repo_root)}: Missing docstring at top of file")
             continue
 
-        body = body[1:] # Skip docstring
+        body = body[1:]  # Skip docstring
 
         for node in body:
             # Rule 2: No class or function definitions
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                violations.append(f"{path.relative_to(repo_root)}: Prohibited definition ({type(node).__name__})")
+                violations.append(
+                    f"{path.relative_to(repo_root)}: "
+                    f"Prohibited definition ({type(node).__name__})"
+                )
                 continue
 
             # Rule 3: Assignments allowed only for metadata
@@ -94,7 +98,7 @@ def test_package_initializers_follow_facade_pattern() -> None:
                     targets = node.targets
                 else:
                     targets = [node.target]
-                
+
                 valid_assignment = True
                 for target in targets:
                     if isinstance(target, ast.Name):
@@ -102,9 +106,12 @@ def test_package_initializers_follow_facade_pattern() -> None:
                             valid_assignment = False
                     else:
                         valid_assignment = False
-                
+
                 if not valid_assignment:
-                    violations.append(f"{path.relative_to(repo_root)}: Prohibited assignment (only __all__/__version__ etc allowed)")
+                    violations.append(
+                        f"{path.relative_to(repo_root)}: "
+                        "Prohibited assignment (only __all__/__version__ etc allowed)"
+                    )
 
             # Rule 4: Imports are allowed (for re-exporting)
             if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
@@ -122,9 +129,123 @@ def test_package_initializers_follow_facade_pattern() -> None:
 
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
-            
+
             # Allow metadata assignments and imports, but flag anything else
             if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom)):
-                violations.append(f"{path.relative_to(repo_root)}: Prohibited node type ({type(node).__name__})")
+                violations.append(
+                    f"{path.relative_to(repo_root)}: "
+                    f"Prohibited node type ({type(node).__name__})"
+                )
 
-    assert not violations, "Package initializers violated facade pattern rules:\n" + "\n".join(violations)
+    assert not violations, (
+        "Package initializers violated facade pattern rules:\n" + "\n".join(violations)
+    )
+
+
+def test_all_internal_dirs_have_init() -> None:
+    """Every ``_internal/`` directory under dare_framework MUST contain ``__init__.py``."""
+    repo_root = Path(__file__).resolve().parents[2]
+    package_root = repo_root / "dare_framework"
+
+    internal_dirs = sorted(package_root.rglob("_internal"))
+    internal_dirs = [d for d in internal_dirs if d.is_dir()]
+    assert internal_dirs, "Expected to find _internal directories"
+
+    missing: list[str] = []
+    for d in internal_dirs:
+        init_path = d / "__init__.py"
+        if not init_path.exists():
+            missing.append(str(d.relative_to(repo_root)))
+
+    assert not missing, (
+        "_internal directories missing __init__.py:\n" + "\n".join(missing)
+    )
+
+
+def test_domain_init_does_not_import_internal_leaf_modules() -> None:
+    """Domain ``__init__.py`` MUST import from ``_internal`` package, not leaf modules.
+
+    Allowed:
+        from dare_framework.plan._internal import DefaultPlanner
+    Forbidden:
+        from dare_framework.plan._internal.default_planner import DefaultPlanner
+
+    The ``tool`` domain is excluded because it uses a ``_exports`` module pattern
+    rather than ``_internal`` for lazy loading.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    package_root = repo_root / "dare_framework"
+
+    # Pattern matches imports like ``from dare_framework.X._internal.Y import ...``
+    # where Y is a leaf submodule file (i.e. there is a dot after _internal).
+    leaf_import_re = re.compile(r"from\s+\S+\._internal\.\S+\s+import")
+
+    violations: list[str] = []
+
+    # Only check domain-level __init__.py (direct children of dare_framework/)
+    for domain_dir in sorted(package_root.iterdir()):
+        if not domain_dir.is_dir():
+            continue
+        init_path = domain_dir / "__init__.py"
+        if not init_path.exists():
+            continue
+
+        source = init_path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            # Skip comments
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if leaf_import_re.search(line):
+                rel = init_path.relative_to(repo_root)
+                violations.append(f"{rel}:{lineno}: {stripped}")
+
+    assert not violations, (
+        "Domain __init__.py files import directly from _internal leaf modules "
+        "(must import through _internal/__init__.py):\n" + "\n".join(violations)
+    )
+
+
+def test_domain_init_defines_all() -> None:
+    """Every domain-level ``__init__.py`` MUST define ``__all__``.
+
+    The top-level ``dare_framework/__init__.py`` is excluded from this check
+    because it is an acceptable empty-``__all__`` placeholder.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    package_root = repo_root / "dare_framework"
+
+    missing: list[str] = []
+
+    for domain_dir in sorted(package_root.iterdir()):
+        if not domain_dir.is_dir():
+            continue
+        # Skip __pycache__ and similar
+        if domain_dir.name.startswith("__"):
+            continue
+        init_path = domain_dir / "__init__.py"
+        if not init_path.exists():
+            continue
+
+        source = init_path.read_text(encoding="utf-8")
+        if not source.strip():
+            # Empty placeholder -- already flagged by the docstring test
+            continue
+
+        tree = ast.parse(source, filename=str(init_path))
+        has_all = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "__all__":
+                        has_all = True
+                        break
+            if has_all:
+                break
+
+        if not has_all:
+            missing.append(str(init_path.relative_to(repo_root)))
+
+    assert not missing, (
+        "Domain __init__.py files missing __all__:\n" + "\n".join(missing)
+    )

@@ -83,6 +83,8 @@ from dare_framework.transport.interaction.control_handler import AgentControlHan
 from dare_framework.transport.interaction.dispatcher import ActionHandlerDispatcher
 from dare_framework.transport.kernel import AgentChannel
 from dare_framework.context.manage_context import ManageContextTool, MANAGE_CONTEXT_TOOL_NAME
+from dare_framework.guidance import GuidanceQueue
+from dare_framework.guidance.action_handler import GuidanceActionHandler
 
 logger = logging.getLogger(__name__)
 
@@ -359,11 +361,13 @@ class _BaseAgentBuilder(Generic[TAgent]):
             tools,
             self._tool_providers,
         )
+        guidance_queue = GuidanceQueue()
         context = self._build_context(
             config=config,
             knowledge=knowledge,
             sys_prompt=sys_prompt,
             tool_gateway=tool_gateway,
+            guidance_queue=guidance_queue,
         )
         self._context = context
         agent = self._build_impl(
@@ -385,6 +389,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
             )
             action_dispatcher.register_action_handler(ToolsActionHandler(tool_manager))
             action_dispatcher.register_action_handler(ApprovalsActionHandler(approval_manager))
+            action_dispatcher.register_action_handler(GuidanceActionHandler(guidance_queue))
             if skill_store is not None:
                 action_dispatcher.register_action_handler(SkillsActionHandler(skill_store))
             action_dispatcher.register_action_handler(
@@ -567,6 +572,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
             knowledge: IKnowledge | None,
             sys_prompt: Prompt | None,
             tool_gateway: IToolGateway | None,
+            guidance_queue: GuidanceQueue | None = None,
     ) -> Context:
         """Build context with shared defaults for all builder variants.
 
@@ -586,6 +592,7 @@ class _BaseAgentBuilder(Generic[TAgent]):
             tool_gateway=tool_gateway,
             assemble_context=self._assemble_context,
             context_window_tokens=self._context_window_tokens,
+            guidance_queue=guidance_queue,
         )
         # 若 builder 已解析到 model：
         # - 默认（compression 为空或其他值）视为启用 "moving" 压缩；

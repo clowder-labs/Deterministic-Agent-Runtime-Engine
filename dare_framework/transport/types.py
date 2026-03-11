@@ -91,6 +91,12 @@ class ActionPayload(EnvelopePayload):
     code: str | None = None
     reason: str | None = None
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.resource_action, str):
+            raise TypeError(
+                f"invalid resource_action type: {type(self.resource_action).__name__}"
+            )
+
 
 @dataclass(frozen=True)
 class ControlPayload(EnvelopePayload):

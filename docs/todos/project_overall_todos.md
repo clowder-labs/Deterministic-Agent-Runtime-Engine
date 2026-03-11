@@ -1,6 +1,6 @@
 # DARE Framework 项目总体 TODO
 
-> 更新时间：2026-03-04  
+> 更新时间：2026-03-11  
 > 范围：项目全局演进（非单个 feature 的实现方案）
 
 ## 1. 目标与边界
@@ -24,11 +24,11 @@
 | CLM-20260302-AG3 | T5-5（D7 子范围） | lang | done | 2026-03-02 | 2026-03-03 | `agentscope-d7-plan-state-tools` | `CLM-20260302-D7` | PR #138 已合入主干，D7 子范围执行闭环完成。 |
 | ~~CLM-20260302-AG4~~ | ~~T5-3（历史聚合）~~ | ~~lang~~ | ~~deprecated~~ | ~~2026-03-02~~ | ~~2026-03-04~~ | ~~`agentscope-d1-d3-message-pipeline`~~ | ~~`CLM-20260302-D1D3`~~ | 历史聚合认领已废弃；后续以 AG6（TODO 级 claim）为准。 |
 | ~~CLM-20260303-AG5~~ | ~~T5-4（历史聚合）~~ | ~~N/A~~ | ~~deprecated~~ | ~~2026-03-03~~ | ~~2026-03-04~~ | ~~`pending`~~ | ~~`CLM-20260303-D6D8`~~ | 聚合占位 claim 已废弃；后续以 AG7（TODO 级 claim）为准。 |
-| CLM-20260304-AG6 | T5-3 |  | planned | 2026-03-04 | 2026-03-11 | `agentscope-d1-d3-message-pipeline` | `CLM-20260304-D1 + CLM-20260304-D3` | TODO 级认领；切片仅在 AgentScope 详细区维护。 |
+| CLM-20260304-AG6 | T5-3（D1+D3 子范围） | lang | done | 2026-03-04 | 2026-03-11 | `archive/2026-03-09-agentscope-d1-d3-message-pipeline` | `CLM-20260304-D1 + CLM-20260304-D3` | D1+D3 子范围已完成：canonical rich-media message schema、typed payload、adapter codec、assemble normalization、URI 策略、降级策略已归档。剩余 T5-3 范围（audio/video kind、跨适配器能力矩阵、正式降级策略文档、示例用例）需新 claim。 |
 | CLM-20260304-AG7 | T5-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `CLM-20260304-D6 + CLM-20260304-D8` | TODO 级认领；切片仅在 AgentScope 详细区维护。 |
 | CLM-20260304-AG8 | T1-2 + T1-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层高复杂 TODO 组待分配；切片见详细拆分区。 |
 | CLM-20260304-AG9 | T2-3 + T2-4 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 项目层治理 TODO 组待分配；切片见详细拆分区。 |
-| CLM-20260304-AG10 | T0-6 | lang | active | 2026-03-04 | 2026-03-11 | `pending` | `—` | 下一项 fix：P0 红灯且无上游依赖，先修复 `search_file` 路径契约回归。 |
+| CLM-20260304-AG10 | T0-6 | lang | done | 2026-03-04 | 2026-03-11 | `—` | `—` | PR #181 已合入主干；`search_file` 路径契约回归已修复并补齐回归测试。 |
 | CLM-20260304-AG11 | T0-4 + T0-5 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P0 未完成项补齐认领声明：facade 合规修复与失败映射责任化待分配。 |
 | CLM-20260304-AG12 | T1-3 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | P1 未完成项补齐认领声明：`ISecurityBoundary` 接入待分配。 |
 | CLM-20260304-AG13 | T2-1（剩余范围） + T2-2 + T5-1 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | Layer-2 策略补齐：D5 子范围已完成，剩余上下文融合/多阶段 prompt/session 补齐待分配。 |
@@ -36,15 +36,16 @@
 | CLM-20260304-AG15 | T4-2 + T4-3 |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | 运行期配置统一与默认可观测采集持久化未完成项补齐认领声明。 |
 | CLM-20260304-AG16 | T5-5（剩余范围，D7 子范围外） |  | planned | 2026-03-04 | 2026-03-11 | `pending` | `—` | D7 子范围已由 `AG3/CLM-20260302-D7` 闭环；本条仅覆盖剩余范围，暂无明细 claim。 |
 
-对账快照（2026-03-04）：
+对账快照（2026-03-11）：
 - AgentScope 聚合 claim（AG1/AG2/AG3/AG6/AG7）均可在 `agentscope_domain_execution_todos.md` 中找到明细 claim 对应。
+- AG6（T5-3 D1+D3 子范围）已完成并归档，剩余范围（audio/video、能力矩阵、降级文档、示例）需新 claim。
 - 项目层独立 claim（AG8/AG9/AG10/AG11/AG12/AG13/AG14/AG15/AG16）不在 AgentScope 明细板拆分。
+- AG10（T0-6）已由 PR #181 合入主干；本表状态已回写为 `done`。
 
 ## 2. 当前基线
 
 - 测试基线（2026-03-03）：`.venv/bin/pytest -q` => `1 failed, 642 passed, 12 skipped, 1 warning`。
 - 关键问题聚类：
-  - `search_file` 输出路径契约回归：实现返回绝对路径，测试期望相对路径（`tests/unit/test_v4_file_tools.py::test_search_file_finds_matching_paths`）。
   - 全量 TODO / Claim / Feature 状态存在漂移（已 merge 或 archived 的 change 仍标记 active/draft）。
   - 若干 package `__init__.py` 不满足 facade 约束。
 - 设计已定义但实现未闭环：plan attempt 隔离（snapshot/rollback）、Context 检索融合、完整 HITL 语义、P0 conformance gate 与治理自动化门禁。
@@ -70,10 +71,10 @@
   Status: `planned`
 - [ ] T0-5 建立“失败测试 -> 责任模块 -> owner”映射并例行巡检。
   Status: `planned`
-- [ ] T0-6 修复 `search_file` 输出路径契约回归（绝对路径 vs 相对路径）。  
-  Status: `active`  
-  Evidence: `.venv/bin/pytest -q` 失败用例 `tests/unit/test_v4_file_tools.py::test_search_file_finds_matching_paths`；实现位置 `dare_framework/tool/_internal/tools/search_file.py`  
-  Last Updated: `2026-03-04`
+- [x] T0-6 修复 `search_file` 输出路径契约回归（绝对路径 vs 相对路径）。  
+  Status: `done`  
+  Evidence: PR #181；`dare_framework/tool/_internal/tools/search_file.py`、`dare_framework/tool/_internal/file_utils.py`、`tests/unit/test_v4_file_tools.py`；`.venv/bin/pytest -q tests/unit/test_v4_file_tools.py` => `19 passed`  
+  Last Updated: `2026-03-11`
 
 验收：
 
@@ -242,8 +243,23 @@ AgentScope 补齐详细 TODO 入口：`docs/todos/agentscope_domain_execution_to
 
 - [ ] T5-3 图片/音频/视频富媒体消息格式支持
   Status: `planned`
-  范围：定义并落地多模态消息格式基线。保留 `TransportEnvelope.kind = message/select/action/control`，以 typed payload 替代 `payload: Any + event_type`；升级 canonical `Message` 为 `text + attachments + data` 结构，覆盖模型输入、上下文存储、transport 传输与适配器能力探测；统一替代“图片/富媒体一等支持”的原 T4-4 范围（含 A2A 附件链路规范化）。
+  范围：定义并落地多模态消息格式基线。保留 `TransportEnvelope.kind = message/select/action/control`，以 typed payload 替代 `payload: Any + event_type`；升级 canonical `Message` 为 `text + attachments + data` 结构，覆盖模型输入、上下文存储、transport 传输与适配器能力探测；统一替代”图片/富媒体一等支持”的原 T4-4 范围（含 A2A 附件链路规范化）。
   交付：跨适配器能力矩阵 + 不支持能力时的降级策略 + 示例用例。
+  已完成子范围（D1+D3 子范围，已归档）：
+  - canonical `Message(role/kind/text/attachments/data)` schema 已落地（`dare_framework/context/types.py`）
+  - `AttachmentRef(kind=IMAGE)` 定义与校验已落地（`dare_framework/context/types.py`）
+  - typed payload families (`MessagePayload`/`SelectPayload`/`ActionPayload`/`ControlPayload`) 已落地（`dare_framework/transport/types.py`）
+  - assemble normalization pipeline 已落地（`base_agent.py`、`session_orchestrator.py`）
+  - URI 构建策略（inline base64 / remote URL / local temp）已落地（`a2a/server/message_adapter.py`）
+  - 三适配器（OpenAI/Anthropic/OpenRouter）image 序列化已落地
+  - transport typed payload cutover + message input boundary cleanup 已归档
+  Evidence: `openspec/changes/archive/2026-03-09-agentscope-d1-d3-message-pipeline/`、`archive/2026-03-09-transport-typed-payload-cutover/`、`archive/2026-03-09-message-input-boundary-cleanup/`
+  剩余范围：
+  - `AttachmentKind` 扩展 `AUDIO`/`VIDEO`（当前仅 `IMAGE`）
+  - 跨适配器能力矩阵文档 + 运行时 capability probing 接口
+  - 正式降级策略规格文档（retry/fallback 规则）
+  - `examples/` 富媒体消息示例用例
+  Last Updated: `2026-03-10`
 
 - [ ] T5-4 全链路日志输出整理（模块分层与规范化）  
   Status: `planned`  

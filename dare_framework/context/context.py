@@ -12,11 +12,12 @@ from dare_framework.tool.types import CapabilityDescriptor
 
 if TYPE_CHECKING:
     from dare_framework.compression.moving_compression import MovingCompressor
+    from dare_framework.guidance.guidance_queue import GuidanceQueue
     from dare_framework.model.types import Prompt
     from dare_framework.skill.types import Skill
 
 from dare_framework.context.kernel import IContext, IRetrievalContext, IAssembleContext
-from dare_framework.context.types import AssembledContext, Budget, Message, MessageRole
+from dare_framework.context.types import AssembledContext, Budget, Message, MessageKind, MessageRole
 
 
 # ============================================================
@@ -45,6 +46,7 @@ class Context(IContext):
             assemble_context: IAssembleContext | None = None,
             context_window_tokens: int | None = None,
             moving_compressor: MovingCompressor | None = None,
+            guidance_queue: GuidanceQueue | None = None,
     ) -> None:
         if config is None:
             raise ValueError("Context requires a non-null Config")
@@ -68,6 +70,9 @@ class Context(IContext):
 
         # 可选：移动窗口压缩器，通过 moving_compressor.prune(self) 使用
         self._moving_compressor = moving_compressor
+
+        # 可选：用户引导队列，在 assemble() 时自动排空注入到 STM
+        self._guidance_queue: GuidanceQueue | None = guidance_queue
 
         # Initialize default short-term memory if not provided
         if self._short_term_memory is None:
@@ -198,7 +203,26 @@ class Context(IContext):
 
     # ========== Assembly Methods (Core) ==========
 
+    def _drain_guidance(self) -> None:
+        """Drain pending guidance items into STM.
+
+        Called before compression and assembly so that guidance messages
+        participate in token-budget pruning and appear in the assembled
+        context exactly once.
+        """
+        if self._guidance_queue is None:
+            return
+        items = self._guidance_queue.drain_all_sync()
+        for item in items:
+            self.stm_add(Message(
+                role=MessageRole.USER,
+                kind=MessageKind.CHAT,
+                text=item.content,
+                metadata={"guidance_id": item.id, "source": "user_guidance"},
+            ))
+
     def assemble(self) -> AssembledContext:
+        self._drain_guidance()
         return self._assemble_context.assemble(self)
 
     async def compress(self, **options: Any) -> None:
@@ -214,7 +238,13 @@ class Context(IContext):
         await self._moving_compressor.prune(self, **prune_opts)
 
     async def assemble_for_model(self, **options: Any) -> AssembledContext:
-        """供模型调用的装配入口：在内部静默触发压缩，然后返回 AssembledContext。"""
+        """供模型调用的装配入口：先排空引导队列，再压缩，最后装配。
+
+        Guidance is drained **before** compression so that guidance messages
+        participate in token-budget pruning and do not silently push the
+        final prompt over the configured context window.
+        """
+        self._drain_guidance()
         await self.compress(**options)
         return self.assemble()
 
