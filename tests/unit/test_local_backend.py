@@ -59,11 +59,13 @@ def test_local_backend_build_sdist_includes_core_sources(tmp_path: Path) -> None
 
     with tarfile.open(sdist_path, "r:gz") as archive:
         names = set(archive.getnames())
+        root_dir = next(name.split("/", 1)[0] for name in names if name.endswith("/PKG-INFO"))
         assert any(name.endswith("/pyproject.toml") for name in names)
         assert any(name.endswith("/_local_backend.py") for name in names)
         assert any(name.endswith("/client/main.py") for name in names)
         assert any(name.endswith("/dare_framework/__init__.py") for name in names)
         assert any(name.endswith("/PKG-INFO") for name in names)
+        assert f"{root_dir}/README.md" in names
 
 
 def test_local_backend_reports_no_extra_requirements_for_build_sdist() -> None:

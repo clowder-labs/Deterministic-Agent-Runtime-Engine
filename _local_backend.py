@@ -86,6 +86,15 @@ def _readme_payload(project: dict) -> tuple[str, str] | None:
     return None
 
 
+def _readme_file(project: dict) -> Path | None:
+    readme = project.get("readme")
+    if isinstance(readme, str):
+        return _project_root() / readme
+    if isinstance(readme, dict) and "file" in readme:
+        return _project_root() / str(readme["file"])
+    return None
+
+
 def _metadata_text(project: dict) -> str:
     lines = [
         "Metadata-Version: 2.1",
@@ -158,6 +167,10 @@ def _sdist_files() -> Iterable[Path]:
         root / "client" / "README.md",
     ):
         yield from _yield(candidate)
+
+    readme_file = _readme_file(_load_project_metadata())
+    if readme_file is not None:
+        yield from _yield(readme_file)
 
     for file_path in _package_files():
         if file_path not in seen:
