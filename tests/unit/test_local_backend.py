@@ -35,6 +35,21 @@ def test_local_backend_build_wheel_includes_cli_sources(tmp_path: Path) -> None:
         assert any(name.endswith(".dist-info/RECORD") for name in names)
 
 
+def test_local_backend_wheel_metadata_includes_markdown_readme(tmp_path: Path) -> None:
+    backend = importlib.import_module("_local_backend")
+    wheel_name = backend.build_wheel(str(tmp_path))
+    wheel_path = tmp_path / wheel_name
+
+    with zipfile.ZipFile(wheel_path, "r") as archive:
+        metadata_name = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = archive.read(metadata_name).decode("utf-8")
+
+    assert "Description-Content-Type: text/markdown" in metadata
+    assert "## 本地安装" in metadata
+
+
 def test_local_backend_build_sdist_includes_core_sources(tmp_path: Path) -> None:
     backend = importlib.import_module("_local_backend")
     sdist_name = backend.build_sdist(str(tmp_path))

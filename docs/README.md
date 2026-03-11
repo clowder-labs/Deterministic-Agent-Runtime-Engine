@@ -9,35 +9,38 @@
 ### 快速上手（最终架构设计以权威文档为准）
 
 ```text
-1. 项目概览
+1. 项目入口与本地安装
+   └── /README.md (发行包名、导入名、本地 editable/wheel 安装、下游项目引用方式)
+
+2. 项目概览
    └── /openspec/project.md (项目上下文、技术栈、架构概览)
 
-2. 核心架构（权威设计）
+3. 核心架构（权威设计）
    └── design/Architecture.md
 
-3. 接口设计（权威设计）
+4. 接口设计（权威设计）
    └── design/Interfaces.md
 
-4. 设计对齐与证据（可选但推荐）
+5. 设计对齐与证据（可选但推荐）
    ├── design/DARE_alignment.md
    └── design/DARE_evidence.yaml
 
-5. 代码实现（以权威设计文档为准）
+6. 代码实现（以权威设计文档为准）
    └── dare_framework/（当前实现；若与权威设计不一致，需先修订设计并执行 gap 分析）
 
-6. 示例实现
+7. 示例实现
    ├── /examples/04-dare-coding-agent/ (五层循环示例 Agent)
    ├── /examples/06-dare-coding-agent-mcp/ (Config 驱动 MCP + 动态重载示例)
    ├── /examples/07-tool-approval-memory/ (工具审批记忆与自动放行示例)
    └── /examples/08-hook-governance/ (Hook 治理：patch + block 示例)
 
-7. CLI 使用与配置
+8. CLI 使用与配置
    ├── /client/README.md (命令入口、`.dare/config.json`、LLM 配置说明)
    ├── /.dare/config.json.example (OpenAI 最小配置)
    ├── /.dare/config.openrouter.example.json (OpenRouter 最小配置)
    └── /.dare/config.advanced.example.json (进阶配置示例)
 
-8. 开发规范
+9. 开发规范
    ├── /CONTRIBUTING_AI.md (AI Agent 协作规范)
    ├── guides/Development_Constraints.md (开发约束清单)
    ├── guides/Documentation_First_Development_SOP.md (文档先行 SOP，Bug/Feature/Refactor 必走)
@@ -78,6 +81,7 @@
 
 | 文档/目录 | 作用 | 状态 |
 |---|---|---|
+| `/README.md` | 项目入口与本地安装说明，面向“如何在本机或下游项目中引用 `dare_framework`” | ✅ 仓库入口 |
 | `dare_framework/` | 框架实现主目录（目标收敛到单一架构；详见权威设计） | ✅ 实现入口 |
 | `client/README.md` | DARE Client CLI 用法与配置入口，含 `.dare/config.json` 和 LLM 配置说明 | ✅ CLI 入口 |
 | `.dare/config.json.example` | OpenAI 最小配置示例，可作为 workspace `.dare/config.json` 起点 | ✅ 配置示例 |

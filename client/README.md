@@ -2,69 +2,71 @@
 
 统一对外 CLI 入口，面向 `dare_framework` 的任务执行与运行时控制。
 
+除非特别说明，以下命令默认在仓库根目录、且已激活目标 Python 虚拟环境后执行。若你使用显式虚拟环境路径，可将 `python` 替换为 `<venv>/bin/python`。
+
 ## 运行方式
 
 ```bash
 # 仓库根目录
-.venv/bin/python -m client --help
+python -m client --help
 
 # 可编辑安装后使用 console script
-.venv/bin/pip install -e .
-.venv/bin/dare --help
+python -m pip install -e .
+dare --help
 ```
 
 如果是在离线或受限网络环境，可跳过依赖安装，仅安装 CLI 入口：
 
 ```bash
-.venv/bin/pip install -e . --no-deps
+python -m pip install -e . --no-deps
 ```
 
 ## 常用命令
 
 ```bash
 # 交互模式
-.venv/bin/python -m client chat
+python -m client chat
 # 恢复最近一次会话
-.venv/bin/python -m client chat --resume
+python -m client chat --resume
 # 恢复指定会话
-.venv/bin/python -m client chat --resume <session-id>
+python -m client chat --resume <session-id>
 # 兼容入口：恢复指定会话
-.venv/bin/python -m client chat --session-id <session-id>
+python -m client chat --session-id <session-id>
 # 列出当前 workspace 可恢复会话
-.venv/bin/python -m client sessions list
+python -m client sessions list
 
 # 一次性执行
-.venv/bin/python -m client run --task "读取 README 并总结"
+python -m client run --task "读取 README 并总结"
 # 在已有会话历史上继续执行一次任务
-.venv/bin/python -m client run --resume latest --task "继续上一轮，补充测试计划"
+python -m client run --resume latest --task "继续上一轮，补充测试计划"
 # 兼容入口：基于指定 session 继续执行
-.venv/bin/python -m client run --session-id <session-id> --task "继续上一轮"
+python -m client run --session-id <session-id> --task "继续上一轮"
 # 一次性执行（审批等待超时，默认 120s）
-.venv/bin/python -m client run --task "读取 README 并总结" --approval-timeout-seconds 120
+python -m client run --task "读取 README 并总结" --approval-timeout-seconds 120
 # 一次性执行（自动审批指定工具，例如 run_command）
-.venv/bin/python -m client run --task "读取 README 并总结" --auto-approve-tool run_command
+python -m client run --task "读取 README 并总结" --auto-approve-tool run_command
 
 # 脚本模式
-.venv/bin/python -m client script --file /abs/path/to/demo.txt
+python -m client script --file /abs/path/to/demo.txt
 # 仓库内示例脚本
-.venv/bin/python -m client chat --script client/examples/basic.script.txt
+python -m client chat --script client/examples/basic.script.txt
 # 在已有会话上继续跑脚本
-.venv/bin/python -m client script --resume latest --file /abs/path/to/demo.txt
+python -m client script --resume latest --file /abs/path/to/demo.txt
 # 兼容入口：在指定会话上继续跑脚本
-.venv/bin/python -m client script --session-id <session-id> --file /abs/path/to/demo.txt
+python -m client script --session-id <session-id> --file /abs/path/to/demo.txt
 
 # 审批控制
-.venv/bin/python -m client approvals list
-.venv/bin/python -m client approvals poll --timeout-ms 30000
-.venv/bin/python -m client approvals grant <request_id> --scope workspace --matcher exact_params [--session-id session-id]
+python -m client approvals list
+python -m client approvals poll --timeout-ms 30000
+python -m client approvals grant <request_id> --scope workspace --matcher exact_params [--session-id session-id]
 
 # MCP 控制
-.venv/bin/python -m client mcp list
-.venv/bin/python -m client mcp inspect
-.venv/bin/python -m client mcp reload
+python -m client mcp list
+python -m client mcp inspect
+python -m client mcp reload
 
 # 诊断（不要求模型可执行）
-.venv/bin/python -m client doctor
+python -m client doctor
 ```
 
 ## 会话持久化与 Resume
@@ -346,7 +348,7 @@ OpenAI-compatible / 自建模型网关：
 临时切模型或切换 provider 时，可以直接用 CLI flags 覆盖文件配置：
 
 ```bash
-.venv/bin/python -m client \
+python -m client \
   --adapter openrouter \
   --model qwen/qwen3-coder:free \
   --api-key "$OPENROUTER_API_KEY" \
@@ -356,7 +358,7 @@ OpenAI-compatible / 自建模型网关：
 或者只临时改 endpoint：
 
 ```bash
-.venv/bin/python -m client \
+python -m client \
   --endpoint http://127.0.0.1:8000/v1 \
   run --task "读取 README 并总结"
 ```
@@ -364,7 +366,7 @@ OpenAI-compatible / 自建模型网关：
 临时覆盖 system prompt（完整替换）：
 
 ```bash
-.venv/bin/python -m client \
+python -m client \
   --system-prompt-mode replace \
   --system-prompt-file .dare/prompts/strict_system.txt \
   run --task "读取 README 并总结"
@@ -373,7 +375,7 @@ OpenAI-compatible / 自建模型网关：
 临时覆盖 system prompt（在默认提示词后追加）：
 
 ```bash
-.venv/bin/python -m client \
+python -m client \
   --system-prompt-mode append \
   --system-prompt-text "Always answer in Chinese unless user explicitly asks otherwise." \
   chat
@@ -390,13 +392,13 @@ OpenAI-compatible / 自建模型网关：
 
 ```bash
 # 查看最终生效的合并配置
-.venv/bin/python -m client config show
+python -m client config show
 
 # 查看当前 runtime 选中的模型信息
-.venv/bin/python -m client model show
+python -m client model show
 
 # 做环境与依赖诊断
-.venv/bin/python -m client doctor
+python -m client doctor
 ```
 
 这三个命令分别用于：
