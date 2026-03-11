@@ -172,6 +172,10 @@ class SessionStateContributor:
             return
         if "current_milestone_idx" in payload and hasattr(state, "current_milestone_idx"):
             state.current_milestone_idx = payload["current_milestone_idx"]
+        if "task_id" in payload and hasattr(state, "task_id"):
+            state.task_id = payload["task_id"]
+        if "run_id" in payload and hasattr(state, "run_id"):
+            state.run_id = payload["run_id"]
 
 
 class SessionContextContributor:

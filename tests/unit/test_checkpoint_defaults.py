@@ -38,6 +38,13 @@ class _DummyCtx:
     session_context: _DummySessionContext | None
 
 
+@dataclass
+class _DummySessionState:
+    current_milestone_idx: int | None
+    task_id: str | None
+    run_id: str | None
+
+
 def test_session_context_contributor_preserves_serialized_config_dict() -> None:
     defaults = importlib.import_module("dare_framework.checkpoint.defaults")
     contributor = defaults.SessionContextContributor()
@@ -53,6 +60,22 @@ def test_session_context_contributor_preserves_serialized_config_dict() -> None:
 
     assert payload is not None
     assert payload["config"] == {"model": "gpt-4.1"}
+
+
+def test_session_state_contributor_restores_task_and_run_ids() -> None:
+    defaults = importlib.import_module("dare_framework.checkpoint.defaults")
+    contributor = defaults.SessionStateContributor()
+    state = _DummySessionState(current_milestone_idx=0, task_id="task-old", run_id="run-old")
+    ctx = type("Ctx", (), {"session_state": state})()
+
+    contributor.deserialize_and_apply(
+        {"current_milestone_idx": 3, "task_id": "task-new", "run_id": "run-new"},
+        ctx,
+    )
+
+    assert state.current_milestone_idx == 3
+    assert state.task_id == "task-new"
+    assert state.run_id == "run-new"
 
 
 def test_stm_contributor_roundtrip_uses_current_message_text_shape() -> None:
