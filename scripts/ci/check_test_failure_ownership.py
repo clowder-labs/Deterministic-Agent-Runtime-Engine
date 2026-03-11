@@ -92,17 +92,21 @@ def _build_report(failed_nodeids: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _run_pytest() -> str:
-    """Run ``pytest -q --tb=line tests/`` and return combined output."""
-    completed = subprocess.run(
+def _format_completed_output(completed: subprocess.CompletedProcess[str]) -> str:
+    """Join stdout/stderr into the single text blob consumed by the parser."""
+    return "\n".join(
+        part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
+    ).strip()
+
+
+def _run_pytest() -> subprocess.CompletedProcess[str]:
+    """Run ``pytest -q --tb=line tests/`` and return the completed process."""
+    return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "--tb=line", "tests/"],
         capture_output=True,
         text=True,
         check=False,
     )
-    return "\n".join(
-        part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
-    ).strip()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -123,12 +127,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.stdin:
         raw = sys.stdin.read()
+        pytest_returncode: int | None = None
     elif args.report:
         raw = args.report.read_text(encoding="utf-8")
+        pytest_returncode = None
     else:
-        raw = _run_pytest()
+        completed = _run_pytest()
+        raw = _format_completed_output(completed)
+        pytest_returncode = completed.returncode
 
     failed = _parse_failed_lines(raw)
+    if pytest_returncode and not failed:
+        if raw:
+            print(raw, file=sys.stderr)
+        return pytest_returncode
+
     report = _build_report(failed)
     print(report)
 
