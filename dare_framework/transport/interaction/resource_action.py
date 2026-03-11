@@ -24,6 +24,9 @@ class ResourceAction(StrEnum):
     MCP_SHOW_TOOL = "mcp:show-tool"
     SKILLS_LIST = "skills:list"
     MODEL_GET = "model:get"
+    GUIDE_INJECT = "guide:inject"
+    GUIDE_LIST = "guide:list"
+    GUIDE_CLEAR = "guide:clear"
 
     @classmethod
     def value_of(cls, raw: str) -> ResourceAction | None:

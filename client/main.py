@@ -295,6 +295,9 @@ _HOST_CONTROL_ACTIONS: tuple[ResourceAction, ...] = (
     ResourceAction.MCP_RELOAD,
     ResourceAction.MCP_SHOW_TOOL,
     ResourceAction.SKILLS_LIST,
+    ResourceAction.GUIDE_INJECT,
+    ResourceAction.GUIDE_LIST,
+    ResourceAction.GUIDE_CLEAR,
 )
 _SESSION_RESUME_ACTION = "session:resume"
 

@@ -10,6 +10,7 @@ from dare_framework.memory.in_memory_smart_stm import InMemorySmartSTM
 
 if TYPE_CHECKING:
     from dare_framework.config.types import Config
+    from dare_framework.guidance.guidance_queue import GuidanceQueue
     from dare_framework.model.types import Prompt
     from dare_framework.skill.types import Skill
     from dare_framework.tool.kernel import IToolGateway
@@ -38,6 +39,7 @@ class SmartContext(Context):
         skill: Skill | None = None,
         assemble_context: IAssembleContext | None = None,
         context_window_tokens: int | None = None,
+        guidance_queue: GuidanceQueue | None = None,
     ) -> None:
         # SmartContext 默认使用带 id/mark 能力的 InMemorySmartSTM，
         # 仅当外部显式传入 short_term_memory 时才使用外部实现。
@@ -56,6 +58,7 @@ class SmartContext(Context):
             skill=skill,
             assemble_context=assemble_context,
             context_window_tokens=context_window_tokens,
+            guidance_queue=guidance_queue,
         )
 
     # ========== Smart Extensions: Core / TaskComplete / STM Remove ==========

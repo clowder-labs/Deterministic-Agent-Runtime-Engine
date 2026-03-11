@@ -50,6 +50,7 @@ class CommandType(Enum):
     STATUS = "status"
     APPROVALS = "approvals"
     MCP = "mcp"
+    GUIDE = "guide"
     HELP = "help"
 
 
@@ -112,6 +113,7 @@ def parse_command(user_input: str) -> Command | tuple[None, str]:
         "status": CommandType.STATUS,
         "approvals": CommandType.APPROVALS,
         "mcp": CommandType.MCP,
+        "guide": CommandType.GUIDE,
         "help": CommandType.HELP,
     }
 
@@ -670,6 +672,44 @@ async def _start_background_execution(
     display.info("execution started in background; you can use /status and /approvals while it runs")
 
 
+async def _handle_guide_command(
+    args: list[str],
+    *,
+    approval_client: DirectClientChannel | None,
+    display: CLIDisplay,
+) -> None:
+    if approval_client is None:
+        display.warn("guide transport unavailable")
+        return
+    if not args:
+        display.info("/guide <text>  — inject guidance into next context assembly")
+        display.info("/guide list    — show pending guidance messages")
+        display.info("/guide clear   — remove all pending guidance")
+        return
+
+    subcommand = args[0].lower()
+    try:
+        if subcommand == "list":
+            result = await _invoke_approval_action(approval_client, ResourceAction.GUIDE_LIST)
+            items = result.get("items", [])
+            display.info(f"pending guidance: {len(items)}")
+            if items:
+                print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+            return
+        if subcommand == "clear":
+            result = await _invoke_approval_action(approval_client, ResourceAction.GUIDE_CLEAR)
+            display.info(f"cleared {result.get('removed', 0)} guidance message(s)")
+            return
+        # Everything else is treated as guidance text to inject
+        content = " ".join(args)
+        result = await _invoke_approval_action(
+            approval_client, ResourceAction.GUIDE_INJECT, content=content,
+        )
+        display.info(f"guidance injected (id={result.get('id', '?')}, pending={result.get('pending_count', '?')})")
+    except Exception as exc:
+        display.error(f"guide command failed: {exc}")
+
+
 async def run_cli_loop(
     lines: Iterable[str],
     *,
@@ -704,7 +744,8 @@ async def run_cli_loop(
             if cmd.type == CommandType.HELP:
                 display.info(
                     "/mode [plan|execute], /approve, /reject, /status, "
-                    "/approvals [list|poll|grant|deny|revoke], /mcp [list|reload|unload], /quit"
+                    "/approvals [list|poll|grant|deny|revoke], /mcp [list|reload|unload], "
+                    "/guide <text>|list|clear, /quit"
                 )
                 continue
             if cmd.type == CommandType.STATUS:
@@ -726,6 +767,13 @@ async def run_cli_loop(
                     agent=agent,
                     display=display,
                     mcp_state=mcp_state,
+                )
+                continue
+            if cmd.type == CommandType.GUIDE:
+                await _handle_guide_command(
+                    cmd.args,
+                    approval_client=approval_client,
+                    display=display,
                 )
                 continue
             if cmd.type == CommandType.MODE:
