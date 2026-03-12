@@ -19,7 +19,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -30,8 +29,8 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-FAILED_TEST_RE = re.compile(r"^FAILED\s+(.+?)(?=\s+-\s+|$)")
-ERROR_TEST_RE = re.compile(r"^ERROR\s+(.+?)(?=\s+-\s+|$)")
+FAILED_PREFIX = "FAILED "
+ERROR_PREFIX = "ERROR "
 
 
 def _looks_like_test_nodeid(token: str) -> bool:
@@ -41,12 +40,25 @@ def _looks_like_test_nodeid(token: str) -> bool:
     return ".py::" in token
 
 
-def _summary_nodeid(line: str, pattern: re.Pattern[str]) -> str | None:
+def _summary_nodeid(line: str, prefix: str) -> str | None:
     """Extract the pytest summary nodeid portion from a FAILED/ERROR line."""
-    match = pattern.match(line)
-    if match is None:
+    if not line.startswith(prefix):
         return None
-    return match.group(1)
+    remainder = line[len(prefix) :]
+    if not remainder:
+        return None
+
+    bracket_depth = 0
+    for idx, char in enumerate(remainder):
+        if char == "[":
+            bracket_depth += 1
+            continue
+        if char == "]" and bracket_depth > 0:
+            bracket_depth -= 1
+            continue
+        if bracket_depth == 0 and remainder.startswith(" - ", idx):
+            return remainder[:idx]
+    return remainder
 
 
 def _parse_failed_lines(text: str) -> list[str]:
@@ -54,11 +66,11 @@ def _parse_failed_lines(text: str) -> list[str]:
     results: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
-        failed_nodeid = _summary_nodeid(stripped, FAILED_TEST_RE)
+        failed_nodeid = _summary_nodeid(stripped, FAILED_PREFIX)
         if failed_nodeid is not None:
             results.append(failed_nodeid)
             continue
-        error_nodeid = _summary_nodeid(stripped, ERROR_TEST_RE)
+        error_nodeid = _summary_nodeid(stripped, ERROR_PREFIX)
         if error_nodeid is not None and _looks_like_test_nodeid(error_nodeid):
             results.append(error_nodeid)
     return results
@@ -77,7 +89,7 @@ def _has_unattributed_pytest_error(text: str) -> bool:
             return True
         if normalized.startswith("no tests ran") or "no tests collected" in normalized:
             return True
-        error_nodeid = _summary_nodeid(stripped, ERROR_TEST_RE)
+        error_nodeid = _summary_nodeid(stripped, ERROR_PREFIX)
         if error_nodeid is not None and not _looks_like_test_nodeid(error_nodeid):
             return True
     return False
@@ -168,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.stdin:
         raw = sys.stdin.read()
         pytest_returncode: int | None = None
+        if not raw.strip():
+            # The documented pipe flow should yield pytest stdout. Empty stdin
+            # means the upstream command failed before producing reportable output.
+            print("No pytest output received on stdin.", file=sys.stderr)
+            return 1
     elif args.report:
         raw = args.report.read_text(encoding="utf-8")
         pytest_returncode = None

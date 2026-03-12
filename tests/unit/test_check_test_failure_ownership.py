@@ -118,6 +118,17 @@ def test_main_stdin_mode_returns_nonzero_for_keyboard_interrupt(
     assert "No test failures detected." not in captured.out
 
 
+def test_main_stdin_mode_returns_nonzero_for_empty_input(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(module.sys, "stdin", io.StringIO(""))
+
+    exit_code = module.main(["--stdin"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "No pytest output received on stdin." in captured.err
+    assert "No test failures detected." not in captured.out
+
+
 def test_main_report_mode_returns_nonzero_when_no_tests_are_collected(
     tmp_path, capsys
 ) -> None:
@@ -146,4 +157,18 @@ def test_parse_failed_lines_preserves_parametrized_nodeids_with_spaces() -> None
     assert module._parse_failed_lines(raw) == [
         "tests/unit/test_demo.py::test_case[hello world]",
         "tests/unit/test_demo.py::test_setup[hello world]",
+    ]
+
+
+def test_parse_failed_lines_preserves_nodeids_containing_dash_delimiters() -> None:
+    raw = "\n".join(
+        [
+            "FAILED tests/unit/test_demo.py::test_case[hello - world] - AssertionError: boom",
+            "ERROR tests/unit/test_demo.py::test_setup[hello - world] - RuntimeError: boom",
+        ]
+    )
+
+    assert module._parse_failed_lines(raw) == [
+        "tests/unit/test_demo.py::test_case[hello - world]",
+        "tests/unit/test_demo.py::test_setup[hello - world]",
     ]
