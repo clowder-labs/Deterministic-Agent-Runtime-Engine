@@ -23,7 +23,7 @@ from dare_framework.plan.types import (
     ValidatedStep,
     VerifyResult,
 )
-from dare_framework.plan._internal import DefaultPlanner, DefaultRemediator
+from dare_framework.plan.defaults import DefaultPlanner, DefaultRemediator
 
 __all__ = [
     # Interfaces

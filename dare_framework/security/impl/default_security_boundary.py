@@ -259,7 +259,7 @@ class PolicySecurityBoundary(ISecurityBoundary):
         return await _execute_callable(fn)
 
 
-# Backward-compatible alias for legacy references.
+# Backward-compatible alias for legacy impl references.
 DefaultSecurityBoundary = PolicySecurityBoundary
 
 

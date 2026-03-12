@@ -268,3 +268,8 @@ MCP adapters, etc.
 - Tight coupling to concrete classes prevents safe refactors.
 - External users rely on internal DTOs that must then be supported forever.
 - Increased likelihood of breaking changes with each internal improvement.
+
+## 5. Implementation Note (2026-03-04)
+- T0-4 facade compliance batch moved public-domain `__init__.py` imports away from direct `._internal` references into explicit public export layers (`defaults.py`, `impl`, `adapters`).
+- The following facades now import only public modules directly: `checkpoint`, `embedding`, `event`, `hook`, `plan`, `security`, `transport`.
+- A regression rule was added in `tests/unit/test_package_initializers_facade_pattern.py` to block future direct `._internal` imports from public facades.
