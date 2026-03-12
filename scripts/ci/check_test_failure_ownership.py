@@ -65,12 +65,17 @@ def _parse_failed_lines(text: str) -> list[str]:
 
 
 def _has_unattributed_pytest_error(text: str) -> bool:
-    """Detect pytest process/collection failures that did not yield test node IDs."""
+    """Detect pytest process failures that did not yield attributable node IDs."""
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
             continue
+        normalized = stripped.lower()
         if stripped.startswith(("ERROR:", "ERROR collecting ", "INTERNALERROR>")):
+            return True
+        if "KeyboardInterrupt" in stripped or "NO_TESTS_COLLECTED" in stripped:
+            return True
+        if normalized.startswith("no tests ran") or "no tests collected" in normalized:
             return True
         error_nodeid = _summary_nodeid(stripped, ERROR_TEST_RE)
         if error_nodeid is not None and not _looks_like_test_nodeid(error_nodeid):

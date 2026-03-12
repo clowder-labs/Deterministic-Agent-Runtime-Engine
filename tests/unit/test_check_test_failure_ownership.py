@@ -101,6 +101,40 @@ def test_main_report_mode_returns_nonzero_for_usage_errors_without_failed_nodeid
     assert "No test failures detected." not in captured.out
 
 
+def test_main_stdin_mode_returns_nonzero_for_keyboard_interrupt(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        module.sys,
+        "stdin",
+        io.StringIO("KeyboardInterrupt"),
+    )
+
+    exit_code = module.main(["--stdin"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "KeyboardInterrupt" in captured.err
+    assert "No test failures detected." not in captured.out
+
+
+def test_main_report_mode_returns_nonzero_when_no_tests_are_collected(
+    tmp_path, capsys
+) -> None:
+    report_path = tmp_path / "pytest-output.txt"
+    report_path.write_text(
+        "no tests ran in 0.01s",
+        encoding="utf-8",
+    )
+
+    exit_code = module.main(["--report", str(report_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "no tests ran in 0.01s" in captured.err
+    assert "No test failures detected." not in captured.out
+
+
 def test_parse_failed_lines_preserves_parametrized_nodeids_with_spaces() -> None:
     raw = "\n".join(
         [
