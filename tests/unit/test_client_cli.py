@@ -351,6 +351,25 @@ def test_build_doctor_report_accepts_anthropic_with_key() -> None:
     assert not any("unsupported adapter configured" in item for item in payload["warnings"])
 
 
+def test_build_doctor_report_accepts_huawei_modelarts_with_key() -> None:
+    config = Config.from_dict(
+        {
+            "workspace_dir": ".",
+            "user_dir": ".",
+            "llm": {
+                "adapter": "huawei-modelarts",
+                "model": "modelarts-pro",
+                "api_key": "dummy",
+            },
+            "mcp_paths": [],
+        }
+    )
+    payload = build_doctor_report(config=config)
+    assert payload["llm"]["adapter"] == "huawei-modelarts"
+    assert payload["llm"]["api_key_present"] is True
+    assert not any("unsupported adapter configured" in item for item in payload["warnings"])
+
+
 @pytest.mark.asyncio
 async def test_main_doctor_does_not_bootstrap_runtime(monkeypatch, tmp_path) -> None:
     client_main = importlib.import_module("client.main")

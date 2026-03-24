@@ -53,6 +53,9 @@ def build_doctor_report(
         "openrouter": bool(config.llm.api_key or os.getenv("OPENROUTER_API_KEY")),
         "openai": bool(config.llm.api_key or os.getenv("OPENAI_API_KEY")),
         "anthropic": bool(config.llm.api_key or os.getenv("ANTHROPIC_API_KEY")),
+        "huawei-modelarts": bool(
+            config.llm.api_key or os.getenv("HUAWEI_MODELARTS_API_KEY")
+        ),
     }
     workspace = Path(config.workspace_dir).expanduser().resolve()
     user_dir = Path(config.user_dir).expanduser().resolve()
@@ -97,7 +100,7 @@ def build_doctor_report(
     warnings: list[str] = []
     if not diagnostics["workspace_exists"]:
         warnings.append("workspace_dir does not exist")
-    if adapter not in {"openai", "openrouter", "anthropic"}:
+    if adapter not in {"openai", "openrouter", "anthropic", "huawei-modelarts"}:
         warnings.append(f"unsupported adapter configured: {adapter}")
     if not diagnostics["llm"]["api_key_present"]:
         warnings.append(f"missing API key for adapter={adapter}")
@@ -115,6 +118,8 @@ def build_doctor_report(
         warnings.append("langchain-openai is required for openai adapter")
     if adapter == "anthropic" and not deps["anthropic_sdk_installed"]:
         warnings.append("anthropic SDK is required for anthropic adapter")
+    if adapter == "huawei-modelarts" and not deps["openai_sdk_installed"]:
+        warnings.append("openai SDK is required for huawei-modelarts adapter")
     diagnostics["warnings"] = warnings
     diagnostics["ok"] = len(warnings) == 0
     return diagnostics

@@ -1538,7 +1538,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DARE external CLI")
     parser.add_argument("--workspace", default=str(Path.cwd()), help="workspace root path")
     parser.add_argument("--user-dir", default=str(Path.home()), help="user directory path")
-    parser.add_argument("--adapter", default=None, help="llm adapter override (openai/openrouter/anthropic)")
+    parser.add_argument("--adapter", default=None, help="llm adapter override (openai/openrouter/anthropic/huawei-modelarts)")
     parser.add_argument("--model", default=None, help="llm model override")
     parser.add_argument("--api-key", default=None, help="llm api key override")
     parser.add_argument("--endpoint", default=None, help="llm endpoint override")

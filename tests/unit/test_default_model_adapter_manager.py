@@ -4,7 +4,12 @@ import pytest
 
 from dare_framework.agent import BaseAgent
 from dare_framework.config.types import Config, LLMConfig
-from dare_framework.model import AnthropicModelAdapter, OpenAIModelAdapter, OpenRouterModelAdapter
+from dare_framework.model import (
+    AnthropicModelAdapter,
+    HuaweiModelArtsModelAdapter,
+    OpenAIModelAdapter,
+    OpenRouterModelAdapter,
+)
 from dare_framework.model.default_model_adapter_manager import DefaultModelAdapterManager
 
 
@@ -31,6 +36,21 @@ def test_default_manager_returns_anthropic_adapter() -> None:
     assert isinstance(adapter, AnthropicModelAdapter)
     assert adapter.name == "anthropic"
     assert adapter.model_name == "claude-sonnet-4-5"
+
+
+def test_default_manager_returns_huawei_modelarts_adapter() -> None:
+    manager = DefaultModelAdapterManager()
+    config = Config(
+        llm=LLMConfig(
+            adapter="huawei-modelarts",
+            api_key="test-key",
+            model="modelarts-pro",
+        )
+    )
+    adapter = manager.load_model_adapter(config=config)
+    assert isinstance(adapter, HuaweiModelArtsModelAdapter)
+    assert adapter.name == "huawei-modelarts"
+    assert adapter.model_name == "modelarts-pro"
 
 
 def test_default_manager_unsupported_adapter_raises() -> None:

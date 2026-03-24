@@ -8,6 +8,7 @@ from dare_framework.config.types import Config, LLMConfig
 from dare_framework.model.interfaces import IModelAdapterManager
 from dare_framework.model.kernel import IModelAdapter
 from dare_framework.model.adapters.anthropic_adapter import AnthropicModelAdapter
+from dare_framework.model.adapters.huawei_modelarts_adapter import HuaweiModelArtsModelAdapter
 from dare_framework.model.adapters.openai_adapter import OpenAIModelAdapter
 from dare_framework.model.adapters.openrouter_adapter import OpenRouterModelAdapter
 
@@ -30,8 +31,10 @@ class DefaultModelAdapterManager(IModelAdapterManager):
             return _build_openrouter_adapter(llm)
         if adapter_name == "anthropic":
             return _build_anthropic_adapter(llm)
+        if adapter_name == "huawei-modelarts":
+            return _build_huawei_modelarts_adapter(llm)
         raise ValueError(
-            f"Unsupported model adapter '{adapter_name}'. Supported adapters: openai, openrouter, anthropic."
+            f"Unsupported model adapter '{adapter_name}'. Supported adapters: openai, openrouter, anthropic, huawei-modelarts."
         )
 
 
@@ -67,6 +70,17 @@ def _build_openrouter_adapter(llm: LLMConfig) -> OpenRouterModelAdapter:
 def _build_anthropic_adapter(llm: LLMConfig) -> AnthropicModelAdapter:
     return AnthropicModelAdapter(
         name="anthropic",
+        api_key=llm.api_key,
+        model=llm.model,
+        base_url=llm.endpoint,
+        http_client_options=_http_client_options_from_proxy(llm),
+        extra=dict(llm.extra),
+    )
+
+
+def _build_huawei_modelarts_adapter(llm: LLMConfig) -> HuaweiModelArtsModelAdapter:
+    return HuaweiModelArtsModelAdapter(
+        name="huawei-modelarts",
         api_key=llm.api_key,
         model=llm.model,
         base_url=llm.endpoint,

@@ -1,0 +1,6 @@
+{
+  "llm": {
+    "adapter": "huawei-modelarts",
+    "model": "modelarts-pro"
+  }
+}

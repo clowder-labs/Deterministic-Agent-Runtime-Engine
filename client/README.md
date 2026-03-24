@@ -166,10 +166,10 @@ export OPENROUTER_API_KEY=sk-or-...
 
 ### `llm` 字段说明
 
-- `adapter`：模型适配器，当前支持 `openai`、`openrouter`、`anthropic`。不写时默认是 `openai`。
-- `model`：模型名，例如 `gpt-4o-mini`、`gpt-4.1`、`qwen/qwen3-coder:free`。
+- `adapter`：模型适配器，当前支持 `openai`、`openrouter`、`anthropic`、`huawei-modelarts`。不写时默认是 `openai`。
+- `model`：模型名，例如 `gpt-4o-mini`、`gpt-4.1`、`qwen/qwen3-coder:free`、`modelarts-pro`。
 - `api_key`：模型服务密钥。也可以通过环境变量提供。
-- `endpoint`：自定义 provider base URL。对 `openrouter`/`anthropic` 来说分别映射到各自 SDK 的 `base_url`。
+- `endpoint`：自定义 provider base URL。对 `openrouter`/`anthropic`/`huawei-modelarts` 来说分别映射到各自 SDK 的 `base_url`。
 - `proxy`：代理配置，支持 `http`、`https`、`no_proxy`、`use_system_proxy`、`disabled`。
 - 其他未显式声明的字段会进入 `llm.extra`，并透传给 adapter；例如可以直接写 `temperature`、`max_tokens`。
 
@@ -282,6 +282,35 @@ export ANTHROPIC_MODEL=claude-sonnet-4-5
 仓库示例文件：
 
 - `client/examples/config.anthropic.example.json`
+
+Huawei ModelArts：
+
+```json
+{
+  "llm": {
+    "adapter": "huawei-modelarts",
+    "model": "modelarts-pro"
+  }
+}
+```
+
+配合环境变量：
+
+```bash
+export HUAWEI_MODELARTS_API_KEY=your-key
+# 可选，默认就是 https://api.modelarts-maas.com/v2
+export HUAWEI_MODELARTS_BASE_URL=https://api.modelarts-maas.com/v2
+```
+
+说明：
+
+- 默认 base URL 是 `https://api.modelarts-maas.com/v2`
+- runtime 实际调用 OpenAI SDK 风格的 `/chat/completions`
+- 也可以通过 `llm.endpoint` 或 `--endpoint` 临时覆盖 base URL
+
+仓库示例文件：
+
+- `client/examples/config.huawei-modelarts.example.json`
 
 OpenAI-compatible / 自建模型网关：
 
@@ -414,6 +443,7 @@ python -m client doctor
 - `openai` adapter：需要 `langchain-openai`
 - `openrouter` adapter：需要 `openai`
 - `anthropic` adapter：需要 `anthropic`
+- `huawei-modelarts` adapter：需要 `openai`
 
 否则 `doctor` 会提示 adapter probe 或依赖缺失，runtime 也无法正常启动。
 
