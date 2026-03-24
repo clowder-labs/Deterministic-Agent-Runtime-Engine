@@ -1593,6 +1593,101 @@ def test_default_auto_approve_tools_exclude_write_file() -> None:
     assert runtime_bootstrap.WriteFileTool().name not in client_main.DEFAULT_AUTO_APPROVE_TOOLS
 
 
+def test_full_auto_flag_accepted_by_run_parser() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+    args = parser.parse_args(["run", "--task", "hello", "--full-auto"])
+    assert args.full_auto is True
+
+
+def test_full_auto_flag_defaults_to_false() -> None:
+    client_main = importlib.import_module("client.main")
+    parser = client_main._build_parser()
+    args = parser.parse_args(["run", "--task", "hello"])
+    assert args.full_auto is False
+
+
+def test_auto_user_input_handler_picks_first_option() -> None:
+    from dare_framework.tool._internal.tools.ask_user import AutoUserInputHandler
+
+    handler = AutoUserInputHandler()
+    questions = [
+        {
+            "question": "Which approach?",
+            "header": "Approach",
+            "options": [
+                {"label": "Option A", "description": "First"},
+                {"label": "Option B", "description": "Second"},
+            ],
+        }
+    ]
+    answers = asyncio.run(handler.handle(questions))
+    assert answers["Which approach?"] == "Option A"
+
+
+def test_auto_user_input_handler_uses_default_when_no_options() -> None:
+    from dare_framework.tool._internal.tools.ask_user import AutoUserInputHandler
+
+    handler = AutoUserInputHandler()
+    questions = [{"question": "What now?", "header": "Q", "options": []}]
+    answers = asyncio.run(handler.handle(questions))
+    assert answers["What now?"] == AutoUserInputHandler.DEFAULT_RESPONSE
+
+
+def test_auto_user_input_handler_custom_default() -> None:
+    from dare_framework.tool._internal.tools.ask_user import AutoUserInputHandler
+
+    handler = AutoUserInputHandler(default_response="YOLO")
+    questions = [{"question": "What now?", "header": "Q", "options": []}]
+    answers = asyncio.run(handler.handle(questions))
+    assert answers["What now?"] == "YOLO"
+
+
+def test_run_approval_policy_auto_approve_all() -> None:
+    """When auto_approve_all is True, _RunApprovalPolicy approves any tool."""
+    client_main = importlib.import_module("client.main")
+
+    # Build a minimal mock for action_client, output, and watch
+    class _FakeActionClient:
+        def __init__(self):
+            self.invocations = []
+
+        async def invoke_action(self, action, **kwargs):
+            self.invocations.append((action, kwargs))
+
+    class _FakeOutput:
+        def __init__(self):
+            self.messages = []
+
+        def info(self, msg):
+            self.messages.append(msg)
+
+        def ok(self, msg):
+            self.messages.append(msg)
+
+        def display(self, msg, level="info"):
+            self.messages.append(msg)
+
+    fake_client = _FakeActionClient()
+    fake_output = _FakeOutput()
+    watch = client_main._ApprovalWatchState()
+
+    policy = client_main._RunApprovalPolicy(
+        action_client=fake_client,
+        output=fake_output,
+        watch=watch,
+        auto_approve_tools=set(),
+        auto_approve_all=True,
+    )
+
+    # Even an unknown tool should be auto-approved
+    asyncio.run(
+        policy.on_pending("req-1", "dangerous_tool", "dangerous_tool")
+    )
+    assert len(fake_client.invocations) == 1
+    assert fake_client.invocations[0][1]["request_id"] == "req-1"
+
+
 def test_cli_raises_system_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     client_main = importlib.import_module("client.main")
     monkeypatch.setattr(client_main, "sync_main", lambda argv=None: 5)

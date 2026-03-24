@@ -891,6 +891,7 @@ class _RunApprovalPolicy:
     output: OutputFacade
     watch: _ApprovalWatchState
     auto_approve_tools: set[str]
+    auto_approve_all: bool = False
     seen_disallowed: set[str] = dataclasses.field(default_factory=set)
     attempted: set[str] = dataclasses.field(default_factory=set)
 
@@ -898,10 +899,10 @@ class _RunApprovalPolicy:
         normalized_request = request_id.strip() if request_id.strip() else "?"
         normalized_tool = tool_name.strip() if tool_name.strip() else "?"
         self.watch.mark_pending(normalized_request)
-        if not self.auto_approve_tools:
+        if not self.auto_approve_all and not self.auto_approve_tools:
             return
 
-        if normalized_tool not in self.auto_approve_tools:
+        if not self.auto_approve_all and normalized_tool not in self.auto_approve_tools:
             if normalized_request in self.seen_disallowed:
                 return
             self.seen_disallowed.add(normalized_request)
@@ -1607,6 +1608,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="extra tool name eligible for auto-approve (repeatable)",
     )
     run.add_argument(
+        "--full-auto",
+        action="store_true",
+        help="fully autonomous mode: auto-approve ALL tool invocations and "
+        "auto-respond to ask_user questions (no human interaction required)",
+    )
+    run.add_argument(
         "--headless",
         action="store_true",
         help="planned host-orchestrated headless mode for non-interactive execution",
@@ -1815,6 +1822,16 @@ async def main(argv: list[str] | None = None) -> int:
             output.emit_data(_serialize(_list_session_payload(session_store=session_store)))
             return 0
 
+        # --full-auto: inject AutoUserInputHandler so ask_user never blocks.
+        full_auto = getattr(args, "full_auto", False)
+        if full_auto:
+            from dataclasses import replace as _replace
+
+            from dare_framework.tool._internal.tools.ask_user import AutoUserInputHandler
+
+            options = _replace(options, user_input_handler=AutoUserInputHandler())
+            output.info("full-auto mode: ask_user will auto-respond without human input")
+
         try:
             runtime = await bootstrap_runtime(options)
         except Exception as exc:  # noqa: BLE001
@@ -1905,7 +1922,9 @@ async def main(argv: list[str] | None = None) -> int:
                     for tool in args.auto_approve_tool
                     if isinstance(tool, str) and tool.strip()
                 )
-            if auto_tools:
+            if full_auto:
+                output.info("full-auto mode: all tool approvals will be auto-granted")
+            elif auto_tools:
                 output.info(f"run auto-approve enabled for tools={','.join(sorted(auto_tools))}")
             approval_watch = _ApprovalWatchState()
             approval_policy = _RunApprovalPolicy(
@@ -1913,6 +1932,7 @@ async def main(argv: list[str] | None = None) -> int:
                 output=output,
                 watch=approval_watch,
                 auto_approve_tools=auto_tools,
+                auto_approve_all=full_auto,
             )
 
             async def _handle_run_approval_pending(
