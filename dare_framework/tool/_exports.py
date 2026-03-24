@@ -11,6 +11,10 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
         "dare_framework.tool._internal.tools.ask_user",
         "CLIUserInputHandler",
     ),
+    "AutoUserInputHandler": (
+        "dare_framework.tool._internal.tools.ask_user",
+        "AutoUserInputHandler",
+    ),
     "IUserInputHandler": (
         "dare_framework.tool._internal.tools.ask_user",
         "IUserInputHandler",

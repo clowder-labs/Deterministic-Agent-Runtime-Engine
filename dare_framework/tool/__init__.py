@@ -51,6 +51,7 @@ __all__ = [
     "ToolManager",
     # Built-in ask_user
     "AskUserTool",
+    "AutoUserInputHandler",
     "CLIUserInputHandler",
     "IUserInputHandler",
 ]

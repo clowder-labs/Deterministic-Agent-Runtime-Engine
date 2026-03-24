@@ -2,6 +2,7 @@
 
 from dare_framework.tool._internal.tools.ask_user import (
     AskUserTool,
+    AutoUserInputHandler,
     CLIUserInputHandler,
     IUserInputHandler,
 )
@@ -19,6 +20,7 @@ from dare_framework.tool._internal.tools.edit_line import EditLineTool
 
 __all__ = [
     "AskUserTool",
+    "AutoUserInputHandler",
     "CLIUserInputHandler",
     "IUserInputHandler",
     "EchoTool",

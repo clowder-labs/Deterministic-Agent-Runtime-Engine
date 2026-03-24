@@ -14,6 +14,7 @@ from dare_framework.model.interfaces import IPromptStore
 from dare_framework.model.types import Prompt
 from dare_framework.plan import DefaultPlanner, DefaultRemediator
 from dare_framework.tool._internal.tools import ReadFileTool, RunCommandTool, SearchCodeTool, WriteFileTool
+from dare_framework.tool._internal.tools.ask_user import IUserInputHandler
 from dare_framework.transport import AgentChannel, DirectClientChannel
 
 
@@ -33,6 +34,7 @@ class RuntimeOptions:
     system_prompt_mode: str | None = None
     system_prompt_text: str | None = None
     system_prompt_file: str | None = None
+    user_input_handler: IUserInputHandler | None = None
 
 
 @dataclass
@@ -240,6 +242,8 @@ async def bootstrap_runtime(options: RuntimeOptions) -> ClientRuntime:
         .with_planner(DefaultPlanner(model, verbose=False))
         .with_remediator(DefaultRemediator(model, verbose=False))
     )
+    if options.user_input_handler is not None:
+        builder = builder.with_user_input_handler(options.user_input_handler)
     prompt_override = _resolve_system_prompt_override(config=config, model=model)
     if prompt_override is not None:
         builder = builder.with_prompt(prompt_override)

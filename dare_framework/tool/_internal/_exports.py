@@ -6,6 +6,7 @@ from typing import Any
 
 __all__ = [
     "AskUserTool",
+    "AutoUserInputHandler",
     "CLIUserInputHandler",
     "IUserInputHandler",
     "Checkpoint",
@@ -27,6 +28,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "CLIUserInputHandler": (
         "dare_framework.tool._internal.tools.ask_user",
         "CLIUserInputHandler",
+    ),
+    "AutoUserInputHandler": (
+        "dare_framework.tool._internal.tools.ask_user",
+        "AutoUserInputHandler",
     ),
     "IUserInputHandler": (
         "dare_framework.tool._internal.tools.ask_user",

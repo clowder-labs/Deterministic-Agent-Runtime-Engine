@@ -66,6 +66,32 @@ class IUserInputHandler(ABC):
 # ---------------------------------------------------------------------------
 
 
+class AutoUserInputHandler(IUserInputHandler):
+    """Handler that responds automatically without blocking on user input.
+
+    Used in fully autonomous execution modes (e.g. ``dare run --full-auto``)
+    where the agent should never block waiting for human interaction.
+    When options are available, the first option is selected; otherwise a
+    configurable default response is returned.
+    """
+
+    DEFAULT_RESPONSE = "Proceed with your best judgment."
+
+    def __init__(self, default_response: str | None = None) -> None:
+        self._default_response = default_response or self.DEFAULT_RESPONSE
+
+    async def handle(self, questions: list[dict[str, Any]]) -> dict[str, str]:
+        answers: dict[str, str] = {}
+        for q in questions:
+            question_text = q.get("question", "")
+            options = q.get("options", [])
+            if options:
+                answers[question_text] = options[0].get("label", self._default_response)
+            else:
+                answers[question_text] = self._default_response
+        return answers
+
+
 class CLIUserInputHandler(IUserInputHandler):
     """Simple stdin/stdout handler for command-line applications."""
 
@@ -308,6 +334,7 @@ class AskUserTool(ITool):
 
 __all__ = [
     "AskUserTool",
+    "AutoUserInputHandler",
     "CLIUserInputHandler",
     "IUserInputHandler",
 ]
