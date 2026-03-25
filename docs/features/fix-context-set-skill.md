@@ -42,4 +42,5 @@ None.
 
 ### Review and Merge Gate Links
 
-- Intent PR: (this document)
+- Intent PR: https://github.com/clowder-labs/Deterministic-Agent-Runtime-Engine/pull/228
+- Implementation PR: https://github.com/clowder-labs/Deterministic-Agent-Runtime-Engine/pull/227
