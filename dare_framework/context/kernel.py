@@ -66,6 +66,11 @@ class IContext(ABC):
         """
         ...
 
+    @abstractmethod
+    def set_skill(self, skill: Skill | None) -> None:
+        """Mount or replace the active skill at runtime. None clears."""
+        ...
+
     # Short-term memory
 
     @abstractmethod
