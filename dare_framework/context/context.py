@@ -115,6 +115,10 @@ class Context(IContext):
     def sys_skill(self) -> Skill | None:
         return self._sys_skill
 
+    def set_skill(self, skill: Skill | None) -> None:
+        """Mount or replace current skill at runtime. None clears."""
+        self._sys_skill = skill
+
     @property
     def context_window_tokens(self) -> int | None:
         """LLM 单次请求上下文窗口大小（用于压缩），单位 token。"""
